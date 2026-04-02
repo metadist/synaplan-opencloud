@@ -1,0 +1,5 @@
+# Disable the built-in IdP — use external Keycloak from Synaplan dev stack.
+# OpenCloud will use OIDC with the Keycloak running at host.docker.internal:8080.
+#
+# Note: The built-in IdP is disabled when PROXY_OIDC_ISSUER is set in the
+# OpenCloud service environment. This file is kept for documentation.

@@ -1,0 +1,4 @@
+pnpm-lock.yaml
+**/manifest.json
+**/translations.json
+dist/

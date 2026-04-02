@@ -1,0 +1,12 @@
+FROM golang:1.25-alpine
+
+RUN go install github.com/air-verse/air@v1.64.5
+
+RUN mkdir -p /tmp/go-cache/gopath /tmp/go-cache/build && chmod -R 777 /tmp/go-cache
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+EXPOSE 9106
+ENTRYPOINT ["air"]

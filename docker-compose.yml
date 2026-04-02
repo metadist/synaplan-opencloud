@@ -1,0 +1,63 @@
+services:
+  opencloud:
+    image: opencloudeu/opencloud-rolling:6.0.0
+    entrypoint: /bin/sh
+    command: ['-c', 'opencloud init || true && opencloud server']
+    ports:
+      - "9200:9200"
+    environment:
+      OC_URL: https://host.docker.internal:9200
+      OC_INSECURE: "true"
+      OC_EXCLUDE_RUN_SERVICES: idp
+      OC_LOG_LEVEL: error
+      OC_JWT_SECRET: "synaplan-dev-secret"
+      GATEWAY_GRPC_ADDR: 0.0.0.0:9142
+      IDM_ADMIN_PASSWORD: admin
+      PROXY_ENABLE_BASIC_AUTH: "true"
+      PROXY_CSP_CONFIG_FILE_LOCATION: /etc/opencloud/csp.yaml
+      WEB_ASSET_APPS_PATH: /web/apps
+      WEB_UI_CONFIG_FILE: /web/config.json
+      # Use external Keycloak from Synaplan dev stack (docker compose --profile oidc)
+      PROXY_OIDC_ISSUER: https://host.docker.internal:8443/realms/synaplan
+      PROXY_OIDC_REWRITE_WELLKNOWN: "true"
+      WEB_OIDC_METADATA_URL: https://host.docker.internal:8443/realms/synaplan/.well-known/openid-configuration
+      WEB_OIDC_CLIENT_ID: opencloud
+      PROXY_OIDC_INSECURE: "true"
+      PROXY_AUTOPROVISION_ACCOUNTS: "true"
+    volumes:
+      - opencloud-config:/etc/opencloud
+      - ./frontend/dist:/web/apps/synaplan
+      - ./dev/docker/opencloud.proxy.config.yaml:/etc/opencloud/proxy.yaml
+      - ./dev/docker/opencloud.csp.config.yaml:/etc/opencloud/csp.yaml
+      - ./dev/docker/opencloud.web.config.json:/web/config.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  synaplan-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "9106:9106"
+    environment:
+      SYNAPLAN_HTTP_ADDR: ":9106"
+      OC_REVA_GATEWAY: "opencloud:9142"
+      OC_JWT_SECRET: "synaplan-dev-secret"
+      OC_INSECURE: "true"
+      SYNAPLAN_URL: "http://host.docker.internal:8000"
+      SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token"
+      SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
+      SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
+      SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
+      GOPATH: /tmp/go-cache/gopath
+      GOCACHE: /tmp/go-cache/build
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app
+      - go-cache:/tmp/go-cache
+
+volumes:
+  opencloud-config:
+  go-cache:

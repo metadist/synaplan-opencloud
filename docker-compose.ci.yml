@@ -1,0 +1,17 @@
+# CI overrides — uses pre-built backend image and Synaplan test stack ports
+#
+# Usage in CI:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up
+
+services:
+  opencloud:
+    environment:
+      PROXY_OIDC_ISSUER: https://host.docker.internal:8444/realms/synaplan
+      WEB_OIDC_METADATA_URL: https://host.docker.internal:8444/realms/synaplan/.well-known/openid-configuration
+
+  synaplan-backend:
+    image: ${BACKEND_IMAGE:-}
+    volumes: !reset []
+    environment:
+      SYNAPLAN_URL: "http://host.docker.internal:8001"
+      SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8081/realms/synaplan/protocol/openid-connect/token"

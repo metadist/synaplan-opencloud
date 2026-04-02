@@ -1,0 +1,10 @@
+root = "."
+tmp_dir = "bin"
+
+[build]
+cmd = "go build -o ./bin/synaplan ./cmd/synaplan 2>&1 | tee ./bin/build-errors.log"
+bin = "./bin/synaplan"
+args_bin = ["server"]
+include_ext = ["go", "toml", "yaml"]
+exclude_dir = ["bin", "vendor", ".dmap"]
+delay = 1000

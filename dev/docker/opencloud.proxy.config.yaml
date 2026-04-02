@@ -1,0 +1,5 @@
+additional_policies:
+  - name: default
+    routes:
+      - endpoint: /api/synaplan
+        backend: http://synaplan-backend:9106
