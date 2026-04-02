@@ -4,6 +4,8 @@
 
 OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/synaplan) AI features into OpenCloud. Uses [RFC 8693 token exchange](https://datatracker.ietf.org/doc/html/rfc8693) for per-user authentication.
 
+![Screenshot](docs/screenshot.png)
+
 **Synaplan and OpenCloud must be behind the same OIDC identity provider (Keycloak).** Token exchange only works when both services trust the same Keycloak realm. There is currently no support for separate identity providers.
 
 > **Dev stack requires the [Synaplan dev stack](https://github.com/metadist/synaplan) running with `docker compose --profile oidc up -d`.**
