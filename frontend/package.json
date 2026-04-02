@@ -43,8 +43,8 @@
   },
   "packageManager": "pnpm@10.28.1",
   "pnpm": {
-    "patchedDependencies": {
-      "@opencloud-eu/extension-sdk": "patches/@opencloud-eu__extension-sdk@6.1.0.patch"
+    "overrides": {
+      "@module-federation/vite": "1.14.1"
     }
   }
 }
