@@ -1,0 +1,57 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    "docker:enableMajor",
+    ":separateMultipleMajorReleases"
+  ],
+  "enabled": true,
+  "timezone": "Europe/Berlin",
+  "prConcurrentLimit": 6,
+  "prHourlyLimit": 2,
+  "prCreation": "immediate",
+  "dependencyDashboard": true,
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "groupName": "Frontend Core",
+      "matchManagers": ["npm"],
+      "matchPackageNames": [
+        "vue", "@vue/**",
+        "vite", "@vitejs/**",
+        "typescript", "@typescript-eslint/**", "vue-tsc",
+        "tailwindcss", "@tailwindcss/**"
+      ],
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "groupName": "OpenCloud SDK",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["@opencloud-eu/**"],
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "groupName": "QA & Dev Tools",
+      "matchPackageNames": [
+        "@playwright/test", "vitest", "@vitest/**", "happy-dom",
+        "eslint", "prettier"
+      ],
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "groupName": "Go Dependencies",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "groupName": "Docker Images",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "breaking"]
+    }
+  ]
+}
