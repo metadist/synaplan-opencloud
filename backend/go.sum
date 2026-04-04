@@ -550,6 +550,8 @@ github.com/klauspost/crc32 v1.3.0 h1:sSmTt3gUt81RP655XGZPElI0PelVTZ6YwCRnPSupoFM
 github.com/klauspost/crc32 v1.3.0/go.mod h1:D7kQaZhnkX/Y0tstFGf8VUzv2UofNGqCjnC3zdHB0Hw=
 github.com/kobergj/gowebdav v0.0.0-20250102091030-aa65266db202 h1:A1xJ2NKgiYFiaHiLl9B5yw/gUBACSs9crDykTS3GuQI=
 github.com/kobergj/gowebdav v0.0.0-20250102091030-aa65266db202/go.mod h1:bHA7t77X/QFExdeAnDzK6vKM34kEZAcE1OX4MfiwjkE=
+github.com/kobergj/gowebdav v0.0.0-20251030165916-532350997dde h1:HYcp4J4xYe2m9KSUVbTccJb14TpSs+ldCfDFgqsXedI=
+github.com/kobergj/gowebdav v0.0.0-20251030165916-532350997dde/go.mod h1:bHA7t77X/QFExdeAnDzK6vKM34kEZAcE1OX4MfiwjkE=
 github.com/kolo/xmlrpc v0.0.0-20200310150728-e0350524596b/go.mod h1:o03bZfuBwAXHetKXuInt4S7omeXUu62/A845kiycsSQ=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/konsorten/go-windows-terminal-sequences v1.0.2/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
