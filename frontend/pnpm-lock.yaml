@@ -12,76 +12,76 @@ importers:
   .:
     devDependencies:
       '@opencloud-eu/design-system':
-        specifier: ^6.1.0
+        specifier: 6.1.0
         version: 6.1.0(@vue/compiler-sfc@3.5.31)(pinia@3.0.4(typescript@5.9.3)(vue@3.5.31(typescript@5.9.3)))(vue@3.5.31(typescript@5.9.3))
       '@opencloud-eu/eslint-config':
-        specifier: ^6.1.0
+        specifier: 6.1.0
         version: 6.1.0(@typescript-eslint/eslint-plugin@8.58.0(@typescript-eslint/parser@8.58.0(eslint@10.0.3(jiti@2.6.1))(typescript@5.9.3))(eslint@10.0.3(jiti@2.6.1))(typescript@5.9.3))(eslint@10.0.3(jiti@2.6.1))(vue-eslint-parser@10.4.0(eslint@10.0.3(jiti@2.6.1)))
       '@opencloud-eu/extension-sdk':
-        specifier: ^6.1.0
+        specifier: 6.1.0
         version: 6.1.0(node-fetch@3.3.2)(rollup@4.60.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.0)(esbuild@0.27.7)(jiti@2.6.1)(yaml@2.8.3))(vue-tsc@3.2.5(typescript@5.9.3))(vue@3.5.31(typescript@5.9.3))
       '@opencloud-eu/prettier-config':
-        specifier: ^6.1.0
+        specifier: 6.1.0
         version: 6.1.0(prettier@3.8.1)
       '@opencloud-eu/tsconfig':
-        specifier: ^6.1.0
+        specifier: 6.1.0
         version: 6.1.0
       '@opencloud-eu/web-client':
-        specifier: ^6.1.0
+        specifier: 6.1.0
         version: 6.1.0
       '@opencloud-eu/web-pkg':
-        specifier: ^6.1.0
+        specifier: 6.1.0
         version: 6.1.0(@vue/compiler-sfc@3.5.31)(typescript@5.9.3)(vue@3.5.31(typescript@5.9.3))
       '@playwright/test':
-        specifier: ^1.50.1
+        specifier: 1.59.1
         version: 1.59.1
       '@types/node':
         specifier: 24.12.0
         version: 24.12.0
       '@vue/compiler-dom':
-        specifier: ^3.5.30
+        specifier: 3.5.31
         version: 3.5.31
       '@vue/server-renderer':
-        specifier: ^3.5.30
+        specifier: 3.5.31
         version: 3.5.31(vue@3.5.31(typescript@5.9.3))
       '@vue/test-utils':
-        specifier: ^2.4.6
+        specifier: 2.4.6
         version: 2.4.6
       eslint:
         specifier: 10.0.3
         version: 10.0.3(jiti@2.6.1)
       happy-dom:
-        specifier: ^20.0.0
+        specifier: 20.8.9
         version: 20.8.9
       prettier:
         specifier: 3.8.1
         version: 3.8.1
       tailwindcss:
-        specifier: ^4.0.0
+        specifier: 4.2.2
         version: 4.2.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
       uuid:
-        specifier: ^13.0.0
+        specifier: 13.0.0
         version: 13.0.0
       vite:
-        specifier: ^8.0.0
+        specifier: 8.0.3
         version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.0)(esbuild@0.27.7)(jiti@2.6.1)(yaml@2.8.3)
       vitest:
-        specifier: ^3.2.1
+        specifier: 3.2.4
         version: 3.2.4(@types/node@24.12.0)(happy-dom@20.8.9)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.3)
       vue:
-        specifier: ^3.4.21
+        specifier: 3.5.31
         version: 3.5.31(typescript@5.9.3)
       vue-tsc:
         specifier: 3.2.5
         version: 3.2.5(typescript@5.9.3)
       vue3-gettext:
-        specifier: ^4.0.0-beta.1
+        specifier: 4.0.0-beta.1
         version: 4.0.0-beta.1(@vue/compiler-sfc@3.5.31)(vue@3.5.31(typescript@5.9.3))
       zod:
-        specifier: ^4.3.6
+        specifier: 4.3.6
         version: 4.3.6
 
 packages:
