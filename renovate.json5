@@ -12,6 +12,41 @@
   "prCreation": "immediate",
   "dependencyDashboard": true,
   "labels": ["dependencies"],
+  "customManagers": [
+    {
+      // Bump SYNAPLAN_IMAGE_DIGEST in .github/workflows/ci.yml whenever
+      // the `latest` tag of ghcr.io/metadist/synaplan gets a new digest.
+      // Matches both the bare digest form (`sha256:...`) and an
+      // optional tag-with-digest form (`<tag>@sha256:...`) so the
+      // storage format can evolve without re-touching this regex.
+      // Renovate's github-actions manager ignores `env:` blocks so a
+      // custom regex manager is required here.
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "SYNAPLAN_IMAGE_DIGEST:\\s*(?:(?<currentValue>[^@\\s]+)@)?(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "depNameTemplate": "ghcr.io/metadist/synaplan",
+      "datasourceTemplate": "docker",
+      "currentValueTemplate": "{{#if currentValue}}{{currentValue}}{{else}}latest{{/if}}"
+    },
+    {
+      // Bump SYNAPLAN_REF in .github/workflows/ci.yml whenever the
+      // synaplan main branch moves. SYNAPLAN_REF is the git SHA that
+      // pairs with SYNAPLAN_IMAGE_DIGEST (the e2e job clones that
+      // exact commit so the test-stack compose files match the
+      // image). Uses the git-refs datasource so the digest field
+      // here is a git commit SHA, not a docker digest.
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "SYNAPLAN_REF:\\s*(?<currentDigest>[a-f0-9]{40})"
+      ],
+      "depNameTemplate": "https://github.com/metadist/synaplan",
+      "datasourceTemplate": "git-refs",
+      "currentValueTemplate": "main"
+    }
+  ],
   "packageRules": [
     {
       "groupName": "Frontend Core",
@@ -47,6 +82,21 @@
       "groupName": "Docker Images",
       "matchManagers": ["dockerfile", "docker-compose"],
       "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      // Bundle SYNAPLAN_IMAGE_DIGEST (docker datasource) and
+      // SYNAPLAN_REF (git-refs datasource) into a single PR so they
+      // stay paired when the upstream synaplan main moves. Both
+      // customManagers above produce digest-only updates (pin-digest
+      // for the docker image, git-refs for the main-branch SHA), so
+      // match the full set of update types that can actually arrive
+      // here rather than relying on the default to do the right thing.
+      "groupName": "Synaplan",
+      "matchPackageNames": [
+        "ghcr.io/metadist/synaplan",
+        "https://github.com/metadist/synaplan"
+      ],
+      "matchUpdateTypes": ["digest", "pinDigest", "minor", "patch"]
     },
     {
       "matchUpdateTypes": ["major"],

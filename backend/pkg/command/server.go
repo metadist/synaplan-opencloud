@@ -17,6 +17,7 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/version"
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
@@ -47,7 +48,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = pool.GatewaySelector(
+			gws, err := pool.GatewaySelector(
 				cfg.RevaGateway,
 				pool.WithTLSMode(tm),
 				pool.WithTLSCACert(cfg.GRPCClientTLS.CACert),
@@ -56,6 +57,8 @@ func Server(cfg *config.Config) *cobra.Command {
 				return fmt.Errorf("could not get reva client selector: %s", err)
 			}
 
+			cs3 := cs3reader.New(gws, cfg.Insecure)
+
 			exchanger := tokenexchange.New(
 				cfg.OIDCTokenEndpoint,
 				cfg.OIDCExchangeClientID,
@@ -63,7 +66,7 @@ func Server(cfg *config.Config) *cobra.Command {
 				cfg.OIDCTargetAudience,
 			)
 
-			h, err := handler.New(exchanger, cfg.SynaplanURL)
+			h, err := handler.New(exchanger, cfg.SynaplanURL, cs3)
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
@@ -95,6 +98,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			)
 
 			mux.Get("/api/synaplan/me", h.Me)
+			mux.Post("/api/synaplan/translate", h.Translate)
 
 			server := &stdhttp.Server{
 				Addr:    cfg.HTTP.Addr,
