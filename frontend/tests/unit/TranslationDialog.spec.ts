@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { defineComponent, h } from 'vue'
+import { computed, defineComponent, h } from 'vue'
 
 // --- Composable mocks -----------------------------------------------
 //
@@ -32,6 +32,12 @@ vi.mock('@vueuse/core', () => ({
 
 vi.mock('vue3-gettext', () => ({
   useGettext: () => ({ $gettext: (s: string) => s })
+}))
+
+// useSynaplanBird hits the theme store — stub it out with a fixed
+// URL we can assert on.
+vi.mock('../../src/composables/useSynaplanBird', () => ({
+  useSynaplanBird: () => computed(() => '/api/synaplan/assets/single_bird-dark.svg')
 }))
 
 // The dialog uses a bunch of global oc-* design-system components. We
@@ -92,6 +98,12 @@ describe('TranslationDialog', () => {
     const wrapper = mountDialog()
     expect(wrapper.text()).toContain('report.pdf')
     expect(wrapper.get('[data-testid="synaplan-translation-submit"]').text()).toContain('Translate')
+  })
+
+  it('renders the Synaplan bird logo pointing at the backend assets proxy', () => {
+    const wrapper = mountDialog()
+    const logo = wrapper.get('[data-testid="synaplan-translation-logo"]')
+    expect(logo.attributes('src')).toBe('/api/synaplan/assets/single_bird-dark.svg')
   })
 
   it('posts the translate request with resourceId + targetLanguage and renders the result', async () => {
