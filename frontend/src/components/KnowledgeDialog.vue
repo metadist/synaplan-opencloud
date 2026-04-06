@@ -11,32 +11,22 @@
       {{ resource.name }}
     </p>
 
-    <div v-if="phase === 'select' || phase === 'error'" class="ext:flex ext:flex-col ext:gap-3">
-      <oc-text-input
-        v-model="groupKey"
+    <div v-if="phase === 'select' || phase === 'error'">
+      <oc-select
+        :model-value="selectedGroup"
         :label="$gettext('Knowledge group')"
+        :options="groupOptions"
+        :taggable="true"
+        :clearable="false"
+        :loading="groupsLoading"
+        :create-option="createOption"
         :description-message="
           $gettext('Pick an existing group or type a new name — Synaplan will create it.')
         "
-        :maxlength="64"
-        data-testid="synaplan-knowledge-group-input"
+        data-testid="synaplan-knowledge-group"
+        @update:model-value="onGroupChange"
+        @option:created="onGroupCreated"
       />
-
-      <div
-        v-if="existingGroups.length > 0"
-        class="ext:flex ext:flex-wrap ext:gap-2"
-        data-testid="synaplan-knowledge-existing-groups"
-      >
-        <oc-button
-          v-for="group in existingGroups"
-          :key="group.name"
-          appearance="outline"
-          size="small"
-          @click="selectGroup(group.name)"
-        >
-          {{ group.name }}
-        </oc-button>
-      </div>
     </div>
 
     <div
@@ -83,7 +73,7 @@
         v-if="phase !== 'done'"
         appearance="filled"
         color-role="primary"
-        :disabled="phase === 'loading' || !groupKey.trim()"
+        :disabled="phase === 'loading' || !selectedGroup.trim()"
         :show-spinner="phase === 'loading'"
         data-testid="synaplan-knowledge-submit"
         @click="onSubmit"
@@ -116,8 +106,20 @@ const { httpAuthenticated } = useClientService()
 const loadingService = useLoadingService()
 const birdSrc = useSynaplanBird()
 
-const { groups } = useKnowledgeGroups()
-const existingGroups = computed(() => groups.value)
+const { groups, loading: groupsLoading } = useKnowledgeGroups()
+
+// vue-select can take strings as options. We map the loaded groups
+// to a name list and append any tag the user creates inline so it
+// remains selectable in the dropdown.
+const fetchedGroupNames = computed(() => groups.value.map((g) => g.name))
+const localGroupNames = ref<string[]>([])
+const groupOptions = computed(() => {
+  const merged = [...fetchedGroupNames.value]
+  for (const name of localGroupNames.value) {
+    if (!merged.includes(name)) merged.push(name)
+  }
+  return merged
+})
 
 const knowledgeResponseSchema = z.object({
   groupKey: z.string(),
@@ -131,18 +133,32 @@ type KnowledgeResult = z.infer<typeof knowledgeResponseSchema>
 type Phase = 'select' | 'loading' | 'done' | 'error'
 
 const phase = ref<Phase>('select')
-const groupKey = ref('')
+const selectedGroup = ref<string>('')
 const result = ref<KnowledgeResult | null>(null)
 const error = ref('')
 
 let inFlight: AbortController | null = null
 
-function selectGroup(name: string) {
-  groupKey.value = name
+// vue-select calls createOption with the typed search string when
+// taggable is true and the user creates a new tag. We normalise to
+// uppercase to match the synaplan-nextcloud convention.
+function createOption(text: string): string {
+  return text.trim().toUpperCase()
+}
+
+function onGroupChange(value: string | null) {
+  selectedGroup.value = value ?? ''
+}
+
+function onGroupCreated(option: string) {
+  if (!localGroupNames.value.includes(option)) {
+    localGroupNames.value.push(option)
+  }
+  selectedGroup.value = option
 }
 
 async function onSubmit() {
-  const trimmed = groupKey.value.trim()
+  const trimmed = selectedGroup.value.trim()
   if (!trimmed) return
 
   phase.value = 'loading'

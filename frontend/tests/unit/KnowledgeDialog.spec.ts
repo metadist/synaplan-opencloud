@@ -19,8 +19,6 @@ vi.mock('../../src/composables/useSynaplanBird', () => ({
   useSynaplanBird: () => computed(() => '/api/synaplan/assets/single_bird-dark.svg')
 }))
 
-// useKnowledgeGroups calls useClientService + onMounted under the
-// hood; stub it so we can control the group list directly.
 const stubbedGroups = ref<{ name: string }[]>([])
 vi.mock('../../src/composables/useKnowledgeGroups', () => ({
   useKnowledgeGroups: () => ({
@@ -34,8 +32,8 @@ vi.mock('../../src/composables/useKnowledgeGroups', () => ({
 const ocStub = (tag: string) =>
   defineComponent({
     name: tag,
-    props: ['modelValue', 'options', 'disabled'],
-    emits: ['click', 'update:model-value', 'update:modelValue'],
+    props: ['modelValue', 'options', 'disabled', 'taggable', 'createOption'],
+    emits: ['click', 'update:model-value', 'update:modelValue', 'option:created'],
     setup(_, { slots, emit }) {
       return () =>
         h(
@@ -49,25 +47,8 @@ const ocStub = (tag: string) =>
     }
   })
 
-// oc-text-input needs special handling so v-model works — stub it
-// with an actual <input> that forwards its value through
-// update:modelValue.
-const ocTextInputStub = defineComponent({
-  name: 'oc-text-input',
-  props: ['modelValue', 'label', 'descriptionMessage', 'maxlength'],
-  emits: ['update:modelValue'],
-  setup(props, { emit }) {
-    return () =>
-      h('input', {
-        'data-stub': 'oc-text-input',
-        value: props.modelValue,
-        onInput: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).value)
-      })
-  }
-})
-
 const globalStubs = {
-  'oc-text-input': ocTextInputStub,
+  'oc-select': ocStub('oc-select'),
   'oc-button': ocStub('oc-button'),
   'oc-icon': ocStub('oc-icon')
 }
@@ -82,6 +63,23 @@ function mountDialog() {
     },
     global: { stubs: globalStubs }
   })
+}
+
+// Helper: drive the inner oc-select stub. We can't actually type into
+// vue-select inside a unit test, so we emit the same events vue-select
+// would: update:model-value when an existing option is picked, and
+// option:created when the user types a new tag.
+function pickExistingGroup(wrapper: ReturnType<typeof mountDialog>, name: string) {
+  const select = wrapper.findComponent({ name: 'oc-select' })
+  return select.vm.$emit('update:model-value', name)
+}
+
+function createNewGroup(wrapper: ReturnType<typeof mountDialog>, typed: string) {
+  const select = wrapper.findComponent({ name: 'oc-select' })
+  // KnowledgeDialog's createOption uppercases + trims; vue-select would
+  // run that and emit option:created with the result.
+  const normalised = typed.trim().toUpperCase()
+  return select.vm.$emit('option:created', normalised)
 }
 
 describe('KnowledgeDialog', () => {
@@ -101,33 +99,34 @@ describe('KnowledgeDialog', () => {
     )
   })
 
-  it('does not submit when the group field is empty', async () => {
+  it('does not submit when no group has been picked or typed', async () => {
     const wrapper = mountDialog()
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
     expect(post).not.toHaveBeenCalled()
   })
 
-  it('shows the existing groups as clickable chips when any are loaded', async () => {
+  it('feeds the loaded groups into the select component', async () => {
     stubbedGroups.value = [{ name: 'DEFAULT' }, { name: 'RESEARCH' }]
     const wrapper = mountDialog()
     await flushPromises()
 
-    const chipsHost = wrapper.get('[data-testid="synaplan-knowledge-existing-groups"]')
-    expect(chipsHost.text()).toContain('DEFAULT')
-    expect(chipsHost.text()).toContain('RESEARCH')
+    const select = wrapper.findComponent({ name: 'oc-select' })
+    expect(select.props('options')).toEqual(['DEFAULT', 'RESEARCH'])
   })
 
-  it('hides the existing-groups chip row when the group list is empty', () => {
+  it('feeds an empty options list when no groups are loaded', () => {
     stubbedGroups.value = []
     const wrapper = mountDialog()
-    expect(wrapper.find('[data-testid="synaplan-knowledge-existing-groups"]').exists()).toBe(false)
+    const select = wrapper.findComponent({ name: 'oc-select' })
+    expect(select.props('options')).toEqual([])
   })
 
-  it('posts with resourceId + groupKey and shows the success state', async () => {
+  it('posts with the picked existing group and shows the success state', async () => {
+    stubbedGroups.value = [{ name: 'RESEARCH' }]
     post.mockResolvedValueOnce({
       data: {
-        groupKey: 'MY_GROUP',
+        groupKey: 'RESEARCH',
         vectorized: true,
         chunksCreated: 7,
         extractedTextLength: 1234
@@ -135,64 +134,51 @@ describe('KnowledgeDialog', () => {
     })
 
     const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-knowledge-group-input"]').setValue('MY_GROUP')
+    await flushPromises()
+    await pickExistingGroup(wrapper, 'RESEARCH')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
 
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body] = post.mock.calls[0]
     expect(url).toBe('/api/synaplan/knowledge')
-    expect(body).toEqual({ resourceId: 'res-1', groupKey: 'MY_GROUP' })
+    expect(body).toEqual({ resourceId: 'res-1', groupKey: 'RESEARCH' })
 
     const success = wrapper.get('[data-testid="synaplan-knowledge-success"]')
-    expect(success.text()).toContain('MY_GROUP')
+    expect(success.text()).toContain('RESEARCH')
     expect(success.text()).toContain('7')
     expect(success.text()).toContain('1234')
     expect(wrapper.find('[data-testid="synaplan-knowledge-submit"]').exists()).toBe(false)
   })
 
-  it('trims the group key before submitting', async () => {
+  it('posts with a freshly typed group via the option:created path', async () => {
     post.mockResolvedValueOnce({
-      data: { groupKey: 'MY_GROUP', vectorized: true, chunksCreated: 1, extractedTextLength: 0 }
+      data: { groupKey: 'NEW_ONE', vectorized: true, chunksCreated: 1, extractedTextLength: 0 }
     })
 
     const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-knowledge-group-input"]').setValue('  MY_GROUP  ')
+    await createNewGroup(wrapper, 'new_one')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
 
-    expect(post.mock.calls[0][1]).toEqual({ resourceId: 'res-1', groupKey: 'MY_GROUP' })
+    // KnowledgeDialog uppercases + trims via createOption.
+    expect(post.mock.calls[0][1]).toEqual({ resourceId: 'res-1', groupKey: 'NEW_ONE' })
   })
 
-  it('fills the input when an existing group chip is clicked', async () => {
-    stubbedGroups.value = [{ name: 'RESEARCH' }]
-    post.mockResolvedValueOnce({
-      data: {
-        groupKey: 'RESEARCH',
-        vectorized: true,
-        chunksCreated: 2,
-        extractedTextLength: 42
-      }
-    })
-
+  it('appends a freshly created tag to the option list so it stays selectable', async () => {
     const wrapper = mountDialog()
-    await flushPromises()
-    // Click the chip button (first oc-button inside the existing-groups row).
-    const chip = wrapper.get(
-      '[data-testid="synaplan-knowledge-existing-groups"] [data-stub="oc-button"]'
-    )
-    await chip.trigger('click')
-    await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
+    await createNewGroup(wrapper, 'BRAND_NEW')
     await flushPromises()
 
-    expect(post.mock.calls[0][1]).toEqual({ resourceId: 'res-1', groupKey: 'RESEARCH' })
+    const select = wrapper.findComponent({ name: 'oc-select' })
+    expect(select.props('options')).toContain('BRAND_NEW')
   })
 
   it('surfaces a backend error', async () => {
     post.mockRejectedValueOnce(new Error('boom'))
 
     const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-knowledge-group-input"]').setValue('X')
+    await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
 
@@ -204,7 +190,7 @@ describe('KnowledgeDialog', () => {
     post.mockRejectedValueOnce(new Error(''))
 
     const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-knowledge-group-input"]').setValue('X')
+    await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
 
@@ -223,7 +209,7 @@ describe('KnowledgeDialog', () => {
     )
 
     const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-knowledge-group-input"]').setValue('X')
+    await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
 

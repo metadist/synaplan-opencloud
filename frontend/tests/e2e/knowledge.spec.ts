@@ -111,13 +111,19 @@ async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) 
   const dialog = page.locator('[data-testid="synaplan-knowledge-dialog"]')
   await expect(dialog).toBeVisible({ timeout: 10_000 })
 
-  await page.locator('[data-testid="synaplan-knowledge-group-input"] input').fill(groupKey)
+  // The group picker is a taggable oc-select wrapping vue-select.
+  // Type into the inner search input and press Enter to create a new
+  // tag. createOption normalises to upper case, so we expect that
+  // back in the success state.
+  const searchInput = page.locator('[data-testid="synaplan-knowledge-group"] .vs__search')
+  await searchInput.fill(groupKey)
+  await searchInput.press('Enter')
 
   await page.locator('[data-testid="synaplan-knowledge-submit"]').click()
 
   const success = page.locator('[data-testid="synaplan-knowledge-success"]')
   await expect(success).toBeVisible({ timeout: 30_000 })
-  await expect(success).toContainText(groupKey)
+  await expect(success).toContainText(groupKey.toUpperCase())
 
   await page.locator('.oc-modal-title-actions-cancel').click()
   await expect(dialog).toBeHidden()
