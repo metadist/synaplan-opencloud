@@ -46,6 +46,7 @@ vi.mock('../../src/composables/useSynaplanBird', () => ({
 // logic (click → translate, update:model-value → select) still works.
 const ocStub = (tag: string) =>
   defineComponent({
+    name: tag,
     props: ['modelValue', 'options', 'disabled'],
     emits: ['click', 'update:model-value'],
     setup(_, { slots, emit }) {
@@ -178,20 +179,36 @@ describe('TranslationDialog', () => {
     expect(wrapper.find('[data-testid="synaplan-translation-result"]').exists()).toBe(false)
   })
 
-  it('copies the result to the clipboard and shows a confirmation message', async () => {
-    post.mockResolvedValueOnce({ data: { translation: 'Bonjour le monde' } })
-    copyToClipboard.mockResolvedValueOnce(undefined)
+  it('copies the result to the clipboard and flips the button into its copied state', async () => {
+    vi.useFakeTimers()
+    try {
+      post.mockResolvedValueOnce({ data: { translation: 'Bonjour le monde' } })
+      copyToClipboard.mockResolvedValueOnce(undefined)
 
-    const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-translation-submit"]').trigger('click')
-    await flushPromises()
-    await wrapper.get('[data-testid="synaplan-translation-copy"]').trigger('click')
-    await flushPromises()
+      const wrapper = mountDialog()
+      await wrapper.get('[data-testid="synaplan-translation-submit"]').trigger('click')
+      await flushPromises()
 
-    expect(copyToClipboard).toHaveBeenCalledWith('Bonjour le monde')
-    expect(showMessage).toHaveBeenCalledWith({
-      title: 'Translation copied to your clipboard.'
-    })
+      const copyBtn = wrapper.get('[data-testid="synaplan-translation-copy"]')
+      expect(copyBtn.text()).toContain('Copy')
+      expect(copyBtn.text()).not.toContain('Copied')
+
+      await copyBtn.trigger('click')
+      await flushPromises()
+
+      expect(copyToClipboard).toHaveBeenCalledWith('Bonjour le monde')
+      // No success toast — OC Web's convention is button-only feedback.
+      expect(showMessage).not.toHaveBeenCalled()
+      expect(copyBtn.text()).toContain('Copied')
+
+      // After the 1500ms feedback window the label reverts.
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+      expect(copyBtn.text()).toContain('Copy')
+      expect(copyBtn.text()).not.toContain('Copied')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows an error toast when the clipboard write fails', async () => {

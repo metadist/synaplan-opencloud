@@ -11,6 +11,7 @@ import { useGettext } from 'vue3-gettext'
 import { computed } from 'vue'
 import Synaplan from './views/Synaplan.vue'
 import { useTranslationExtension } from './extensions/useTranslationExtension'
+import { useSummarizeExtension } from './extensions/useSummarizeExtension'
 
 const appId = 'synaplan'
 
@@ -45,6 +46,7 @@ export default defineWebApplication({
     } satisfies ApplicationInformation
 
     const translationExtension = useTranslationExtension()
+    const summarizeExtension = useSummarizeExtension()
 
     const extensions = computed<Extension[]>(() => [
       {
@@ -56,7 +58,8 @@ export default defineWebApplication({
         priority: 50,
         path: urlJoin(appInfo.id)
       } satisfies AppMenuItemExtension,
-      translationExtension
+      translationExtension,
+      summarizeExtension
     ])
 
     return {

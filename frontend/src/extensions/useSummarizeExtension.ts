@@ -11,14 +11,14 @@ import { defineAsyncComponent } from 'vue'
 import { isSingleSupportedFile } from './supportedMimes'
 
 // Lazy so the dialog + its deps don't land in the main bundle.
-const TranslationDialog = defineAsyncComponent(() => import('../components/TranslationDialog.vue'))
+const SummarizeDialog = defineAsyncComponent(() => import('../components/SummarizeDialog.vue'))
 
 /**
- * Adds a "Translate with Synaplan…" entry to the file context menu.
- * Clicking opens a modal where the user picks a target language;
- * the modal calls /api/synaplan/translate.
+ * Adds a "Summarize with Synaplan…" entry to the file context menu.
+ * Clicking opens a modal where the user picks a summary type and
+ * length; the modal calls /api/synaplan/summarize.
  */
-export const useTranslationExtension = (): ActionExtension => {
+export const useSummarizeExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
   const { dispatchModal } = useModals()
   const { showErrorMessage } = useMessages()
@@ -32,24 +32,24 @@ export const useTranslationExtension = (): ActionExtension => {
     }
 
     const modal: Omit<Modal, 'id'> = {
-      title: $gettext('Translate with Synaplan'),
+      title: $gettext('Summarize with Synaplan'),
       hideActions: true,
-      customComponent: TranslationDialog,
+      customComponent: SummarizeDialog,
       customComponentAttrs: () => ({ resource })
     }
     dispatchModal(modal)
   }
 
   return {
-    id: 'com.synaplan.translation',
+    id: 'com.synaplan.summarize',
     type: 'action',
     extensionPointIds: ['global.files.context-actions'],
     action: {
-      name: 'translate',
-      icon: 'translate-2',
-      iconFillType: 'none',
-      label: () => $gettext('Translate with Synaplan…'),
-      class: 'oc-files-actions-translate-trigger',
+      name: 'summarize',
+      icon: 'file-list-3',
+      iconFillType: 'line',
+      label: () => $gettext('Summarize with Synaplan…'),
+      class: 'oc-files-actions-summarize-trigger',
       handler,
       isVisible: (options: FileActionOptions) => isSingleSupportedFile(userStore.user, options)
     }
