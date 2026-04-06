@@ -14,6 +14,7 @@ import (
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
+	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
 
 // translateTimeout bounds how long the backend will wait for Synaplan
@@ -26,6 +27,29 @@ const translateTimeout = 10 * time.Minute
 // to have their text extracted. Makes them easy to identify and clean
 // up later.
 const tempGroupKey = "_oc_translate_temp"
+
+// cleanupTimeout bounds the best-effort DELETE we fire when tidying
+// up a temporary upload. The deferred cleanup runs on a fresh
+// background context so it survives cancellation of the outer request
+// ctx (e.g. client disconnects mid-response) — without this, an aborted
+// translation would always leak the temp file on Synaplan's side.
+const cleanupTimeout = 30 * time.Second
+
+// errClientInput marks errors that should surface to the client as
+// 422 Unprocessable Entity rather than 502 Bad Gateway. These are cases
+// where the request was syntactically valid (it passed JSON decoding
+// and the language allowlist) but the referenced file or upstream
+// response makes the translation impossible (empty file, unsupported
+// mime type, Synaplan rejecting the payload with 4xx).
+var errClientInput = errors.New("client input rejected")
+
+// translateErrorResponse is the JSON body returned on error. Using
+// writeJSON instead of http.Error keeps the response shape consistent
+// with the other handlers (/me) and makes it easy for the frontend to
+// surface a message without sniffing the content-type.
+type translateErrorResponse struct {
+	Error string `json:"error"`
+}
 
 // supportedLanguages is the allowlist of target language codes the
 // frontend may request. Matches the list the synaplan-nextcloud
@@ -67,15 +91,15 @@ type translateResponse struct {
 func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 	var req translateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, translateErrorResponse{Error: "invalid JSON body: " + err.Error()})
 		return
 	}
 	if req.ResourceID == "" {
-		http.Error(w, "resourceId is required", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, translateErrorResponse{Error: "resourceId is required"})
 		return
 	}
 	if _, ok := supportedLanguages[req.TargetLanguage]; !ok {
-		http.Error(w, fmt.Sprintf("unsupported target language %q", req.TargetLanguage), http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, translateErrorResponse{Error: fmt.Sprintf("unsupported target language %q", req.TargetLanguage)})
 		return
 	}
 
@@ -85,7 +109,7 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 	file, err := h.cs3.Open(ctx, req.ResourceID)
 	if err != nil {
 		log.Printf("translate: cs3 open: %v", err)
-		http.Error(w, "could not read file: "+err.Error(), http.StatusBadGateway)
+		writeJSON(w, http.StatusBadGateway, translateErrorResponse{Error: "could not read file: " + err.Error()})
 		return
 	}
 	defer func() { _ = file.Body.Close() }()
@@ -93,7 +117,11 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 	translated, err := h.translateFile(ctx, file, req.TargetLanguage)
 	if err != nil {
 		log.Printf("translate: %v", err)
-		http.Error(w, "translation failed: "+err.Error(), http.StatusBadGateway)
+		status := http.StatusBadGateway
+		if errors.Is(err, errClientInput) {
+			status = http.StatusUnprocessableEntity
+		}
+		writeJSON(w, status, translateErrorResponse{Error: "translation failed: " + err.Error()})
 		return
 	}
 
@@ -111,7 +139,7 @@ func (h *Handler) translateFile(ctx context.Context, file *cs3reader.File, targe
 		}
 		text := string(buf)
 		if strings.TrimSpace(text) == "" {
-			return "", errors.New("file is empty")
+			return "", fmt.Errorf("file is empty: %w", errClientInput)
 		}
 		return h.generateTranslation(ctx, &text, nil, targetLanguage)
 
@@ -120,18 +148,25 @@ func (h *Handler) translateFile(ctx context.Context, file *cs3reader.File, targe
 		if err != nil {
 			return "", fmt.Errorf("synaplan upload: %w", err)
 		}
-		// Best-effort cleanup of the temporary upload. Don't fail the
-		// translation if the delete fails — Synaplan can garbage-collect
-		// the temp group later.
+		// Best-effort cleanup of the temporary upload. Runs on a fresh
+		// background context with its own short timeout so the DELETE
+		// still fires when the outer request ctx was cancelled (client
+		// disconnect, outer timeout). Don't fail the translation if the
+		// delete fails — Synaplan can garbage-collect the temp group.
 		defer func() {
-			if _, err := h.synaplanAPI.DeleteApiFilesDeleteWithResponse(ctx, fileID); err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+			defer cancel()
+			// synaplanauth's per-request OIDC token was bound to the
+			// cancelled ctx, so hand it over to cleanupCtx explicitly.
+			cleanupCtx = synaplanauth.CopyAuth(ctx, cleanupCtx)
+			if _, err := h.synaplanAPI.DeleteApiFilesDeleteWithResponse(cleanupCtx, fileID); err != nil {
 				log.Printf("translate: cleanup delete file %d: %v", fileID, err)
 			}
 		}()
 		return h.generateTranslation(ctx, nil, &fileID, targetLanguage)
 
 	default:
-		return "", fmt.Errorf("unsupported mime type %q", file.MimeType)
+		return "", fmt.Errorf("unsupported mime type %q: %w", file.MimeType, errClientInput)
 	}
 }
 
@@ -177,7 +212,7 @@ func (h *Handler) uploadForExtraction(ctx context.Context, file *cs3reader.File)
 		return 0, err
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return 0, fmt.Errorf("upload status %d: %s", resp.StatusCode(), truncate(string(resp.Body), 300))
+		return 0, wrapUpstreamStatus("upload", resp.StatusCode(), resp.Body)
 	}
 
 	var parsed struct {
@@ -215,7 +250,7 @@ func (h *Handler) generateTranslation(ctx context.Context, text *string, fileID 
 		return "", fmt.Errorf("summary/generate: %w", err)
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("summary/generate status %d: %s", resp.StatusCode(), truncate(string(resp.Body), 300))
+		return "", wrapUpstreamStatus("summary/generate", resp.StatusCode(), resp.Body)
 	}
 
 	var parsed struct {
@@ -263,4 +298,18 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// wrapUpstreamStatus turns a non-200 Synaplan response into an error
+// whose wrapped sentinel tells the top-level handler which HTTP status
+// to return. 4xx upstream responses mean the user-supplied input was
+// rejected (wrong format, too big, unsupported payload) and propagate
+// as errClientInput → 422. 5xx upstream responses mean Synaplan itself
+// is unhappy and propagate as a plain error → 502.
+func wrapUpstreamStatus(op string, status int, body []byte) error {
+	msg := fmt.Sprintf("%s status %d: %s", op, status, truncate(string(body), 300))
+	if status >= 400 && status < 500 {
+		return fmt.Errorf("%s: %w", msg, errClientInput)
+	}
+	return errors.New(msg)
 }

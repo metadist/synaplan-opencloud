@@ -1,21 +1,26 @@
-// Package synaplanauth wires per-user authentication for outgoing
-// Synaplan API calls.
+// Package synaplanauth wires per-user authentication for every hop
+// between the OpenCloud client and the Synaplan backend.
 //
-// Every call to the Synaplan API must happen on behalf of the end-user
-// whose request triggered it, so we need a per-request bearer token.
-// Handlers shouldn't repeat the token-exchange dance on every call;
-// instead, this package provides a single RequestEditorFn that the
-// generated synaplanapi client invokes transparently for every
-// outgoing request.
+// Two tokens ride along with each request:
 //
-// The flow:
+//   - The end-user's OIDC access token, received in the Authorization
+//     header, used as the subject token in RFC 8693 token exchange
+//     when the backend calls the Synaplan API on the user's behalf.
+//   - The reva access token, received in the x-access-token header set
+//     by OpenCloud's proxy after authenticating the OIDC session.
+//     cs3reader uses it to reach the CS3 gateway as the end-user.
 //
-//  1. Middleware pulls the user's OIDC access token out of the incoming
-//     Authorization header and stores it in the request context.
-//  2. The handler calls the synaplanapi client with the request context.
-//  3. NewRequestEditor reads the OIDC token and the reva user from
-//     context, exchanges the OIDC token for a Synaplan-scoped token
-//     (RFC 8693), and sets the Bearer header on the outgoing request.
+// Handlers shouldn't repeat the token-exchange dance on every call.
+// Instead, this package provides:
+//
+//   - Middleware, which enforces both tokens plus a reva user are
+//     present and stows them on the request context;
+//   - NewRequestEditor, a synaplanapi RequestEditorFn that transparently
+//     performs the OIDC → Synaplan exchange and sets the Bearer header
+//     on every outgoing API request;
+//   - CopyAuth, which lifts the OIDC token and reva user from one
+//     context onto another so background cleanup work can keep talking
+//     to Synaplan after the outer request ctx has been cancelled.
 //
 // Adding a new Synaplan-backed handler means "call the generated
 // client" — authentication is already handled.
@@ -52,6 +57,25 @@ func ContextWithOIDCToken(ctx context.Context, token string) context.Context {
 func OIDCTokenFromContext(ctx context.Context) string {
 	token, _ := ctx.Value(oidcTokenKey{}).(string)
 	return token
+}
+
+// CopyAuth copies the auth values NewRequestEditor needs (the OIDC
+// access token and the reva user) from src onto dst, returning the
+// augmented dst context. Values missing on src are left unset on dst.
+//
+// Use this when firing a background call to Synaplan that must
+// outlive the original request context — for example, a deferred
+// best-effort cleanup. The outgoing synaplanapi client reads these
+// values off the context, so without a copy the Exchange call would
+// fail even on a fresh ctx.
+func CopyAuth(src, dst context.Context) context.Context {
+	if token := OIDCTokenFromContext(src); token != "" {
+		dst = ContextWithOIDCToken(dst, token)
+	}
+	if user, ok := revactx.ContextGetUser(src); ok {
+		dst = revactx.ContextSetUser(dst, user)
+	}
+	return dst
 }
 
 // Middleware enforces the preconditions every Synaplan-backed handler
