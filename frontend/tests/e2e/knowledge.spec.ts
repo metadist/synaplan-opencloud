@@ -24,6 +24,10 @@ const TEST_PASSWORD = 'testpass123'
 // from a clean slate, and CI doesn't accumulate group entries.
 const KNOWLEDGE_GROUP = 'OC_E2E_TEST'
 
+// Serial: all tests share KNOWLEDGE_GROUP, so the beforeEach wipe
+// would race parallel workers' in-flight files.
+test.describe.configure({ mode: 'serial' })
+
 const OC_API_URL = process.env.OC_API_URL ?? 'https://host.docker.internal:9200'
 // Default targets the local synaplan dev stack (`docker compose
 // --profile oidc up` in the synaplan repo, port 8000). CI runs the
