@@ -1,12 +1,18 @@
-.PHONY: build test lint format
+.PHONY: build test lint format generate
 
-build:
+# Generate the Synaplan API client from the pinned synaplan image's OpenAPI
+# spec. The generated client is NOT committed — build/test/lint targets
+# depend on this, so run `make generate` first after a fresh checkout.
+generate:
+	go generate ./...
+
+build: generate
 	go build -o bin/synaplan ./cmd/synaplan
 
-test:
+test: generate
 	go test ./...
 
-lint:
+lint: generate
 	golangci-lint run
 
 format:

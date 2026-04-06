@@ -18,6 +18,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 
 	"github.com/metadist/synaplan-opencloud/internal/handler"
+	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
 	"github.com/metadist/synaplan-opencloud/pkg/config"
 	"github.com/metadist/synaplan-opencloud/pkg/config/parser"
@@ -62,7 +63,10 @@ func Server(cfg *config.Config) *cobra.Command {
 				cfg.OIDCTargetAudience,
 			)
 
-			h := handler.New(exchanger, cfg.SynaplanURL)
+			h, err := handler.New(exchanger, cfg.SynaplanURL)
+			if err != nil {
+				return fmt.Errorf("could not create handler: %w", err)
+			}
 
 			mux := chi.NewMux()
 			mux.Use(
@@ -83,6 +87,11 @@ func Server(cfg *config.Config) *cobra.Command {
 					cors.AllowedHeaders(cfg.HTTP.CORS.AllowedHeaders),
 					cors.AllowCredentials(cfg.HTTP.CORS.AllowCredentials),
 				),
+				// Captures the incoming OIDC bearer token into the request
+				// context so the synaplanapi client's registered request
+				// editor can exchange it for a Synaplan-scoped token on
+				// every outgoing API call.
+				synaplanauth.Middleware,
 			)
 
 			mux.Get("/api/synaplan/me", h.Me)

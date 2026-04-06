@@ -1,0 +1,8 @@
+# Config for oapi-codegen — generates a Go client for the Synaplan API.
+# The spec is extracted from a pinned synaplan image at `go generate` time
+# (see scripts/generate-synaplan-client.sh). The output file is gitignored.
+package: synaplanapi
+output: client.gen.go
+generate:
+  models: true
+  client: true

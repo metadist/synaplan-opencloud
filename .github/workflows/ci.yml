@@ -61,6 +61,23 @@ jobs:
           go-version: "1.25"
           cache-dependency-path: backend/go.sum
 
+      # The Synaplan API client is generated from the pinned synaplan image's
+      # OpenAPI spec — NOT committed. Generate it before test/lint/build.
+      - name: Pre-pull synaplan image
+        run: docker pull ghcr.io/metadist/synaplan@${{ env.SYNAPLAN_IMAGE_DIGEST }}
+
+      - name: Generate Synaplan API client
+        env:
+          SYNAPLAN_IMAGE: ghcr.io/metadist/synaplan@${{ env.SYNAPLAN_IMAGE_DIGEST }}
+        run: go generate ./...
+
+      - name: Upload generated client
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: synaplan-client-gen
+          path: backend/internal/synaplanapi/client.gen.go
+          retention-days: 1
+
       - run: go test ./...
 
       - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
@@ -79,6 +96,12 @@ jobs:
         with:
           name: frontend-dist
           path: frontend/dist/
+
+      - name: Download generated Synaplan client
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: synaplan-client-gen
+          path: backend/internal/synaplanapi/
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 

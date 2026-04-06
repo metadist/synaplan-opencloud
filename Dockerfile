@@ -4,6 +4,15 @@ WORKDIR /app
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ .
+
+# The Synaplan API client is generated from the pinned synaplan image's
+# OpenAPI spec and is NOT committed. It must be generated on the host
+# (via `make -C backend generate`) before running docker build.
+RUN test -f internal/synaplanapi/client.gen.go || { \
+  echo "ERROR: backend/internal/synaplanapi/client.gen.go is missing."; \
+  echo "Run 'make -C backend generate' on the host before docker build."; \
+  exit 1; }
+
 RUN CGO_ENABLED=0 go build -o /synaplan-opencloud ./cmd/synaplan
 
 FROM alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805
