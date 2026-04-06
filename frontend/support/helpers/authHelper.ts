@@ -21,7 +21,12 @@ export async function getAccessToken(
     clientId?: string
   } = {}
 ): Promise<string> {
-  const keycloakUrl = opts.keycloakUrl ?? 'https://host.docker.internal:8443'
+  // Local dev: synaplan's `docker compose --profile oidc` publishes
+  // Keycloak on :8443. CI uses the test stack which publishes on :8444
+  // and sets KEYCLOAK_HTTPS_URL — pick that up when present so the
+  // same helper works in both environments without an explicit opt.
+  const keycloakUrl =
+    opts.keycloakUrl ?? process.env.KEYCLOAK_HTTPS_URL ?? 'https://host.docker.internal:8443'
   const realm = opts.realm ?? 'synaplan'
   const clientId = opts.clientId ?? 'opencloud'
 
