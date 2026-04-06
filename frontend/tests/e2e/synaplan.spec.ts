@@ -11,27 +11,15 @@ test.afterEach(async () => {
   await logout(userPage)
 })
 
-async function navigateToSynaplanApp(page: Page) {
-  const appSwitcher = page.getByLabel('Application Switcher')
-  await appSwitcher.click()
-
-  const synaplanApp = page.locator('[data-test-id="app.synaplan.menuItem"]')
-  await expect(synaplanApp).toBeVisible()
-  await synaplanApp.click()
-
-  await expect(page.locator('[data-testid="synaplan-title"]')).toBeVisible()
-}
-
-test('synaplan app is accessible from app switcher', async () => {
-  await navigateToSynaplanApp(userPage)
+test('in-app synaplan view test connection succeeds', async () => {
+  // Reach the view directly. The app-switcher menu item points at an
+  // external Synaplan URL when synaplanUrl is configured (see
+  // src/index.ts), so it can't be used to navigate to the internal
+  // page in production-style deployments.
+  await userPage.goto('/synaplan')
   await expect(userPage.locator('[data-testid="synaplan-title"]')).toBeVisible()
-})
 
-test('test connection succeeds', async () => {
-  await navigateToSynaplanApp(userPage)
-
-  const testBtn = userPage.locator('[data-testid="synaplan-test-btn"]')
-  await testBtn.click()
+  await userPage.locator('[data-testid="synaplan-test-btn"]').click()
 
   const result = userPage.locator('[data-testid="synaplan-result"]')
   await expect(result).toBeVisible({ timeout: 15_000 })

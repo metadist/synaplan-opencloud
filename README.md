@@ -25,6 +25,33 @@ make frontend-install && make frontend-build && make docker-up
 #    Login with: testuser / testpass123
 ```
 
+## Configuration
+
+The frontend extension and the Go backend are configured separately.
+
+**Frontend** — set the Synaplan instance URL via OpenCloud's [`apps.yaml`](dev/docker/opencloud.apps.yaml):
+
+```yaml
+synaplan:
+  config:
+    synaplanUrl: 'https://synaplan.example.com'
+```
+
+The app menu tile opens this URL in a new tab when set.
+
+**Backend** — env vars (full list with descriptions in [`backend/pkg/config/config.go`](backend/pkg/config/config.go)):
+
+| Var | Purpose |
+|-----|---------|
+| `SYNAPLAN_URL` | Base URL of the Synaplan instance the backend talks to (may differ from the frontend URL when using docker networks). |
+| `SYNAPLAN_OIDC_TOKEN_ENDPOINT` | Keycloak token endpoint, used for RFC 8693 token exchange. |
+| `SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID` / `SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET` | Confidential client credentials that perform the exchange. |
+| `SYNAPLAN_OIDC_TARGET_AUDIENCE` | Audience (Synaplan client ID) baked into the exchanged token. |
+| `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
+| `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. |
+
+The dev defaults live in [`docker-compose.yml`](docker-compose.yml).
+
 ## Development
 
 ```bash

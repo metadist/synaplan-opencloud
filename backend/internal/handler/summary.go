@@ -126,6 +126,15 @@ func isBinaryDocMime(mime string) bool {
 		strings.HasPrefix(mime, "application/vnd.oasis.opendocument")
 }
 
+// uploadedFile captures the fields of Synaplan's /files/upload
+// response we care about.
+type uploadedFile struct {
+	ID                  int  `json:"id"`
+	Vectorized          bool `json:"vectorized"`
+	ChunksCreated       int  `json:"chunks_created"`
+	ExtractedTextLength int  `json:"extracted_text_length"`
+}
+
 // prepareSummaryInput turns a CS3-opened file into the inputs
 // generateSummary expects. For text files it reads the bytes inline
 // and returns them as `text`. For binary documents it uploads to
@@ -154,10 +163,11 @@ func (h *Handler) prepareSummaryInput(
 		return &s, nil, cleanup, nil
 
 	case isBinaryDocMime(file.MimeType):
-		id, err := h.uploadForExtraction(ctx, file)
+		uploaded, err := h.upload(ctx, file, tempGroupKey, synaplanapi.Extract)
 		if err != nil {
 			return nil, nil, cleanup, fmt.Errorf("synaplan upload: %w", err)
 		}
+		id := uploaded.ID
 		cleanup = func() {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 			defer cancel()
@@ -176,11 +186,16 @@ func (h *Handler) prepareSummaryInput(
 	}
 }
 
-// uploadForExtraction streams file.Body to Synaplan as a multipart
-// form with process_level=extract and returns the assigned file ID.
-// The body is streamed via an io.Pipe so large files don't buffer
-// entirely in memory before the request goes out.
-func (h *Handler) uploadForExtraction(ctx context.Context, file *cs3reader.File) (int, error) {
+// upload streams file.Body to Synaplan's /files/upload endpoint as a
+// multipart form under the given group and process_level, and parses
+// the response into an uploadedFile. The body is streamed via an
+// io.Pipe so large files don't buffer entirely in memory.
+func (h *Handler) upload(
+	ctx context.Context,
+	file *cs3reader.File,
+	groupKey string,
+	processLevel synaplanapi.PostApiFilesUploadMultipartBodyProcessLevel,
+) (*uploadedFile, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 
@@ -198,11 +213,11 @@ func (h *Handler) uploadForExtraction(ctx context.Context, file *cs3reader.File)
 			writeErr <- fmt.Errorf("copy body: %w", err)
 			return
 		}
-		if err := mw.WriteField("group_key", tempGroupKey); err != nil {
+		if err := mw.WriteField("group_key", groupKey); err != nil {
 			writeErr <- fmt.Errorf("write group_key: %w", err)
 			return
 		}
-		if err := mw.WriteField("process_level", "extract"); err != nil {
+		if err := mw.WriteField("process_level", string(processLevel)); err != nil {
 			writeErr <- fmt.Errorf("write process_level: %w", err)
 			return
 		}
@@ -211,28 +226,26 @@ func (h *Handler) uploadForExtraction(ctx context.Context, file *cs3reader.File)
 
 	resp, err := h.synaplanAPI.PostApiFilesUploadWithBodyWithResponse(ctx, mw.FormDataContentType(), pr)
 	if err != nil {
-		return 0, fmt.Errorf("upload request: %w", err)
+		return nil, fmt.Errorf("upload request: %w", err)
 	}
 	if err := <-writeErr; err != nil {
-		return 0, err
+		return nil, err
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return 0, wrapUpstreamStatus("upload", resp.StatusCode(), resp.Body)
+		return nil, wrapUpstreamStatus("upload", resp.StatusCode(), resp.Body)
 	}
 
 	var parsed struct {
-		Success bool `json:"success"`
-		Files   []struct {
-			ID int `json:"id"`
-		} `json:"files"`
+		Success bool           `json:"success"`
+		Files   []uploadedFile `json:"files"`
 	}
 	if err := json.Unmarshal(resp.Body, &parsed); err != nil {
-		return 0, fmt.Errorf("parse upload response: %w", err)
+		return nil, fmt.Errorf("parse upload response: %w", err)
 	}
 	if !parsed.Success || len(parsed.Files) == 0 {
-		return 0, fmt.Errorf("upload returned no file id (body: %s)", truncate(string(resp.Body), 300))
+		return nil, fmt.Errorf("upload returned no file id (body: %s)", truncate(string(resp.Body), 300))
 	}
-	return parsed.Files[0].ID, nil
+	return &parsed.Files[0], nil
 }
 
 // generateSummary calls Synaplan's /summary/generate endpoint with
