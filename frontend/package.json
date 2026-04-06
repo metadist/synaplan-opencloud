@@ -6,14 +6,15 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "serve": "vite",
     "build": "vite build",
-    "build:w": "vite build --watch --mode development",
     "check:types": "vue-tsc --noEmit",
     "lint": "eslint 'src/**/*.{js,ts,vue}' --color",
     "format:check": "prettier . --check",
     "format:write": "prettier . --write",
     "test:unit": "NODE_OPTIONS=--unhandled-rejections=throw vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:dev": "BASE_URL_OC=https://host.docker.internal:9201 playwright test"
   },
   "devDependencies": {
     "@opencloud-eu/design-system": "6.1.0",
