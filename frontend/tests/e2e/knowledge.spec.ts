@@ -25,7 +25,10 @@ const TEST_PASSWORD = 'testpass123'
 const KNOWLEDGE_GROUP = 'OC_E2E_TEST'
 
 const OC_API_URL = process.env.OC_API_URL ?? 'https://host.docker.internal:9200'
-const SYNAPLAN_API_URL = process.env.SYNAPLAN_API_URL ?? 'http://host.docker.internal:8001'
+// Default targets the local synaplan dev stack (`docker compose
+// --profile oidc up` in the synaplan repo, port 8000). CI runs the
+// test stack and overrides this via SYNAPLAN_API_URL=:8001.
+const SYNAPLAN_API_URL = process.env.SYNAPLAN_API_URL ?? 'http://host.docker.internal:8000'
 
 let userPage: Page
 let webDavUrl: string
