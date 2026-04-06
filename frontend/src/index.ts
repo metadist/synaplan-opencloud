@@ -41,7 +41,7 @@ export default defineWebApplication({
     const appInfo = {
       name: $gettext('Synaplan'),
       id: appId,
-      icon: 'magic-wand'
+      icon: 'magic'
     } satisfies ApplicationInformation
 
     const translationExtension = useTranslationExtension()
