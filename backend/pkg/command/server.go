@@ -90,15 +90,16 @@ func Server(cfg *config.Config) *cobra.Command {
 					cors.AllowedHeaders(cfg.HTTP.CORS.AllowedHeaders),
 					cors.AllowCredentials(cfg.HTTP.CORS.AllowCredentials),
 				),
-				// Captures the incoming OIDC bearer token into the request
-				// context so the synaplanapi client's registered request
-				// editor can exchange it for a Synaplan-scoped token on
-				// every outgoing API call.
-				synaplanauth.Middleware,
 			)
 
-			mux.Get("/api/synaplan/me", h.Me)
-			mux.Post("/api/synaplan/translate", h.Translate)
+			// Public — <img> can't send a Bearer header.
+			mux.Get("/api/synaplan/assets/{name}", h.Asset)
+
+			mux.Group(func(r chi.Router) {
+				r.Use(synaplanauth.Middleware)
+				r.Get("/api/synaplan/me", h.Me)
+				r.Post("/api/synaplan/translate", h.Translate)
+			})
 
 			server := &stdhttp.Server{
 				Addr:    cfg.HTTP.Addr,
