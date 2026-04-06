@@ -84,6 +84,16 @@
       "matchUpdateTypes": ["minor", "patch"]
     },
     {
+      // Bundle SYNAPLAN_IMAGE_DIGEST (docker datasource) and
+      // SYNAPLAN_REF (git-refs datasource) into a single PR so they
+      // stay paired when the upstream synaplan main moves.
+      "groupName": "Synaplan",
+      "matchPackageNames": [
+        "ghcr.io/metadist/synaplan",
+        "https://github.com/metadist/synaplan"
+      ]
+    },
+    {
       "matchUpdateTypes": ["major"],
       "automerge": false,
       "labels": ["dependencies", "breaking"]
