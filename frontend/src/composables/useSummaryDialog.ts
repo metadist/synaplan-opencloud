@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { useClientService, useLoadingService, useMessages } from '@opencloud-eu/web-pkg'
 import { useClipboard } from '@vueuse/core'
 import type { ZodType } from 'zod'
@@ -98,6 +98,11 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
       })
     }
   }
+
+  onBeforeUnmount(() => {
+    if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
+    inFlight?.abort()
+  })
 
   return { phase, result, error, justCopied, submit, cancel, copyResult }
 }

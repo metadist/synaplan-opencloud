@@ -24,7 +24,8 @@ const summaryTimeout = 10 * time.Minute
 
 // tempGroupKey namespaces temporary uploads we push to Synaplan only
 // to have their text extracted so we can clean them up afterwards.
-const tempGroupKey = "_oc_translate_temp"
+// Shared between /translate and /summarize.
+const tempGroupKey = "_oc_summary_temp"
 
 // cleanupTimeout bounds the best-effort DELETE we fire to tidy up a
 // temporary upload on a fresh background context.

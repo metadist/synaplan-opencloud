@@ -15,8 +15,8 @@ const TranslationDialog = defineAsyncComponent(() => import('../components/Trans
 
 /**
  * Adds a "Translate with Synaplan…" entry to the file context menu.
- * Clicking opens a modal where the user picks a target language and
- * length; the modal calls /api/synaplan/translate.
+ * Clicking opens a modal where the user picks a target language;
+ * the modal calls /api/synaplan/translate.
  */
 export const useTranslationExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
