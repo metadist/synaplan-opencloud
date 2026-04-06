@@ -46,6 +46,7 @@ vi.mock('../../src/composables/useSynaplanBird', () => ({
 // logic (click → translate, update:model-value → select) still works.
 const ocStub = (tag: string) =>
   defineComponent({
+    name: tag,
     props: ['modelValue', 'options', 'disabled'],
     emits: ['click', 'update:model-value'],
     setup(_, { slots, emit }) {
@@ -106,7 +107,7 @@ describe('TranslationDialog', () => {
     expect(logo.attributes('src')).toBe('/api/synaplan/assets/single_bird-dark.svg')
   })
 
-  it('posts the translate request with resourceId + targetLanguage and renders the result', async () => {
+  it('posts the translate request with resourceId, targetLanguage, and the default length', async () => {
     post.mockResolvedValueOnce({ data: { translation: 'Hallo Welt' } })
 
     const wrapper = mountDialog()
@@ -116,13 +117,35 @@ describe('TranslationDialog', () => {
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body] = post.mock.calls[0]
     expect(url).toBe('/api/synaplan/translate')
-    expect(body).toEqual({ resourceId: 'res-1', targetLanguage: 'en' })
+    expect(body).toEqual({ resourceId: 'res-1', targetLanguage: 'en', length: 'long' })
 
     const result = wrapper.get('[data-testid="synaplan-translation-result"]')
     expect(result.text()).toBe('Hallo Welt')
     // Submit button is replaced by Copy button once a translation is shown.
     expect(wrapper.find('[data-testid="synaplan-translation-submit"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="synaplan-translation-copy"]').exists()).toBe(true)
+  })
+
+  it('forwards the length picker selection in the submitted body', async () => {
+    post.mockResolvedValueOnce({ data: { translation: 'x' } })
+
+    const wrapper = mountDialog()
+    // Two oc-select stubs in the dialog: [0] is the language picker,
+    // [1] is the length picker. Emit a fresh length from the stub
+    // and the real @update:model-value binding in the template
+    // drives onLengthChange.
+    const selects = wrapper.findAllComponents({ name: 'oc-select' })
+    expect(selects).toHaveLength(2)
+    await selects[1].vm.$emit('update:model-value', { id: 'short', label: 'Short' })
+
+    await wrapper.get('[data-testid="synaplan-translation-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(post.mock.calls[0][1]).toEqual({
+      resourceId: 'res-1',
+      targetLanguage: 'en',
+      length: 'short'
+    })
   })
 
   it('surfaces a backend error in the error box', async () => {

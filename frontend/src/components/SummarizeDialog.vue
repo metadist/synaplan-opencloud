@@ -1,10 +1,10 @@
 <template>
-  <div class="ext:flex ext:flex-col ext:gap-4" data-testid="synaplan-translation-dialog">
+  <div class="ext:flex ext:flex-col ext:gap-4" data-testid="synaplan-summarize-dialog">
     <img
       :src="birdSrc"
       alt=""
       class="ext:h-10 ext:w-10 ext:self-center"
-      data-testid="synaplan-translation-logo"
+      data-testid="synaplan-summarize-logo"
     />
 
     <p class="ext:text-sm ext:text-role-on-surface-variant">
@@ -13,15 +13,15 @@
 
     <div v-if="phase !== 'done'" class="ext:flex ext:flex-col ext:gap-3">
       <oc-select
-        :model-value="selectedLanguage"
-        :label="$gettext('Translate to')"
-        :options="LANGUAGES"
+        :model-value="selectedType"
+        :label="$gettext('Summary type')"
+        :options="SUMMARY_TYPES"
         :clearable="false"
         :searchable="false"
         :disabled="phase === 'loading'"
         option-label="label"
-        data-testid="synaplan-translation-language"
-        @update:model-value="onLanguageChange"
+        data-testid="synaplan-summarize-type"
+        @update:model-value="onTypeChange"
       />
 
       <oc-select
@@ -32,7 +32,7 @@
         :searchable="false"
         :disabled="phase === 'loading'"
         option-label="label"
-        data-testid="synaplan-translation-length"
+        data-testid="synaplan-summarize-length"
         @update:model-value="onLengthChange"
       />
     </div>
@@ -40,7 +40,7 @@
     <div
       v-if="phase === 'error'"
       class="ext:rounded ext:border ext:border-role-error ext:bg-role-error-container ext:p-3 ext:text-sm ext:text-role-on-error-container"
-      data-testid="synaplan-translation-error"
+      data-testid="synaplan-summarize-error"
     >
       {{ error }}
     </div>
@@ -48,7 +48,7 @@
     <div
       v-if="phase === 'done'"
       class="ext:rounded ext:border ext:bg-role-surface-container ext:p-3 ext:text-sm ext:whitespace-pre-wrap ext:max-h-96 ext:overflow-auto"
-      data-testid="synaplan-translation-result"
+      data-testid="synaplan-summarize-result"
     >
       {{ result }}
     </div>
@@ -57,7 +57,7 @@
       <oc-button
         v-if="phase === 'done'"
         appearance="outline"
-        data-testid="synaplan-translation-copy"
+        data-testid="synaplan-summarize-copy"
         @click="copyResult"
       >
         <oc-icon name="file-copy-2" size="small" fill-type="line" />
@@ -70,10 +70,10 @@
         color-role="primary"
         :disabled="phase === 'loading'"
         :show-spinner="phase === 'loading'"
-        data-testid="synaplan-translation-submit"
+        data-testid="synaplan-summarize-submit"
         @click="onSubmit"
       >
-        {{ phase === 'loading' ? $gettext('Translating…') : $gettext('Translate') }}
+        {{ phase === 'loading' ? $gettext('Summarizing…') : $gettext('Summarize') }}
       </oc-button>
     </div>
   </div>
@@ -88,7 +88,7 @@ import { useSynaplanBird } from '../composables/useSynaplanBird'
 import { useSummaryDialog } from '../composables/useSummaryDialog'
 
 // Mounted by the modal system via dispatchModal({ customComponent:
-// TranslationDialog, customComponentAttrs: () => ({ resource }) }).
+// SummarizeDialog, customComponentAttrs: () => ({ resource }) }).
 const props = defineProps<{
   modal: Modal
   resource: {
@@ -101,14 +101,12 @@ const props = defineProps<{
 const { $gettext } = useGettext()
 const birdSrc = useSynaplanBird()
 
-// Matches the allowlist enforced in internal/handler/translate.go.
-type LanguageOption = { id: string; label: string }
-const LANGUAGES: LanguageOption[] = [
-  { id: 'en', label: 'English' },
-  { id: 'de', label: 'Deutsch' },
-  { id: 'fr', label: 'Français' },
-  { id: 'es', label: 'Español' },
-  { id: 'it', label: 'Italiano' }
+// Matches supportedSummaryTypes in internal/handler/summary.go.
+type SummaryTypeOption = { id: 'abstractive' | 'bullet-points' | 'extractive'; label: string }
+const SUMMARY_TYPES: SummaryTypeOption[] = [
+  { id: 'abstractive', label: $gettext('Abstractive') },
+  { id: 'bullet-points', label: $gettext('Bullet points') },
+  { id: 'extractive', label: $gettext('Extractive') }
 ]
 
 // Matches supportedLengths in internal/handler/summary.go.
@@ -119,32 +117,32 @@ const LENGTHS: LengthOption[] = [
   { id: 'long', label: $gettext('Long') }
 ]
 
-const selectedLanguage = ref<LanguageOption>(LANGUAGES[0])
-const selectedLength = ref<LengthOption>(LENGTHS[2])
+const selectedType = ref<SummaryTypeOption>(SUMMARY_TYPES[0])
+const selectedLength = ref<LengthOption>(LENGTHS[1])
 
-function onLanguageChange(value: LanguageOption | null) {
-  if (value) selectedLanguage.value = value
+function onTypeChange(value: SummaryTypeOption | null) {
+  if (value) selectedType.value = value
 }
 
 function onLengthChange(value: LengthOption | null) {
   if (value) selectedLength.value = value
 }
 
-const translateSchema = z.object({ translation: z.string() })
+const summarizeSchema = z.object({ summary: z.string() })
 
 const { phase, result, error, submit, cancel, copyResult } = useSummaryDialog({
-  endpoint: '/api/synaplan/translate',
-  responseSchema: translateSchema,
-  extractText: (data) => data.translation,
-  failedMessage: $gettext('Translation failed'),
-  copiedTitle: $gettext('Translation copied to your clipboard.'),
-  copyErrorTitle: $gettext('Could not copy translation')
+  endpoint: '/api/synaplan/summarize',
+  responseSchema: summarizeSchema,
+  extractText: (data) => data.summary,
+  failedMessage: $gettext('Summarization failed'),
+  copiedTitle: $gettext('Summary copied to your clipboard.'),
+  copyErrorTitle: $gettext('Could not copy summary')
 })
 
 function onSubmit() {
   submit({
     resourceId: props.resource.id,
-    targetLanguage: selectedLanguage.value.id,
+    summaryType: selectedType.value.id,
     length: selectedLength.value.id
   })
 }
