@@ -56,7 +56,7 @@ Each call to Synaplan rides on the logged-in OpenCloud user's identity, exchange
 
 ### Mode B: shared API key (simple, discouraged)
 
-If standing up token exchange isn't an option — single-tenant deployments, no Keycloak, no shared IdP — the backend can attach a single static Synaplan API key to every outbound call instead. Generate one in Synaplan's API-Keys settings, then set:
+For single-tenant deployments where Synaplan and OpenCloud don't share an identity provider, the backend can attach a single static Synaplan API key to every outbound call instead of doing token exchange. Generate one in Synaplan's API-Keys settings, then set:
 
 | Var | Purpose |
 |-----|---------|
