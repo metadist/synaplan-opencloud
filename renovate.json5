@@ -86,12 +86,17 @@
     {
       // Bundle SYNAPLAN_IMAGE_DIGEST (docker datasource) and
       // SYNAPLAN_REF (git-refs datasource) into a single PR so they
-      // stay paired when the upstream synaplan main moves.
+      // stay paired when the upstream synaplan main moves. Both
+      // customManagers above produce digest-only updates (pin-digest
+      // for the docker image, git-refs for the main-branch SHA), so
+      // match the full set of update types that can actually arrive
+      // here rather than relying on the default to do the right thing.
       "groupName": "Synaplan",
       "matchPackageNames": [
         "ghcr.io/metadist/synaplan",
         "https://github.com/metadist/synaplan"
-      ]
+      ],
+      "matchUpdateTypes": ["digest", "pinDigest", "minor", "patch"]
     },
     {
       "matchUpdateTypes": ["major"],
