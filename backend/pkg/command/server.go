@@ -19,6 +19,7 @@ import (
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
+	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
 	"github.com/metadist/synaplan-opencloud/pkg/config"
@@ -59,14 +60,21 @@ func Server(cfg *config.Config) *cobra.Command {
 
 			cs3 := cs3reader.New(gws, cfg.Insecure)
 
-			exchanger := tokenexchange.New(
-				cfg.OIDCTokenEndpoint,
-				cfg.OIDCExchangeClientID,
-				cfg.OIDCExchangeSecret,
-				cfg.OIDCTargetAudience,
-			)
+			var editor synaplanapi.RequestEditorFn
+			if cfg.SynaplanAPIKey != "" {
+				logger.Warn().Msg("synaplan-opencloud: using shared API key auth — all calls will appear to Synaplan as a single user")
+				editor = synaplanauth.NewAPIKeyRequestEditor(cfg.SynaplanAPIKey)
+			} else {
+				exchanger := tokenexchange.New(
+					cfg.OIDCTokenEndpoint,
+					cfg.OIDCExchangeClientID,
+					cfg.OIDCExchangeSecret,
+					cfg.OIDCTargetAudience,
+				)
+				editor = synaplanauth.NewRequestEditor(exchanger)
+			}
 
-			h, err := handler.New(exchanger, cfg.SynaplanURL, cs3)
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3)
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}

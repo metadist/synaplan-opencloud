@@ -149,3 +149,18 @@ func NewRequestEditor(exchanger TokenExchanger) synaplanapi.RequestEditorFn {
 		return nil
 	}
 }
+
+// NewAPIKeyRequestEditor returns a synaplanapi RequestEditorFn that
+// attaches a fixed Synaplan API key (X-API-Key header) to every
+// outgoing request. Use this instead of NewRequestEditor when the
+// operator has configured a shared API key (SYNAPLAN_API_KEY) instead
+// of per-user OIDC token exchange. The returned editor is independent
+// of request context — it does not need the OIDC token or the reva
+// user — so it works equally well in handler requests and in
+// background cleanup contexts created via context.Background().
+func NewAPIKeyRequestEditor(apiKey string) synaplanapi.RequestEditorFn {
+	return func(_ context.Context, req *http.Request) error {
+		req.Header.Set("X-API-Key", apiKey)
+		return nil
+	}
+}

@@ -17,15 +17,14 @@ import (
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
-	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
 
 // Handler holds the state shared by all endpoints:
 //
-//   - synaplanAPI is the generated Synaplan client with a
-//     synaplanauth request editor registered, so every outgoing call
-//     is authenticated on behalf of the end-user whose request
-//     triggered it via OIDC token exchange.
+//   - synaplanAPI is the generated Synaplan client with an outbound
+//     auth editor registered (either OIDC token exchange or a shared
+//     API key, picked at startup in pkg/command/server.go), so every
+//     call is authenticated without per-handler boilerplate.
 //   - cs3 reads file bytes from OpenCloud storage via the reva
 //     gateway for file-based operations like /translate.
 //   - assetProxy streams whitelisted brand assets from the paired
@@ -43,12 +42,15 @@ type Handler struct {
 	assetProxy  *httputil.ReverseProxy
 }
 
-// New creates a new Handler.
-func New(exchanger synaplanauth.TokenExchanger, synaplanURL string, cs3 *cs3reader.Reader) (*Handler, error) {
+// New creates a new Handler. The editor is the synaplanapi
+// RequestEditorFn that authenticates every outbound call to Synaplan
+// — the caller picks between per-user OIDC token exchange and a
+// shared API key (see pkg/command/server.go).
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader) (*Handler, error) {
 	apiClient, err := synaplanapi.NewClientWithResponses(
 		synaplanURL,
 		synaplanapi.WithHTTPClient(&http.Client{}),
-		synaplanapi.WithRequestEditorFn(synaplanauth.NewRequestEditor(exchanger)),
+		synaplanapi.WithRequestEditorFn(editor),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating synaplan API client: %w", err)
