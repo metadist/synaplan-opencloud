@@ -54,19 +54,35 @@ func OIDCTokenFromContext(ctx context.Context) string {
 	return token
 }
 
-// Middleware extracts the Bearer token from the incoming Authorization
-// header and stores it in the request context for later use by
-// NewRequestEditor.
+// Middleware enforces the preconditions every Synaplan-backed handler
+// depends on:
 //
-// The OpenCloud proxy forwards the original OIDC access token in
-// Authorization unchanged (it only adds x-access-token for the reva
-// JWT), so "Bearer <token>" here is the user's Keycloak access token.
+//  1. A reva user must be present in the request context (normally put
+//     there by OpenCloud's upstream auth middleware). In production
+//     the OpenCloud proxy rejects unauthenticated requests before they
+//     ever reach us — this is a defensive check for misconfiguration
+//     and for local/test setups that bypass the proxy.
+//  2. A non-empty Bearer token must be present in the Authorization
+//     header. The OpenCloud proxy forwards the original OIDC access
+//     token unchanged (it only adds x-access-token for the reva JWT),
+//     so "Bearer <token>" here is the user's Keycloak access token.
+//
+// On success the OIDC token is stored in the request context for
+// later use by NewRequestEditor. On failure the request is rejected
+// with 401 before the handler runs, so handlers can assume both a
+// reva user and an OIDC token are present.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && token != "" {
-			r = r.WithContext(ContextWithOIDCToken(r.Context(), token))
+		if _, ok := revactx.ContextGetUser(r.Context()); !ok {
+			http.Error(w, "unauthorized: no user in request context", http.StatusUnauthorized)
+			return
 		}
-		next.ServeHTTP(w, r)
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || token == "" {
+			http.Error(w, "unauthorized: missing OIDC bearer token", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(ContextWithOIDCToken(r.Context(), token)))
 	})
 }
 

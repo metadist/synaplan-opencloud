@@ -53,17 +53,9 @@ type meResponse struct {
 // Me tests the full per-user auth flow by calling Synaplan's
 // /api/v1/auth/me via the generated client. The client's registered
 // request editor handles OIDC → Synaplan token exchange transparently.
+// synaplanauth.Middleware guarantees a reva user is in the context.
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
-	u, ok := revactx.ContextGetUser(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, meResponse{
-			Timestamp: now(),
-			Status:    "error",
-			Error:     "unauthorized: no user in context",
-		})
-		return
-	}
-	userID := u.GetId().GetOpaqueId()
+	userID := revactx.ContextMustGetUser(r.Context()).GetId().GetOpaqueId()
 
 	resp, err := h.synaplanAPI.GetApiAuthMeWithResponse(r.Context())
 	if err != nil {
