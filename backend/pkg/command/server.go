@@ -99,6 +99,7 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Use(synaplanauth.Middleware)
 				r.Get("/api/synaplan/me", h.Me)
 				r.Post("/api/synaplan/translate", h.Translate)
+				r.Post("/api/synaplan/summarize", h.Summarize)
 			})
 
 			server := &stdhttp.Server{

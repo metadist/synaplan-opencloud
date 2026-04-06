@@ -43,6 +43,65 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+// supportedLengths bounds the /summary/generate `length` values our
+// handlers accept. Excludes "custom" which requires a numeric param
+// we don't surface to the frontend.
+var supportedLengths = map[synaplanapi.PostApiSummaryGenerateJSONBodyLength]struct{}{
+	synaplanapi.Short:  {},
+	synaplanapi.Medium: {},
+	synaplanapi.Long:   {},
+}
+
+// supportedSummaryTypes lists the summaryType values /summarize
+// accepts — mirrors the full generated enum.
+var supportedSummaryTypes = map[synaplanapi.PostApiSummaryGenerateJSONBodySummaryType]struct{}{
+	synaplanapi.Abstractive:  {},
+	synaplanapi.BulletPoints: {},
+	synaplanapi.Extractive:   {},
+}
+
+// summaryPipelineFn is the per-handler body of work that runs with a
+// CS3-opened file and returns the summary text (or translation).
+type summaryPipelineFn func(ctx context.Context, file *cs3reader.File) (string, error)
+
+// runSummaryPipeline handles the boilerplate around every summary-
+// backed handler: creates the bounded ctx, opens the CS3 file, runs
+// fn, and maps any error to a JSON response with the right status
+// code (422 for errClientInput, 502 otherwise). Returns (result,
+// true) on success or ("", false) if it has already written an
+// error response. `op` is both the log prefix and the user-facing
+// "<op> failed: …" error envelope prefix.
+func (h *Handler) runSummaryPipeline(
+	w http.ResponseWriter,
+	r *http.Request,
+	resourceID string,
+	op string,
+	fn summaryPipelineFn,
+) (string, bool) {
+	ctx, cancel := context.WithTimeout(r.Context(), summaryTimeout)
+	defer cancel()
+
+	file, err := h.cs3.Open(ctx, resourceID)
+	if err != nil {
+		log.Printf("%s: cs3 open: %v", op, err)
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not read file: " + err.Error()})
+		return "", false
+	}
+	defer func() { _ = file.Body.Close() }()
+
+	result, err := fn(ctx, file)
+	if err != nil {
+		log.Printf("%s: %v", op, err)
+		status := http.StatusBadGateway
+		if errors.Is(err, errClientInput) {
+			status = http.StatusUnprocessableEntity
+		}
+		writeJSON(w, status, errorResponse{Error: op + " failed: " + err.Error()})
+		return "", false
+	}
+	return result, true
+}
+
 // isTextMime returns true for mime types we can pass straight into
 // /summary/generate as raw text — no server-side extraction needed.
 func isTextMime(mime string) bool {
