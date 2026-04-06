@@ -5,12 +5,15 @@ import type { ZodType } from 'zod'
 
 export type SummaryDialogPhase = 'select' | 'loading' | 'done' | 'error'
 
+// Matches OC Web's convention (WebDavDetails.vue): swap the copy
+// icon to `check` for 1500ms after a successful copy.
+const COPY_FEEDBACK_MS = 1500
+
 export interface SummaryDialogConfig<T> {
   endpoint: string
   responseSchema: ZodType<T>
   extractText: (data: T) => string
   failedMessage: string
-  copiedTitle: string
   copyErrorTitle: string
 }
 
@@ -22,13 +25,15 @@ export interface SummaryDialogConfig<T> {
  */
 export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
   const { httpAuthenticated } = useClientService()
-  const { showMessage, showErrorMessage } = useMessages()
+  const { showErrorMessage } = useMessages()
   const { copy: copyToClipboard } = useClipboard()
   const loadingService = useLoadingService()
 
   const phase = ref<SummaryDialogPhase>('select')
   const result = ref('')
   const error = ref('')
+  const justCopied = ref(false)
+  let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null
 
   let inFlight: AbortController | null = null
 
@@ -79,7 +84,12 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
   async function copyResult() {
     try {
       await copyToClipboard(result.value)
-      showMessage({ title: config.copiedTitle })
+      justCopied.value = true
+      if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
+      copyFeedbackTimer = setTimeout(() => {
+        justCopied.value = false
+        copyFeedbackTimer = null
+      }, COPY_FEEDBACK_MS)
     } catch (e) {
       console.error('clipboard write failed', e)
       showErrorMessage({
@@ -89,5 +99,5 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
     }
   }
 
-  return { phase, result, error, submit, cancel, copyResult }
+  return { phase, result, error, justCopied, submit, cancel, copyResult }
 }

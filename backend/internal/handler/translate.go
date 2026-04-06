@@ -23,8 +23,6 @@ var supportedLanguages = map[string]struct{}{
 type translateRequest struct {
 	ResourceID     string `json:"resourceId"`
 	TargetLanguage string `json:"targetLanguage"`
-	// Length is optional; defaults to "long" when omitted.
-	Length string `json:"length,omitempty"`
 }
 
 type translateResponse struct {
@@ -49,14 +47,6 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("unsupported target language %q", req.TargetLanguage)})
 		return
 	}
-	length := synaplanapi.Long
-	if req.Length != "" {
-		length = synaplanapi.PostApiSummaryGenerateJSONBodyLength(req.Length)
-		if _, ok := supportedLengths[length]; !ok {
-			writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("unsupported length %q", req.Length)})
-			return
-		}
-	}
 
 	result, ok := h.runSummaryPipeline(w, r, req.ResourceID, "translate", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		text, fileID, cleanup, err := h.prepareSummaryInput(ctx, file)
@@ -64,10 +54,12 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return "", err
 		}
+		// length=long because translation should preserve the source;
+		// use /summarize for shorter output.
 		return h.generateSummary(
 			ctx, text, fileID,
 			synaplanapi.Abstractive,
-			length,
+			synaplanapi.Long,
 			&req.TargetLanguage,
 		)
 	})

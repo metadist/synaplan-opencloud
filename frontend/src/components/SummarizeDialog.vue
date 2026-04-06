@@ -60,8 +60,8 @@
         data-testid="synaplan-summarize-copy"
         @click="copyResult"
       >
-        <oc-icon name="file-copy-2" size="small" fill-type="line" />
-        {{ $gettext('Copy') }}
+        <oc-icon :name="justCopied ? 'check' : 'file-copy-2'" size="small" fill-type="line" />
+        {{ justCopied ? $gettext('Copied') : $gettext('Copy') }}
       </oc-button>
 
       <oc-button
@@ -130,12 +130,11 @@ function onLengthChange(value: LengthOption | null) {
 
 const summarizeSchema = z.object({ summary: z.string() })
 
-const { phase, result, error, submit, cancel, copyResult } = useSummaryDialog({
+const { phase, result, error, justCopied, submit, cancel, copyResult } = useSummaryDialog({
   endpoint: '/api/synaplan/summarize',
   responseSchema: summarizeSchema,
   extractText: (data) => data.summary,
   failedMessage: $gettext('Summarization failed'),
-  copiedTitle: $gettext('Summary copied to your clipboard.'),
   copyErrorTitle: $gettext('Could not copy summary')
 })
 

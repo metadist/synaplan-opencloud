@@ -166,18 +166,34 @@ describe('SummarizeDialog', () => {
     expect(wrapper.find('[data-testid="synaplan-summarize-result"]').exists()).toBe(false)
   })
 
-  it('copies the result and shows a confirmation message', async () => {
-    post.mockResolvedValueOnce({ data: { summary: 'Key points: …' } })
-    copyToClipboard.mockResolvedValueOnce(undefined)
+  it('copies the result and flips the button into its copied state', async () => {
+    vi.useFakeTimers()
+    try {
+      post.mockResolvedValueOnce({ data: { summary: 'Key points: …' } })
+      copyToClipboard.mockResolvedValueOnce(undefined)
 
-    const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-summarize-submit"]').trigger('click')
-    await flushPromises()
-    await wrapper.get('[data-testid="synaplan-summarize-copy"]').trigger('click')
-    await flushPromises()
+      const wrapper = mountDialog()
+      await wrapper.get('[data-testid="synaplan-summarize-submit"]').trigger('click')
+      await flushPromises()
 
-    expect(copyToClipboard).toHaveBeenCalledWith('Key points: …')
-    expect(showMessage).toHaveBeenCalledWith({ title: 'Summary copied to your clipboard.' })
+      const copyBtn = wrapper.get('[data-testid="synaplan-summarize-copy"]')
+      expect(copyBtn.text()).toContain('Copy')
+      expect(copyBtn.text()).not.toContain('Copied')
+
+      await copyBtn.trigger('click')
+      await flushPromises()
+
+      expect(copyToClipboard).toHaveBeenCalledWith('Key points: …')
+      expect(showMessage).not.toHaveBeenCalled()
+      expect(copyBtn.text()).toContain('Copied')
+
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+      expect(copyBtn.text()).toContain('Copy')
+      expect(copyBtn.text()).not.toContain('Copied')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows an error toast when the clipboard write fails', async () => {

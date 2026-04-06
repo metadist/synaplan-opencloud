@@ -33,8 +33,6 @@ func TestTranslate_RejectsBadInput(t *testing.T) {
 		{"no resourceId", `{"targetLanguage":"de"}`, "resourceId is required"},
 		{"unsupported language", `{"resourceId":"r1","targetLanguage":"xx"}`, "unsupported target language"},
 		{"empty language", `{"resourceId":"r1"}`, "unsupported target language"},
-		{"bad length", `{"resourceId":"r1","targetLanguage":"de","length":"garbage"}`, "unsupported length"},
-		{"custom length not allowed", `{"resourceId":"r1","targetLanguage":"de","length":"custom"}`, "unsupported length"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -11,7 +11,7 @@
       {{ resource.name }}
     </p>
 
-    <div v-if="phase !== 'done'" class="ext:flex ext:flex-col ext:gap-3">
+    <div v-if="phase !== 'done'">
       <oc-select
         :model-value="selectedLanguage"
         :label="$gettext('Translate to')"
@@ -22,18 +22,6 @@
         option-label="label"
         data-testid="synaplan-translation-language"
         @update:model-value="onLanguageChange"
-      />
-
-      <oc-select
-        :model-value="selectedLength"
-        :label="$gettext('Length')"
-        :options="LENGTHS"
-        :clearable="false"
-        :searchable="false"
-        :disabled="phase === 'loading'"
-        option-label="label"
-        data-testid="synaplan-translation-length"
-        @update:model-value="onLengthChange"
       />
     </div>
 
@@ -60,8 +48,8 @@
         data-testid="synaplan-translation-copy"
         @click="copyResult"
       >
-        <oc-icon name="file-copy-2" size="small" fill-type="line" />
-        {{ $gettext('Copy') }}
+        <oc-icon :name="justCopied ? 'check' : 'file-copy-2'" size="small" fill-type="line" />
+        {{ justCopied ? $gettext('Copied') : $gettext('Copy') }}
       </oc-button>
 
       <oc-button
@@ -111,41 +99,26 @@ const LANGUAGES: LanguageOption[] = [
   { id: 'it', label: 'Italiano' }
 ]
 
-// Matches supportedLengths in internal/handler/summary.go.
-type LengthOption = { id: 'short' | 'medium' | 'long'; label: string }
-const LENGTHS: LengthOption[] = [
-  { id: 'short', label: $gettext('Short') },
-  { id: 'medium', label: $gettext('Medium') },
-  { id: 'long', label: $gettext('Long') }
-]
-
 const selectedLanguage = ref<LanguageOption>(LANGUAGES[0])
-const selectedLength = ref<LengthOption>(LENGTHS[2])
 
 function onLanguageChange(value: LanguageOption | null) {
   if (value) selectedLanguage.value = value
 }
 
-function onLengthChange(value: LengthOption | null) {
-  if (value) selectedLength.value = value
-}
-
 const translateSchema = z.object({ translation: z.string() })
 
-const { phase, result, error, submit, cancel, copyResult } = useSummaryDialog({
+const { phase, result, error, justCopied, submit, cancel, copyResult } = useSummaryDialog({
   endpoint: '/api/synaplan/translate',
   responseSchema: translateSchema,
   extractText: (data) => data.translation,
   failedMessage: $gettext('Translation failed'),
-  copiedTitle: $gettext('Translation copied to your clipboard.'),
   copyErrorTitle: $gettext('Could not copy translation')
 })
 
 function onSubmit() {
   submit({
     resourceId: props.resource.id,
-    targetLanguage: selectedLanguage.value.id,
-    length: selectedLength.value.id
+    targetLanguage: selectedLanguage.value.id
   })
 }
 

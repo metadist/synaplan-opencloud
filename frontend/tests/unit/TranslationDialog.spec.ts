@@ -107,7 +107,7 @@ describe('TranslationDialog', () => {
     expect(logo.attributes('src')).toBe('/api/synaplan/assets/single_bird-dark.svg')
   })
 
-  it('posts the translate request with resourceId, targetLanguage, and the default length', async () => {
+  it('posts the translate request with resourceId + targetLanguage and renders the result', async () => {
     post.mockResolvedValueOnce({ data: { translation: 'Hallo Welt' } })
 
     const wrapper = mountDialog()
@@ -117,35 +117,13 @@ describe('TranslationDialog', () => {
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body] = post.mock.calls[0]
     expect(url).toBe('/api/synaplan/translate')
-    expect(body).toEqual({ resourceId: 'res-1', targetLanguage: 'en', length: 'long' })
+    expect(body).toEqual({ resourceId: 'res-1', targetLanguage: 'en' })
 
     const result = wrapper.get('[data-testid="synaplan-translation-result"]')
     expect(result.text()).toBe('Hallo Welt')
     // Submit button is replaced by Copy button once a translation is shown.
     expect(wrapper.find('[data-testid="synaplan-translation-submit"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="synaplan-translation-copy"]').exists()).toBe(true)
-  })
-
-  it('forwards the length picker selection in the submitted body', async () => {
-    post.mockResolvedValueOnce({ data: { translation: 'x' } })
-
-    const wrapper = mountDialog()
-    // Two oc-select stubs in the dialog: [0] is the language picker,
-    // [1] is the length picker. Emit a fresh length from the stub
-    // and the real @update:model-value binding in the template
-    // drives onLengthChange.
-    const selects = wrapper.findAllComponents({ name: 'oc-select' })
-    expect(selects).toHaveLength(2)
-    await selects[1].vm.$emit('update:model-value', { id: 'short', label: 'Short' })
-
-    await wrapper.get('[data-testid="synaplan-translation-submit"]').trigger('click')
-    await flushPromises()
-
-    expect(post.mock.calls[0][1]).toEqual({
-      resourceId: 'res-1',
-      targetLanguage: 'en',
-      length: 'short'
-    })
   })
 
   it('surfaces a backend error in the error box', async () => {
@@ -201,20 +179,36 @@ describe('TranslationDialog', () => {
     expect(wrapper.find('[data-testid="synaplan-translation-result"]').exists()).toBe(false)
   })
 
-  it('copies the result to the clipboard and shows a confirmation message', async () => {
-    post.mockResolvedValueOnce({ data: { translation: 'Bonjour le monde' } })
-    copyToClipboard.mockResolvedValueOnce(undefined)
+  it('copies the result to the clipboard and flips the button into its copied state', async () => {
+    vi.useFakeTimers()
+    try {
+      post.mockResolvedValueOnce({ data: { translation: 'Bonjour le monde' } })
+      copyToClipboard.mockResolvedValueOnce(undefined)
 
-    const wrapper = mountDialog()
-    await wrapper.get('[data-testid="synaplan-translation-submit"]').trigger('click')
-    await flushPromises()
-    await wrapper.get('[data-testid="synaplan-translation-copy"]').trigger('click')
-    await flushPromises()
+      const wrapper = mountDialog()
+      await wrapper.get('[data-testid="synaplan-translation-submit"]').trigger('click')
+      await flushPromises()
 
-    expect(copyToClipboard).toHaveBeenCalledWith('Bonjour le monde')
-    expect(showMessage).toHaveBeenCalledWith({
-      title: 'Translation copied to your clipboard.'
-    })
+      const copyBtn = wrapper.get('[data-testid="synaplan-translation-copy"]')
+      expect(copyBtn.text()).toContain('Copy')
+      expect(copyBtn.text()).not.toContain('Copied')
+
+      await copyBtn.trigger('click')
+      await flushPromises()
+
+      expect(copyToClipboard).toHaveBeenCalledWith('Bonjour le monde')
+      // No success toast — OC Web's convention is button-only feedback.
+      expect(showMessage).not.toHaveBeenCalled()
+      expect(copyBtn.text()).toContain('Copied')
+
+      // After the 1500ms feedback window the label reverts.
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+      expect(copyBtn.text()).toContain('Copy')
+      expect(copyBtn.text()).not.toContain('Copied')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows an error toast when the clipboard write fails', async () => {
