@@ -2,6 +2,7 @@ package parser
 
 import (
 	"errors"
+	"strings"
 
 	occfg "github.com/opencloud-eu/opencloud/pkg/config"
 	"github.com/opencloud-eu/opencloud/pkg/config/envdecode"
@@ -32,7 +33,21 @@ func ParseConfig(cfg *config.Config) error {
 	return Validate(cfg)
 }
 
-// Validate validates the config.
-func Validate(_ *config.Config) error {
+// Validate validates the config. Exactly one outbound auth mode must
+// be configured: either a shared Synaplan API key (SYNAPLAN_API_KEY)
+// or the full set of OIDC token-exchange variables.
+func Validate(cfg *config.Config) error {
+	hasAPIKey := cfg.SynaplanAPIKey != ""
+	hasTokenExchange := cfg.OIDCTokenEndpoint != "" &&
+		cfg.OIDCExchangeClientID != "" &&
+		cfg.OIDCExchangeSecret != "" &&
+		cfg.OIDCTargetAudience != ""
+
+	if !hasAPIKey && !hasTokenExchange {
+		return errors.New("synaplan-opencloud: no auth mode configured — set either SYNAPLAN_API_KEY or the SYNAPLAN_OIDC_* token-exchange variables")
+	}
+	if hasAPIKey && !strings.HasPrefix(cfg.SynaplanAPIKey, "sk_") {
+		return errors.New("synaplan-opencloud: SYNAPLAN_API_KEY must start with 'sk_' (Synaplan API key format)")
+	}
 	return nil
 }

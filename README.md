@@ -39,18 +39,42 @@ synaplan:
 
 The app menu tile opens this URL in a new tab when set.
 
-**Backend** — env vars (full list with descriptions in [`backend/pkg/config/config.go`](backend/pkg/config/config.go)):
+**Backend** — env vars (full list with descriptions in [`backend/pkg/config/config.go`](backend/pkg/config/config.go)).
+
+The backend authenticates outbound calls to Synaplan in one of two modes. Pick one.
+
+### Mode A: per-user OIDC token exchange (recommended)
+
+Each call to Synaplan rides on the logged-in OpenCloud user's identity, exchanged via Keycloak's RFC 8693 token-exchange grant. Synaplan sees the real user; per-user audit, quotas and rate limits work as expected. Requires Synaplan and OpenCloud to share the same Keycloak realm.
 
 | Var | Purpose |
 |-----|---------|
-| `SYNAPLAN_URL` | Base URL of the Synaplan instance the backend talks to (may differ from the frontend URL when using docker networks). |
-| `SYNAPLAN_OIDC_TOKEN_ENDPOINT` | Keycloak token endpoint, used for RFC 8693 token exchange. |
+| `SYNAPLAN_URL` | Base URL of the Synaplan instance the backend talks to. |
+| `SYNAPLAN_OIDC_TOKEN_ENDPOINT` | Keycloak token endpoint, used for token exchange. |
 | `SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID` / `SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET` | Confidential client credentials that perform the exchange. |
 | `SYNAPLAN_OIDC_TARGET_AUDIENCE` | Audience (Synaplan client ID) baked into the exchanged token. |
+
+### Mode B: shared API key (simple, discouraged)
+
+If standing up token exchange isn't an option — single-tenant deployments, no Keycloak, no shared IdP — the backend can attach a single static Synaplan API key to every outbound call instead. Generate one in Synaplan's API-Keys settings, then set:
+
+| Var | Purpose |
+|-----|---------|
+| `SYNAPLAN_URL` | Base URL of the Synaplan instance. |
+| `SYNAPLAN_API_KEY` | Synaplan API key (`sk_…`). Sent as `X-API-Key` on every outbound call. |
+
+**Caveat:** in this mode every call to Synaplan looks like the same user. There is no per-user identity, no per-OC-user audit trail, no per-user quotas, and you cannot revoke access for an individual OpenCloud user without revoking the key for everyone. Prefer Mode A unless you understand and accept these tradeoffs.
+
+When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` variables are ignored.
+
+### Shared
+
+| Var | Purpose |
+|-----|---------|
 | `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
 | `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. |
 
-The dev defaults live in [`docker-compose.yml`](docker-compose.yml).
+The dev defaults live in [`docker-compose.yml`](docker-compose.yml) and use Mode A.
 
 ## Development
 
