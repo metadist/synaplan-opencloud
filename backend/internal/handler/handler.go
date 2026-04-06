@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -59,7 +61,9 @@ func New(exchanger synaplanauth.TokenExchanger, synaplanURL string, cs3 *cs3read
 	assetProxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
-			pr.Out.URL.Path = "/" + chi.URLParam(pr.In, "name")
+			// Preserve any path prefix in synaplanURL (subpath deployments)
+			// instead of clobbering it with just /name.
+			pr.Out.URL.Path = "/" + strings.TrimLeft(path.Join(target.Path, chi.URLParam(pr.In, "name")), "/")
 			pr.Out.URL.RawPath = ""
 			pr.Out.Host = target.Host
 		},

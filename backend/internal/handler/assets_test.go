@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"testing"
 
@@ -21,7 +22,10 @@ func newAssetTestHandler(target *url.URL) *Handler {
 		assetProxy: &httputil.ReverseProxy{
 			Rewrite: func(pr *httputil.ProxyRequest) {
 				pr.SetURL(target)
-				pr.Out.URL.Path = "/" + chi.URLParam(pr.In, "name")
+				pr.Out.URL.Path = "/" + strings.TrimLeft(
+					path.Join(target.Path, chi.URLParam(pr.In, "name")),
+					"/",
+				)
 				pr.Out.URL.RawPath = ""
 				pr.Out.Host = target.Host
 			},
@@ -119,10 +123,6 @@ func TestAsset_UpstreamErrorBecomesBadGateway(t *testing.T) {
 }
 
 func TestAsset_TrimsDoubleSlashesFromSynaplanURL(t *testing.T) {
-	// Reverse proxies built from a url.URL don't care about trailing
-	// slashes in the original input, but this regression test pins
-	// the invariant: a trailing /`/` on synaplanURL still produces a
-	// single / in the forwarded path.
 	var gotPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -138,5 +138,30 @@ func TestAsset_TrimsDoubleSlashesFromSynaplanURL(t *testing.T) {
 
 	if gotPath != "/single_bird-light.svg" {
 		t.Errorf("upstream path = %q, want /single_bird-light.svg", gotPath)
+	}
+}
+
+func TestAsset_PreservesSubpathInSynaplanURL(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+	}))
+	defer upstream.Close()
+
+	for _, suffix := range []string{"/synaplan", "/synaplan/", "/deep/sub"} {
+		t.Run(suffix, func(t *testing.T) {
+			gotPath = ""
+			target, _ := url.Parse(upstream.URL + suffix)
+			h := newAssetTestHandler(target)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/synaplan/assets/single_bird-dark.svg", nil)
+			rr := httptest.NewRecorder()
+			routeAsset(h).ServeHTTP(rr, req)
+
+			want := strings.TrimRight(suffix, "/") + "/single_bird-dark.svg"
+			if gotPath != want {
+				t.Errorf("upstream path = %q, want %q", gotPath, want)
+			}
+		})
 	}
 }
