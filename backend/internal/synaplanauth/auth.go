@@ -66,23 +66,36 @@ func OIDCTokenFromContext(ctx context.Context) string {
 //     header. The OpenCloud proxy forwards the original OIDC access
 //     token unchanged (it only adds x-access-token for the reva JWT),
 //     so "Bearer <token>" here is the user's Keycloak access token.
+//  3. The reva access token from the x-access-token header (set by the
+//     proxy after OIDC auth) is lifted into the context via
+//     revactx.ContextSetToken so anything downstream — including
+//     cs3reader calling the CS3 gateway — can pull it back via
+//     revactx.ContextMustGetToken without touching the request.
 //
-// On success the OIDC token is stored in the request context for
-// later use by NewRequestEditor. On failure the request is rejected
-// with 401 before the handler runs, so handlers can assume both a
-// reva user and an OIDC token are present.
+// On success both tokens are stored in the request context. On
+// failure the request is rejected with 401 before the handler runs,
+// so handlers can assume a reva user, a reva access token and an
+// OIDC token are all present.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := revactx.ContextGetUser(r.Context()); !ok {
 			http.Error(w, "unauthorized: no user in request context", http.StatusUnauthorized)
 			return
 		}
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || token == "" {
+		oidcToken, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || oidcToken == "" {
 			http.Error(w, "unauthorized: missing OIDC bearer token", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(ContextWithOIDCToken(r.Context(), token)))
+		revaToken := r.Header.Get(revactx.TokenHeader)
+		if revaToken == "" {
+			http.Error(w, "unauthorized: missing reva access token", http.StatusUnauthorized)
+			return
+		}
+		ctx := r.Context()
+		ctx = ContextWithOIDCToken(ctx, oidcToken)
+		ctx = revactx.ContextSetToken(ctx, revaToken)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
