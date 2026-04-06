@@ -27,12 +27,6 @@ const TEST_PASSWORD = 'testpass123'
 // reused for API setup — this is the explicit fixture target.
 const OC_API_URL = process.env.OC_API_URL ?? 'https://host.docker.internal:9200'
 
-// LLM-backed translation cannot run against Synaplan's CI test stack —
-// it has no working model configured. Gate the whole file on CI so it
-// runs locally against a real dev stack but stays green in CI until we
-// wire a usable model in (tracked as a followup task).
-test.skip(!!process.env.CI, 'translation requires a working Synaplan model; CI test stack has none')
-
 let userPage: Page
 let webDavUrl: string
 let accessToken: string

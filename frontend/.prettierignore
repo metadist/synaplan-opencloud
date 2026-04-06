@@ -2,3 +2,6 @@ pnpm-lock.yaml
 **/manifest.json
 **/translations.json
 dist/
+test-results/
+playwright-report/
+.__mf__temp/

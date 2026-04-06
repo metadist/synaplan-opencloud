@@ -10,9 +10,14 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: metadist/synaplan-opencloud
-  # Pinned synaplan dependency — update both together when bumping.
-  SYNAPLAN_REF: fffae255a6dc7974a2e4612bebf6e018da57bcf8
-  SYNAPLAN_IMAGE_DIGEST: sha256:71d343f439d0de8aa46dba95946a4b7948175d27b73599ebcfc6a6a8e4e1a66d
+  # Pinned synaplan dependency — single source of truth for both CI
+  # and backend/scripts/generate-synaplan-client.sh (which greps the
+  # digest out of this file when running locally). The digest line is
+  # auto-updated by Renovate via the customManager defined in
+  # renovate.json5. SYNAPLAN_REF is updated manually alongside the
+  # digest when moving to a new synaplan release.
+  SYNAPLAN_REF: 471d41d6ef73683b3c27714be7262b1c90c3010a
+  SYNAPLAN_IMAGE_DIGEST: sha256:c78c1fa42f44f5befc42ee163c78ad55e6141fec64322d76537ca565ca545482
 
 jobs:
   frontend:
@@ -196,7 +201,11 @@ jobs:
           APP_IMAGE: ghcr.io/metadist/synaplan@${{ env.SYNAPLAN_IMAGE_DIGEST }}
         run: |
           docker pull $APP_IMAGE
-          COMPOSE="docker compose -f docker-compose.test.yml -f docker-compose.test.ci.yml --profile oidc"
+          # --profile oidc brings up Keycloak + client setup so OpenCloud
+          # can authenticate. --profile integration brings up Tika, which
+          # the backend uses to extract text from PDFs / Office docs
+          # during the binary-document translate flow.
+          COMPOSE="docker compose -f docker-compose.test.yml -f docker-compose.test.ci.yml --profile oidc --profile integration"
           $COMPOSE up -d --wait
           echo "Waiting for Keycloak setup..."
           docker wait synaplan-keycloak-setup-test
@@ -265,7 +274,7 @@ jobs:
         if: always()
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
-          cd synaplan && docker compose -f docker-compose.test.yml -f docker-compose.test.ci.yml --profile oidc down -v
+          cd synaplan && docker compose -f docker-compose.test.yml -f docker-compose.test.ci.yml --profile oidc --profile integration down -v
 
   docker-push:
     name: Docker Push
