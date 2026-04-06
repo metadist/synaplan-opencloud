@@ -1,10 +1,10 @@
 services:
   opencloud:
     image: opencloudeu/opencloud-rolling:6.0.0@sha256:283b1df495bd7c8571868bb8662336cc6e6fe3078b0bf907955651f245cf938f
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: /bin/sh
     command: ['-c', 'opencloud init || true && opencloud server']
-    ports:
-      - "9200:9200"
     environment:
       OC_URL: https://host.docker.internal:9200
       OC_INSECURE: "true"
@@ -14,6 +14,7 @@ services:
       GATEWAY_GRPC_ADDR: 0.0.0.0:9142
       IDM_ADMIN_PASSWORD: admin
       PROXY_ENABLE_BASIC_AUTH: "true"
+      PROXY_TLS: "false"
       PROXY_CSP_CONFIG_FILE_LOCATION: /etc/opencloud/csp.yaml
       WEB_ASSET_APPS_PATH: /web/apps
       WEB_UI_CONFIG_FILE: /web/config.json
@@ -24,14 +25,50 @@ services:
       WEB_OIDC_CLIENT_ID: opencloud
       PROXY_OIDC_INSECURE: "true"
       PROXY_AUTOPROVISION_ACCOUNTS: "true"
+    labels:
+      traefik.enable: true
+      traefik.http.routers.opencloud.tls: true
+      traefik.http.routers.opencloud.rule: Host(`host.docker.internal`) && PathPrefix(`/`)
+      traefik.http.routers.opencloud.entrypoints: opencloud
+      traefik.http.services.opencloud.loadbalancer.server.port: 9200
+      traefik.http.routers.opencloud.middlewares: cors
     volumes:
       - opencloud-config:/etc/opencloud
       - ./frontend/dist:/web/apps/synaplan
       - ./dev/docker/opencloud.proxy.config.yaml:/etc/opencloud/proxy.yaml
       - ./dev/docker/opencloud.csp.config.yaml:/etc/opencloud/csp.yaml
       - ./dev/docker/opencloud.web.config.json:/web/config.json
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      - traefik
+
+  traefik:
+    image: traefik:v3.6.11
+    restart: unless-stopped
+    entrypoint:
+      - '/bin/sh'
+      - '-c'
+      - "[ -f /certificates/server.key ] && ./entrypoint.sh $$@ || (apk add openssl && openssl req -subj '/CN=host.docker.internal' -x509 -sha256 -nodes -days 3650 -newkey rsa:2048 -keyout /certificates/server.key -out /certificates/server.crt && chmod -R 777 /certificates && ./entrypoint.sh $$@)"
+    command:
+      - '--log.level=ERROR'
+      - '--api.dashboard=false'
+      - '--providers.file.directory=/configs'
+      - '--providers.docker=true'
+      - '--providers.docker.exposedbydefault=false'
+      - '--entrypoints.opencloud.address=:9200'
+    labels:
+      traefik.enable: true
+      traefik.http.middlewares.cors.headers.accesscontrolallowmethods: '*'
+      traefik.http.middlewares.cors.headers.accesscontrolallowheaders: '*'
+      traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist: 'https://host.docker.internal:9200,https://host.docker.internal:9201'
+      traefik.http.middlewares.cors.headers.accesscontrolexposeheaders: '*'
+      traefik.http.middlewares.cors.headers.accesscontrolmaxage: 100
+      traefik.http.middlewares.cors.headers.addvaryheader: true
+    ports:
+      - '9200:9200'
+    volumes:
+      - './dev/docker/traefik/certificates:/certificates'
+      - './dev/docker/traefik/configs:/configs'
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
 
   synaplan-backend:
     build:

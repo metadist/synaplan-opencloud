@@ -1,4 +1,4 @@
-.PHONY: frontend-install frontend-build frontend-dev frontend-lint frontend-format-check frontend-format frontend-typecheck frontend-test-unit frontend-test-e2e backend-build backend-dev backend-test backend-lint backend-format format docker-up docker-down
+.PHONY: frontend-install frontend-build frontend-serve frontend-lint frontend-format-check frontend-format frontend-typecheck frontend-test-unit frontend-test-e2e frontend-test-e2e-dev backend-build backend-dev backend-test backend-lint backend-format format docker-up docker-down
 
 # Frontend
 frontend-install:
@@ -7,8 +7,8 @@ frontend-install:
 frontend-build:
 	cd frontend && pnpm build
 
-frontend-dev:
-	cd frontend && pnpm build:w
+frontend-serve:
+	cd frontend && pnpm serve
 
 frontend-lint:
 	cd frontend && pnpm lint
@@ -27,6 +27,9 @@ frontend-test-unit:
 
 frontend-test-e2e:
 	cd frontend && pnpm test:e2e
+
+frontend-test-e2e-dev:
+	cd frontend && pnpm test:e2e:dev
 
 # Backend
 backend-build:

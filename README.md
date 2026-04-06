@@ -29,15 +29,16 @@ make frontend-install && make frontend-build && make docker-up
 
 ```bash
 # Frontend
-make frontend-install      # Install dependencies
-make frontend-build        # Production build
-make frontend-dev          # Watch mode (rebuild on change)
-make frontend-lint         # ESLint
-make frontend-format       # Prettier (write)
-make frontend-format-check # Prettier (check)
-make frontend-typecheck    # TypeScript type check
-make frontend-test-unit    # Vitest unit tests
-make frontend-test-e2e     # Playwright E2E tests
+make frontend-install       # Install dependencies
+make frontend-serve         # Vite dev server on :9201 (with HMR, auto-registers in OpenCloud)
+make frontend-build         # Production build (CI only)
+make frontend-lint          # ESLint
+make frontend-format        # Prettier (write)
+make frontend-format-check  # Prettier (check)
+make frontend-typecheck     # TypeScript type check
+make frontend-test-unit     # Vitest unit tests
+make frontend-test-e2e      # Playwright E2E tests (against :9200)
+make frontend-test-e2e-dev  # Playwright E2E tests (against vite dev server :9201)
 
 # Backend
 make backend-build         # Build Go binary
