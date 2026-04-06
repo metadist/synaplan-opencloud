@@ -4,9 +4,14 @@ import { createContext, closeContext } from './actorHelper'
 
 /**
  * Get an OIDC access token from Keycloak via the Resource Owner
- * Password grant. Used by E2E tests to call OpenCloud's graph /
- * WebDAV APIs directly (e.g. for file fixture setup) without going
- * through the full UI login flow.
+ * Password grant. Used by E2E tests to call backend APIs directly
+ * (OpenCloud's graph / WebDAV, or Synaplan's own /api/v1/...) without
+ * going through the full UI login flow.
+ *
+ * Defaults to the public `opencloud` client. Pass `clientId:
+ * 'synaplan-app'` + the matching `clientSecret` to get a Synaplan-
+ * scoped token instead — that client is confidential and requires
+ * the secret in the form body.
  *
  * `scope=openid` is mandatory — without it Keycloak hands back a token
  * OC's proxy rejects with 401.
@@ -19,6 +24,7 @@ export async function getAccessToken(
     keycloakUrl?: string
     realm?: string
     clientId?: string
+    clientSecret?: string
   } = {}
 ): Promise<string> {
   // Local dev: synaplan's `docker compose --profile oidc` publishes
@@ -30,14 +36,19 @@ export async function getAccessToken(
   const realm = opts.realm ?? 'synaplan'
   const clientId = opts.clientId ?? 'opencloud'
 
+  const form: Record<string, string> = {
+    grant_type: 'password',
+    client_id: clientId,
+    scope: 'openid',
+    username,
+    password
+  }
+  if (opts.clientSecret) {
+    form.client_secret = opts.clientSecret
+  }
+
   const resp = await request.post(`${keycloakUrl}/realms/${realm}/protocol/openid-connect/token`, {
-    form: {
-      grant_type: 'password',
-      client_id: clientId,
-      scope: 'openid',
-      username,
-      password
-    }
+    form
   })
   if (!resp.ok()) {
     throw new Error(`keycloak token request failed: ${resp.status()} ${await resp.text()}`)

@@ -269,6 +269,7 @@ jobs:
         env:
           BASE_URL_OC: https://host.docker.internal:9200
           KEYCLOAK_HTTPS_URL: https://host.docker.internal:8444
+          SYNAPLAN_API_URL: http://host.docker.internal:8001
         run: pnpm test:e2e
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

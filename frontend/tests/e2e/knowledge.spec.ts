@@ -8,6 +8,7 @@ import {
   uploadFileFromDisk,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
+import { wipeKnowledgeGroup } from '../../support/helpers/synaplanApiHelper'
 
 const TESTS_DIR = 'synaplan-e2e'
 
@@ -18,7 +19,13 @@ const PDF_FIXTURE_PATH = fileURLToPath(
 const TEST_USER = 'testuser@synaplan.com'
 const TEST_PASSWORD = 'testpass123'
 
+// Fixed group name across all runs — beforeEach wipes it via the
+// Synaplan API so the test always exercises the "create new" flow
+// from a clean slate, and CI doesn't accumulate group entries.
+const KNOWLEDGE_GROUP = 'OC_E2E_TEST'
+
 const OC_API_URL = process.env.OC_API_URL ?? 'https://host.docker.internal:9200'
+const SYNAPLAN_API_URL = process.env.SYNAPLAN_API_URL ?? 'http://host.docker.internal:8001'
 
 let userPage: Page
 let webDavUrl: string
@@ -32,6 +39,14 @@ test.beforeEach(async ({ browser, request }) => {
   filesToCleanup.length = 0
 
   await ensureFolder(request, webDavUrl, accessToken, TESTS_DIR)
+
+  // Wipe any leftover files in the test group via Synaplan's own API
+  // so the dialog always opens against an empty group.
+  const synaplanToken = await getAccessToken(request, TEST_USER, TEST_PASSWORD, {
+    clientId: 'synaplan-app',
+    clientSecret: 'test-oidc-secret'
+  })
+  await wipeKnowledgeGroup(request, SYNAPLAN_API_URL, synaplanToken, KNOWLEDGE_GROUP)
 
   userPage = (await loginAsUser(browser, TEST_USER, TEST_PASSWORD)).page
 })
@@ -79,7 +94,7 @@ test('add a text file to a knowledge group end-to-end', async ({ request }) => {
   filesToCleanup.push(remotePath)
 
   await navigateToTestsFolder(userPage)
-  await runKnowledgeFlow(userPage, baseName, `OC_TEST_${Date.now()}`)
+  await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
 })
 
 test('add a PDF file to a knowledge group end-to-end', async ({ request }) => {
@@ -99,7 +114,7 @@ test('add a PDF file to a knowledge group end-to-end', async ({ request }) => {
   filesToCleanup.push(remotePath)
 
   await navigateToTestsFolder(userPage)
-  await runKnowledgeFlow(userPage, baseName, `OC_TEST_${Date.now()}`)
+  await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
 })
 
 async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) {
