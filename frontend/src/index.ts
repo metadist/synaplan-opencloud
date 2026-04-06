@@ -12,6 +12,7 @@ import { computed } from 'vue'
 import Synaplan from './views/Synaplan.vue'
 import { useTranslationExtension } from './extensions/useTranslationExtension'
 import { useSummarizeExtension } from './extensions/useSummarizeExtension'
+import { useKnowledgeExtension } from './extensions/useKnowledgeExtension'
 
 const appId = 'synaplan'
 
@@ -47,6 +48,7 @@ export default defineWebApplication({
 
     const translationExtension = useTranslationExtension()
     const summarizeExtension = useSummarizeExtension()
+    const knowledgeExtension = useKnowledgeExtension()
 
     const extensions = computed<Extension[]>(() => [
       {
@@ -59,7 +61,8 @@ export default defineWebApplication({
         path: urlJoin(appInfo.id)
       } satisfies AppMenuItemExtension,
       translationExtension,
-      summarizeExtension
+      summarizeExtension,
+      knowledgeExtension
     ])
 
     return {
