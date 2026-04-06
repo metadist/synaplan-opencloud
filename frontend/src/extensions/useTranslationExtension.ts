@@ -65,7 +65,7 @@ export const useTranslationExtension = (): ActionExtension => {
     action: {
       name: 'translate',
       icon: 'translate-2',
-      iconFillType: 'line',
+      iconFillType: 'none',
       label: () => $gettext('Translate with Synaplan…'),
       // Follows the repo-wide convention for file action trigger
       // classes (e.g. .oc-files-actions-copy-trigger). Stable

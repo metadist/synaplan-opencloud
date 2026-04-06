@@ -1,5 +1,12 @@
 <template>
   <div class="ext:flex ext:flex-col ext:gap-4" data-testid="synaplan-translation-dialog">
+    <img
+      :src="birdSrc"
+      alt=""
+      class="ext:h-10 ext:w-10 ext:self-center"
+      data-testid="synaplan-translation-logo"
+    />
+
     <!-- File being translated -->
     <p class="ext:text-sm ext:text-role-on-surface-variant">
       {{ resource.name }}
@@ -73,9 +80,11 @@ import { useClientService, useLoadingService, useMessages, type Modal } from '@o
 import { useClipboard } from '@vueuse/core'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
+import { useSynaplanBird } from '../composables/useSynaplanBird'
 
 // The dialog is mounted by the modal system via dispatchModal({
-// customComponent: TranslationDialog, customComponentAttrs: () => ({ resource }) }).
+// customComponent: TranslationDialog,
+// customComponentAttrs: () => ({ resource }) }).
 // `modal` is auto-injected by the modal host; `resource` is forwarded
 // from customComponentAttrs.
 const props = defineProps<{
@@ -86,6 +95,8 @@ const props = defineProps<{
     mimeType?: string
   }
 }>()
+
+const birdSrc = useSynaplanBird()
 
 const { $gettext } = useGettext()
 const { httpAuthenticated } = useClientService()

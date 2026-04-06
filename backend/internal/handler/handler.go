@@ -8,6 +8,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"path"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
@@ -22,6 +28,8 @@ import (
 //     triggered it via OIDC token exchange.
 //   - cs3 reads file bytes from OpenCloud storage via the reva
 //     gateway for file-based operations like /translate.
+//   - assetProxy streams whitelisted brand assets from the paired
+//     Synaplan install for the public /api/synaplan/assets endpoint.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -32,6 +40,7 @@ type Handler struct {
 	synaplanURL string
 	synaplanAPI *synaplanapi.ClientWithResponses
 	cs3         *cs3reader.Reader
+	assetProxy  *httputil.ReverseProxy
 }
 
 // New creates a new Handler.
@@ -44,10 +53,27 @@ func New(exchanger synaplanauth.TokenExchanger, synaplanURL string, cs3 *cs3read
 	if err != nil {
 		return nil, fmt.Errorf("creating synaplan API client: %w", err)
 	}
+
+	target, err := url.Parse(synaplanURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing synaplan url: %w", err)
+	}
+	assetProxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			// Preserve any path prefix in synaplanURL (subpath deployments)
+			// instead of clobbering it with just /name.
+			pr.Out.URL.Path = "/" + strings.TrimLeft(path.Join(target.Path, chi.URLParam(pr.In, "name")), "/")
+			pr.Out.URL.RawPath = ""
+			pr.Out.Host = target.Host
+		},
+	}
+
 	return &Handler{
 		synaplanURL: synaplanURL,
 		synaplanAPI: apiClient,
 		cs3:         cs3,
+		assetProxy:  assetProxy,
 	}, nil
 }
 

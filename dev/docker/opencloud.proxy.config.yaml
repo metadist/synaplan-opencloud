@@ -1,5 +1,9 @@
 additional_policies:
   - name: default
     routes:
+      # Must come before /api/synaplan — prefix routes are first-match-wins.
+      - endpoint: /api/synaplan/assets
+        backend: http://synaplan-backend:9106
+        unprotected: true
       - endpoint: /api/synaplan
         backend: http://synaplan-backend:9106

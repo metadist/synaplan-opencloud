@@ -3,7 +3,16 @@
     class="ext:flex ext:h-full ext:items-start ext:justify-center ext:overflow-auto ext:p-8 ext:pt-24"
   >
     <div class="ext:w-full ext:max-w-xl ext:space-y-6">
-      <h1 class="ext:text-2xl ext:font-bold" data-testid="synaplan-title">
+      <h1
+        class="ext:text-2xl ext:font-bold ext:flex ext:items-center ext:gap-3"
+        data-testid="synaplan-title"
+      >
+        <img
+          :src="birdSrc"
+          alt=""
+          class="ext:h-8 ext:w-8 ext:shrink-0"
+          data-testid="synaplan-title-logo"
+        />
         <a
           v-if="synaplanUrl"
           :href="synaplanUrl"
@@ -19,6 +28,18 @@
 
       <p class="ext:text-sm ext:text-role-on-surface-variant">
         Test the connection to your Synaplan instance via OIDC token exchange.
+      </p>
+
+      <p v-if="modelsConfigUrl" class="ext:text-sm">
+        <a
+          :href="modelsConfigUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:ext:underline"
+          data-testid="synaplan-models-link"
+        >
+          Manage AI models →
+        </a>
       </p>
 
       <oc-button
@@ -48,13 +69,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
+import { useSynaplanBird } from '../composables/useSynaplanBird'
 
-defineProps<{
+const props = defineProps<{
   synaplanUrl?: string
 }>()
+
+const birdSrc = useSynaplanBird()
+
+const modelsConfigUrl = computed(() =>
+  props.synaplanUrl ? `${props.synaplanUrl.replace(/\/+$/, '')}/config/ai-models` : ''
+)
 
 const healthSchema = z.object({
   status: z.string(),
