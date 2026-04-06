@@ -112,14 +112,20 @@ async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) 
   await expect(dialog).toBeVisible({ timeout: 10_000 })
 
   // The group picker is a taggable oc-select wrapping vue-select.
-  // Type into the inner search input and press Enter to create a new
-  // tag. createOption normalises to upper case, so we expect that
-  // back in the success state.
-  const searchInput = page.locator('[data-testid="synaplan-knowledge-group"] .vs__search')
-  await searchInput.fill(groupKey)
-  await searchInput.press('Enter')
+  // fill() doesn't fire the input events vue-select needs to build
+  // its create-option ghost entry, so click the toggle to open +
+  // focus the search input, type with real keystrokes, then click
+  // the highlighted create option in the dropdown. createOption
+  // normalises to upper case so we assert on that.
+  const picker = page.locator('[data-testid="synaplan-knowledge-group"]')
+  await picker.locator('.vs__dropdown-toggle').click()
+  await page.keyboard.type(groupKey)
+  await picker.locator('.vs__dropdown-option').first().click()
 
-  await page.locator('[data-testid="synaplan-knowledge-submit"]').click()
+  // Submit button enables once vue-select has emitted option:created.
+  const submit = page.locator('[data-testid="synaplan-knowledge-submit"]')
+  await expect(submit).toBeEnabled({ timeout: 5_000 })
+  await submit.click()
 
   const success = page.locator('[data-testid="synaplan-knowledge-success"]')
   await expect(success).toBeVisible({ timeout: 30_000 })
