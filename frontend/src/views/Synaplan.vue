@@ -87,10 +87,9 @@ const modelsConfigUrl = computed(() =>
 const healthSchema = z.object({
   status: z.string(),
   timestamp: z.string().optional(),
-  synaplan_url: z.string().optional(),
-  user_id: z.string().optional(),
-  token_ok: z.boolean().optional(),
-  synaplan_response: z.string().optional(),
+  synaplanUrl: z.string().optional(),
+  userId: z.string().optional(),
+  synaplanResponse: z.string().optional(),
   error: z.string().optional()
 })
 

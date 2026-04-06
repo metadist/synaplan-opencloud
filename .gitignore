@@ -3,6 +3,5 @@ frontend/dist/
 frontend/.__mf__temp/
 frontend/test-results/
 frontend/playwright-report/
-frontend/src/config.json
 backend/vendor/
 .env

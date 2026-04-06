@@ -38,6 +38,7 @@ services:
       - ./dev/docker/opencloud.proxy.config.yaml:/etc/opencloud/proxy.yaml
       - ./dev/docker/opencloud.csp.config.yaml:/etc/opencloud/csp.yaml
       - ./dev/docker/opencloud.web.config.json:/web/config.json
+      - ./dev/docker/opencloud.apps.yaml:/etc/opencloud/apps.yaml
     depends_on:
       - traefik
 

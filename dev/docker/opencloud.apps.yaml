@@ -1,0 +1,3 @@
+synaplan:
+  config:
+    synaplanUrl: 'http://host.docker.internal:8000'

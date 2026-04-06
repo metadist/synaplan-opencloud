@@ -20,13 +20,11 @@ export default defineWebApplication({
   setup({ applicationConfig }) {
     const { $gettext } = useGettext()
 
-    // applicationConfig is the merged config.* block from the
-    // extension's manifest.json plus overrides from src/config.json
-    // (the latter is git-ignored and provides deployment-specific
-    // values). synaplan_url points at the Synaplan install this
-    // extension is paired with — used by the Synaplan view to link
-    // the headline back to the underlying install.
-    const synaplanUrl = (applicationConfig?.synaplan_url as string | undefined) ?? ''
+    // synaplanUrl points at the Synaplan install this extension is
+    // paired with. Operators set it via OpenCloud's apps.yaml; the
+    // default in manifest.json is empty so the link/heading just
+    // hides itself when nothing is configured.
+    const synaplanUrl = (applicationConfig?.synaplanUrl as string | undefined) ?? ''
 
     const routes = [
       {
@@ -50,16 +48,18 @@ export default defineWebApplication({
     const summarizeExtension = useSummarizeExtension()
     const knowledgeExtension = useKnowledgeExtension()
 
+    const menuItem: AppMenuItemExtension = {
+      id: `app.${appInfo.id}.menuItem`,
+      type: 'appMenuItem',
+      label: () => appInfo.name,
+      color: '#00b79d',
+      icon: appInfo.icon,
+      priority: 50,
+      ...(synaplanUrl ? { url: synaplanUrl } : { path: urlJoin(appInfo.id) })
+    }
+
     const extensions = computed<Extension[]>(() => [
-      {
-        id: `app.${appInfo.id}.menuItem`,
-        type: 'appMenuItem',
-        label: () => appInfo.name,
-        color: '#00b79d',
-        icon: appInfo.icon,
-        priority: 50,
-        path: urlJoin(appInfo.id)
-      } satisfies AppMenuItemExtension,
+      menuItem,
       translationExtension,
       summarizeExtension,
       knowledgeExtension

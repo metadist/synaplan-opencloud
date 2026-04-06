@@ -12,9 +12,9 @@ import (
 type meResponse struct {
 	Status       string `json:"status"`
 	Timestamp    string `json:"timestamp"`
-	SynaplanURL  string `json:"synaplan_url"`
-	UserID       string `json:"user_id"`
-	SynaplanResp string `json:"synaplan_response,omitempty"`
+	SynaplanURL  string `json:"synaplanUrl"`
+	UserID       string `json:"userId"`
+	SynaplanResp string `json:"synaplanResponse,omitempty"`
 	Error        string `json:"error,omitempty"`
 }
 
