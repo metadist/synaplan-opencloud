@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+
+	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
 // TokenExchanger defines the interface for token exchange operations.
@@ -21,17 +23,31 @@ type TokenExchanger interface {
 type Handler struct {
 	exchanger   TokenExchanger
 	synaplanURL string
-	httpClient  *http.Client
+	synaplanAPI *synaplanapi.ClientWithResponses
 }
 
 // New creates a new Handler.
-func New(exchanger TokenExchanger, synaplanURL string) *Handler {
+func New(exchanger TokenExchanger, synaplanURL string) (*Handler, error) {
+	apiClient, err := synaplanapi.NewClientWithResponses(
+		synaplanURL,
+		synaplanapi.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating synaplan API client: %w", err)
+	}
 	return &Handler{
 		exchanger:   exchanger,
 		synaplanURL: synaplanURL,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		synaplanAPI: apiClient,
+	}, nil
+}
+
+// withBearerToken returns a RequestEditorFn that sets the Authorization
+// header to the given bearer token on outgoing requests.
+func withBearerToken(token string) synaplanapi.RequestEditorFn {
+	return func(_ context.Context, req *http.Request) error {
+		req.Header.Set("Authorization", "Bearer "+token)
+		return nil
 	}
 }
 
@@ -91,19 +107,9 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 2: Call Synaplan /api/v1/auth/me with exchanged token (verifies auth works)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.synaplanURL+"/api/v1/auth/me", nil)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, meResponse{
-			Timestamp: now(),
-			Status:    "error",
-			Error:     fmt.Sprintf("creating request: %v", err),
-		})
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+synaplanToken)
-
-	resp, err := h.httpClient.Do(req)
+	// Step 2: Call Synaplan /api/v1/auth/me with exchanged token via the
+	// generated client (verifies auth works end-to-end).
+	resp, err := h.synaplanAPI.GetApiAuthMeWithResponse(r.Context(), withBearerToken(synaplanToken))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, meResponse{
 			Timestamp:   now(),
@@ -115,9 +121,6 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, _ := io.ReadAll(resp.Body)
 
 	writeJSON(w, http.StatusOK, meResponse{
 		Timestamp:    now(),
@@ -125,7 +128,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		SynaplanURL:  h.synaplanURL,
 		UserID:       userID,
 		TokenOK:      true,
-		SynaplanResp: string(body),
+		SynaplanResp: string(resp.Body),
 	})
 }
 

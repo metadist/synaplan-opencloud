@@ -62,7 +62,10 @@ func Server(cfg *config.Config) *cobra.Command {
 				cfg.OIDCTargetAudience,
 			)
 
-			h := handler.New(exchanger, cfg.SynaplanURL)
+			h, err := handler.New(exchanger, cfg.SynaplanURL)
+			if err != nil {
+				return fmt.Errorf("could not create handler: %w", err)
+			}
 
 			mux := chi.NewMux()
 			mux.Use(
