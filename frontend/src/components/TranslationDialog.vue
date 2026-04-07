@@ -19,6 +19,7 @@
         :clearable="false"
         :searchable="false"
         :disabled="phase === 'loading'"
+        :position-fixed="true"
         option-label="label"
         data-testid="synaplan-translation-language"
         @update:model-value="onLanguageChange"
