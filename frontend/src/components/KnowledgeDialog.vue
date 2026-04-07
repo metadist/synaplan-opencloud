@@ -19,6 +19,7 @@
         :taggable="true"
         :clearable="false"
         :loading="groupsLoading"
+        :position-fixed="true"
         :create-option="createOption"
         :description-message="
           $gettext('Pick an existing group or type a new name — Synaplan will create it.')
