@@ -202,7 +202,7 @@ jobs:
         run: |
           docker pull $APP_IMAGE
           # --profile oidc: Keycloak. --profile integration: Tika (PDF/Office).
-          # Synaplan-Test-Stack nutzt den kleinen ollama-stub (siehe synaplan docker-compose), kein großes ollama/ollama:latest-Image mehr.
+          # docker-compose.test.ci.yml overrides ollama_test profiles so the ollama/ollama image is not pulled (app_test uses ollama-stub).
           COMPOSE="docker compose \
             -f docker-compose.test.yml \
             -f docker-compose.test.ci.yml \
