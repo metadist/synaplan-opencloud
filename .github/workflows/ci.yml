@@ -201,18 +201,11 @@ jobs:
           APP_IMAGE: ghcr.io/metadist/synaplan@${{ env.SYNAPLAN_IMAGE_DIGEST }}
         run: |
           docker pull $APP_IMAGE
-          # --profile oidc brings up Keycloak + client setup so OpenCloud
-          # can authenticate. --profile integration brings up Tika, which
-          # the backend uses to extract text from PDFs / Office docs
-          # during the binary-document translate flow. The third -f file
-          # is a CI-only override that drops ollama_test out of the
-          # integration profile so we don't pull ollama/ollama:latest
-          # (~3.7 GB) on every E2E run — the translate flow uses Synaplan's
-          # test AI provider, it never talks to Ollama.
+          # --profile oidc: Keycloak. --profile integration: Tika (PDF/Office).
+          # Synaplan-Test-Stack nutzt den kleinen ollama-stub (siehe synaplan docker-compose), kein großes ollama/ollama:latest-Image mehr.
           COMPOSE="docker compose \
             -f docker-compose.test.yml \
             -f docker-compose.test.ci.yml \
-            -f ../dev/docker/synaplan-test.no-ollama.yml \
             --profile oidc --profile integration"
           $COMPOSE up -d --wait
           echo "Waiting for Keycloak setup..."
