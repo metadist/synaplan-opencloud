@@ -1,0 +1,59 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Publish the built site to GitHub Pages (normally only on main).
+        type: boolean
+        default: false
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      site-path: ${{ steps.build.outputs.site-path }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: build
+        uses: dschmidt/opencloud-service-docs-action@83eaaba894ee5f963f7e5764d7cb2454f7d3aba5
+
+      # PR dry-run: downloadable site preview, never published.
+      - name: Upload PR preview artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-preview
+          path: ${{ steps.build.outputs.site-path }}
+          retention-days: 14
+
+      # Pages-bound artifact for main / manual deploys.
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' || inputs.deploy
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ steps.build.outputs.site-path }}
+
+  deploy:
+    if: github.ref == 'refs/heads/main' || inputs.deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

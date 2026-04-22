@@ -1,0 +1,23 @@
+# Service configuration consumed by .github/actions/build-service-docs.
+# Every field is optional unless marked <required>; see the action's README
+# for the full schema and autodetection rules.
+
+service:
+  # Internal service identifier. Used as the directory name for the
+  # pseudo-service inside the opencloud clone and as the filename prefix
+  # for generator output. Must match the Name field set in the service's
+  # config.Service{Name: "..."}.
+  name: synaplan
+  # go.mod lives under backend/, not the repo root.
+  go_mod_dir: backend
+
+site:
+  title: synaplan-opencloud
+  tagline: Synaplan AI extension for OpenCloud
+
+pins:
+  # opencloud-eu/markdown-docs-generator
+  generator_ref: 80a5711c890de7720f53e585a32cb8be47b27709
+  # opencloud-eu/docs (theme source; AGPL-3.0 — inherits to published site)
+  theme_ref: 0909f2d83e91f107a770ae5da3b8d3127279c26c
+  # opencloud-eu/opencloud ref is resolved automatically from backend/go.mod.
