@@ -104,6 +104,11 @@ make format                # Format frontend + backend
 # Docker
 make docker-up             # Start OpenCloud + backend
 make docker-down           # Stop
+
+# Docs (service reference site — env vars, example config, deprecations)
+make docs                  # Build Docusaurus site into docs/generated/ (gitignored)
+make docs-serve-prod       # Serve the built site at http://localhost:3000
+make docs-clean            # Wipe .cache/ + docs/generated/
 ```
 
 ## License
