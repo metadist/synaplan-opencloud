@@ -2,6 +2,8 @@
 
 > **Early development — not ready for production use.**
 
+📖 **[Service reference docs](https://metadist.github.io/synaplan-opencloud/)** — env vars, example config, and deprecations, regenerated from the `main` branch on every push.
+
 OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/synaplan) AI features into OpenCloud. Uses [RFC 8693 token exchange](https://datatracker.ietf.org/doc/html/rfc8693) for per-user authentication.
 
 ![Screenshot](docs/screenshot.png)
