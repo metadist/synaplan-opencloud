@@ -2,7 +2,7 @@ module github.com/metadist/synaplan-opencloud
 
 go 1.25.0
 
-replace github.com/studio-b12/gowebdav => github.com/kobergj/gowebdav v0.0.0-20250102091030-aa65266db202
+replace github.com/studio-b12/gowebdav => github.com/kobergj/gowebdav v0.0.0-20251030165916-532350997dde
 
 replace github.com/unrolled/secure => github.com/opencloud-eu/secure v0.0.0-20260312082735-b6f5cb2244e4
 
@@ -13,10 +13,12 @@ replace github.com/go-micro/plugins/v4/store/nats-js-kv => github.com/opencloud-
 replace github.com/pablodz/inotifywaitgo v0.0.9 => github.com/opencloud-eu/inotifywaitgo v0.0.0-20251111171128-a390bae3c5e9
 
 require (
+	github.com/cs3org/go-cs3apis v0.0.0-20260310080202-fb97596763d6
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/opencloud-eu/opencloud v1.1.1-0.20260309132930-a8430384a1b7
 	github.com/opencloud-eu/reva/v2 v2.42.6-0.20260311175421-d77bc89ffe35
 	github.com/spf13/cobra v1.10.2
+	google.golang.org/grpc v1.79.3
 )
 
 require (
@@ -50,7 +52,6 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0 // indirect
 	github.com/cornelk/hashmap v1.0.8 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
-	github.com/cs3org/go-cs3apis v0.0.0-20260310080202-fb97596763d6 // indirect
 	github.com/cyphar/filepath-securejoin v0.5.1 // indirect
 	github.com/davidbyttow/govips/v2 v2.17.0 // indirect
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
@@ -241,7 +242,6 @@ require (
 	google.golang.org/genproto v0.0.0-20250303144028-a0af3efb3deb // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect
-	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
