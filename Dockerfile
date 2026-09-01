@@ -15,7 +15,7 @@ RUN test -f internal/synaplanapi/client.gen.go || { \
 
 RUN CGO_ENABLED=0 go build -o /synaplan-opencloud ./cmd/synaplan
 
-FROM alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 COPY --from=builder /synaplan-opencloud /usr/local/bin/synaplan-opencloud
 COPY frontend/dist/ /web/apps/synaplan/
 EXPOSE 9106
