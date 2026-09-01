@@ -59,7 +59,7 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 		return h.generateSummary(
 			ctx, text, fileID,
 			synaplanapi.Abstractive,
-			synaplanapi.Long,
+			synaplanapi.PostApiSummaryGenerateJSONBodyLengthLong,
 			&req.TargetLanguage,
 		)
 	})

@@ -48,9 +48,9 @@ type errorResponse struct {
 // handlers accept. Excludes "custom" which requires a numeric param
 // we don't surface to the frontend.
 var supportedLengths = map[synaplanapi.PostApiSummaryGenerateJSONBodyLength]struct{}{
-	synaplanapi.Short:  {},
-	synaplanapi.Medium: {},
-	synaplanapi.Long:   {},
+	synaplanapi.PostApiSummaryGenerateJSONBodyLengthShort:  {},
+	synaplanapi.PostApiSummaryGenerateJSONBodyLengthMedium: {},
+	synaplanapi.PostApiSummaryGenerateJSONBodyLengthLong:   {},
 }
 
 // supportedSummaryTypes lists the summaryType values /summarize
