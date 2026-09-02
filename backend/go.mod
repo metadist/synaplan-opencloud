@@ -19,7 +19,7 @@ require (
 	github.com/opencloud-eu/opencloud v1.1.1-0.20260309132930-a8430384a1b7
 	github.com/opencloud-eu/reva/v2 v2.49.0
 	github.com/spf13/cobra v1.10.2
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.1
 )
 
 require (
