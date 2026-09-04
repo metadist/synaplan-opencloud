@@ -180,6 +180,8 @@ github.com/cpuguy83/go-md2man/v2 v2.0.7 h1:zbFlGlXEAKlwXpmvle3d8Oe3YnkKIK4xSRTd3
 github.com/cpuguy83/go-md2man/v2 v2.0.7/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9 h1:8WtMb7TKKx1AJM3j+uR+H25y4v+b8o8GIQg/2ooCyRo=
 github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9/go.mod h1:DedpcqXl193qF/08Y04IO0PpxyyMu8+GrkD6kWK2MEQ=
+github.com/cs3org/go-cs3apis v0.0.0-20260903141024-c92f9566c2e1 h1:GEbTSrtJC2wqoUQfL1Up55RztD2a6G3X7aK4LTu3VmA=
+github.com/cs3org/go-cs3apis v0.0.0-20260903141024-c92f9566c2e1/go.mod h1:DedpcqXl193qF/08Y04IO0PpxyyMu8+GrkD6kWK2MEQ=
 github.com/cyberdelia/templates v0.0.0-20141128023046-ca7fffd4298c/go.mod h1:GyV+0YP4qX0UQ7r2MoYZ+AvYDp12OF5yg4q8rGnyNh4=
 github.com/cyphar/filepath-securejoin v0.6.1 h1:5CeZ1jPXEiYt3+Z6zqprSAgSWiggmpVyciv8syjIpVE=
 github.com/cyphar/filepath-securejoin v0.6.1/go.mod h1:A8hd4EnAeyujCJRrICiOWqjS1AX0a9kM5XL+NwKoYSc=
