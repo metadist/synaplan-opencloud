@@ -13,7 +13,7 @@ replace github.com/go-micro/plugins/v4/store/nats-js-kv => github.com/opencloud-
 replace github.com/pablodz/inotifywaitgo v0.0.9 => github.com/opencloud-eu/inotifywaitgo v0.0.0-20251111171128-a390bae3c5e9
 
 require (
-	github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9
+	github.com/cs3org/go-cs3apis v0.0.0-20260903141024-c92f9566c2e1
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/opencloud-eu/opencloud v1.1.1-0.20260309132930-a8430384a1b7
