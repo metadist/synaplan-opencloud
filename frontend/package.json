@@ -36,7 +36,7 @@
     "typescript": "5.9.3",
     "uuid": "13.0.1",
     "vite": "8.0.16",
-    "vitest": "3.2.7",
+    "vitest": "4.1.11",
     "vue": "3.5.42",
     "vue-tsc": "3.3.11",
     "vue3-gettext": "4.0.0-beta.1",
