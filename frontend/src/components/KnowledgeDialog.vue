@@ -11,6 +11,16 @@
       {{ resource.name }}
     </p>
 
+    <p v-if="knowledgeStatus.stale" class="ext:text-sm" data-testid="synaplan-knowledge-stale">
+      {{
+        $gettext('This file changed after it was added. Update it to refresh the knowledge copy.')
+      }}
+    </p>
+
+    <p v-if="removed" class="ext:text-sm" data-testid="synaplan-knowledge-removed">
+      {{ $gettext('Removed from the knowledge base. It is no longer searchable.') }}
+    </p>
+
     <div v-if="phase === 'select' || phase === 'error'">
       <oc-select
         :model-value="selectedGroup"
@@ -47,7 +57,11 @@
       data-testid="synaplan-knowledge-success"
     >
       <p class="ext:font-semibold ext:mb-2">
-        {{ $gettext('Added to the Synaplan knowledge base.') }}
+        {{
+          wasUpdate
+            ? $gettext('Updated in the Synaplan knowledge base.')
+            : $gettext('Added to the Synaplan knowledge base.')
+        }}
       </p>
       <dl class="ext:grid ext:grid-cols-2 ext:gap-x-4 ext:gap-y-1 ext:text-xs">
         <dt class="ext:text-role-on-surface-variant">{{ $gettext('Group') }}</dt>
@@ -71,6 +85,15 @@
 
     <div class="ext:flex ext:justify-end ext:gap-2 ext:pt-2">
       <oc-button
+        v-if="knowledgeStatus.inKnowledge && phase !== 'loading'"
+        appearance="outline"
+        data-testid="synaplan-knowledge-remove"
+        @click="onRemove"
+      >
+        {{ $gettext('Remove from Knowledge') }}
+      </oc-button>
+
+      <oc-button
         v-if="phase !== 'done'"
         appearance="filled"
         color-role="primary"
@@ -79,14 +102,14 @@
         data-testid="synaplan-knowledge-submit"
         @click="onSubmit"
       >
-        {{ phase === 'loading' ? $gettext('Uploading…') : $gettext('Add to Knowledge') }}
+        {{ submitLabel }}
       </oc-button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useClientService, useLoadingService, type Modal } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
@@ -126,7 +149,8 @@ const knowledgeResponseSchema = z.object({
   groupKey: z.string(),
   vectorized: z.boolean(),
   chunksCreated: z.number(),
-  extractedTextLength: z.number()
+  extractedTextLength: z.number(),
+  synaplanFileId: z.number().optional()
 })
 
 type KnowledgeResult = z.infer<typeof knowledgeResponseSchema>
@@ -137,6 +161,37 @@ const phase = ref<Phase>('select')
 const selectedGroup = ref<string>('')
 const result = ref<KnowledgeResult | null>(null)
 const error = ref('')
+const removed = ref(false)
+const wasUpdate = ref(false)
+
+const statusSchema = z.object({
+  inKnowledge: z.boolean(),
+  stale: z.boolean(),
+  synaplanFileId: z.number()
+})
+
+const knowledgeStatus = ref({ inKnowledge: false, stale: false, synaplanFileId: 0 })
+
+const submitLabel = computed(() => {
+  if (phase.value === 'loading') {
+    return knowledgeStatus.value.inKnowledge ? $gettext('Updating…') : $gettext('Uploading…')
+  }
+  return knowledgeStatus.value.inKnowledge
+    ? $gettext('Update in Knowledge')
+    : $gettext('Add to Knowledge')
+})
+
+onMounted(async () => {
+  try {
+    const { data } = await httpAuthenticated.get(
+      `/api/synaplan/knowledge/status?resourceId=${encodeURIComponent(props.resource.id)}`,
+      { schema: statusSchema }
+    )
+    knowledgeStatus.value = data
+  } catch (e) {
+    console.warn('synaplan knowledge status: fetch failed', e)
+  }
+})
 
 let inFlight: AbortController | null = null
 
@@ -165,27 +220,31 @@ async function onSubmit() {
   phase.value = 'loading'
   error.value = ''
   result.value = null
+  wasUpdate.value = knowledgeStatus.value.inKnowledge
 
   const controller = new AbortController()
   inFlight = controller
 
   try {
     const data = await loadingService.addTask(async () => {
-      const res = await httpAuthenticated.post(
-        '/api/synaplan/knowledge',
-        {
-          resourceId: props.resource.id,
-          groupKey: trimmed
-        },
-        {
-          schema: knowledgeResponseSchema,
-          signal: controller.signal,
-          timeout: 0
-        }
-      )
+      const body: { resourceId: string; groupKey: string; overwrite?: boolean } = {
+        resourceId: props.resource.id,
+        groupKey: trimmed
+      }
+      if (knowledgeStatus.value.inKnowledge) body.overwrite = true
+      const res = await httpAuthenticated.post('/api/synaplan/knowledge', body, {
+        schema: knowledgeResponseSchema,
+        signal: controller.signal,
+        timeout: 0
+      })
       return res.data
     })
     result.value = data
+    knowledgeStatus.value = {
+      inKnowledge: true,
+      stale: false,
+      synaplanFileId: data.synaplanFileId ?? knowledgeStatus.value.synaplanFileId
+    }
     phase.value = 'done'
   } catch (e) {
     if (controller.signal.aborted) return
@@ -194,6 +253,24 @@ async function onSubmit() {
     phase.value = 'error'
   } finally {
     if (inFlight === controller) inFlight = null
+  }
+}
+
+async function onRemove() {
+  const id = knowledgeStatus.value.synaplanFileId
+  if (!id) return
+  phase.value = 'loading'
+  error.value = ''
+  try {
+    await httpAuthenticated.delete(`/api/synaplan/knowledge/${id}`)
+    knowledgeStatus.value = { inKnowledge: false, stale: false, synaplanFileId: 0 }
+    removed.value = true
+    phase.value = 'select'
+  } catch (e) {
+    console.error('synaplan knowledge remove failed', e)
+    error.value =
+      e instanceof Error && e.message ? e.message : $gettext('Could not remove the file')
+    phase.value = 'error'
   }
 }
 

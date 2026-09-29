@@ -163,7 +163,7 @@ func (h *Handler) prepareSummaryInput(
 		return &s, nil, cleanup, nil
 
 	case isBinaryDocMime(file.MimeType):
-		uploaded, err := h.upload(ctx, file, tempGroupKey, synaplanapi.Extract)
+		uploaded, err := h.upload(ctx, file, tempGroupKey, synaplanapi.Extract, nil)
 		if err != nil {
 			return nil, nil, cleanup, fmt.Errorf("synaplan upload: %w", err)
 		}
@@ -190,11 +190,57 @@ func (h *Handler) prepareSummaryInput(
 // multipart form under the given group and process_level, and parses
 // the response into an uploadedFile. The body is streamed via an
 // io.Pipe so large files don't buffer entirely in memory.
+// uploadProvenance is the Nextcloud-compatible source identity sent
+// with a knowledge upload so Synaplan can overwrite in place and
+// notice when the OpenCloud file changes.
+type uploadProvenance struct {
+	OriginalName string
+	SourceID     string
+	SourceEtag   string
+	Overwrite    bool
+}
+
+func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadProvenance) error {
+	if err := mw.WriteField("source", "opencloud"); err != nil {
+		return fmt.Errorf("write source: %w", err)
+	}
+	original := file.Name
+	if file.Path != "" {
+		original = file.Path
+	}
+	if prov != nil && prov.OriginalName != "" {
+		original = prov.OriginalName
+	}
+	if err := mw.WriteField("original_name", original); err != nil {
+		return fmt.Errorf("write original_name: %w", err)
+	}
+	if prov == nil {
+		return nil
+	}
+	if prov.SourceID != "" {
+		if err := mw.WriteField("source_id", prov.SourceID); err != nil {
+			return fmt.Errorf("write source_id: %w", err)
+		}
+	}
+	if prov.SourceEtag != "" {
+		if err := mw.WriteField("source_etag", prov.SourceEtag); err != nil {
+			return fmt.Errorf("write source_etag: %w", err)
+		}
+	}
+	if prov.Overwrite {
+		if err := mw.WriteField("overwrite", "1"); err != nil {
+			return fmt.Errorf("write overwrite: %w", err)
+		}
+	}
+	return nil
+}
+
 func (h *Handler) upload(
 	ctx context.Context,
 	file *cs3reader.File,
 	groupKey string,
 	processLevel synaplanapi.PostApiFilesUploadMultipartBodyProcessLevel,
+	prov *uploadProvenance,
 ) (*uploadedFile, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
@@ -219,6 +265,10 @@ func (h *Handler) upload(
 		}
 		if err := mw.WriteField("process_level", string(processLevel)); err != nil {
 			writeErr <- fmt.Errorf("write process_level: %w", err)
+			return
+		}
+		if err := writeProvenance(mw, file, prov); err != nil {
+			writeErr <- err
 			return
 		}
 		writeErr <- nil

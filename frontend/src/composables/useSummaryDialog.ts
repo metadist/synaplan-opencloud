@@ -1,7 +1,7 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { useClientService, useLoadingService, useMessages } from '@opencloud-eu/web-pkg'
 import { useClipboard } from '@vueuse/core'
-import type { ZodType } from 'zod'
+import { z, type ZodType } from 'zod'
 
 export type SummaryDialogPhase = 'select' | 'loading' | 'done' | 'error'
 
@@ -25,7 +25,7 @@ export interface SummaryDialogConfig<T> {
  */
 export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
   const { httpAuthenticated } = useClientService()
-  const { showErrorMessage } = useMessages()
+  const { showErrorMessage, showMessage } = useMessages()
   const { copy: copyToClipboard } = useClipboard()
   const loadingService = useLoadingService()
 
@@ -33,6 +33,8 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
   const result = ref('')
   const error = ref('')
   const justCopied = ref(false)
+  const saving = ref(false)
+  const savedPath = ref('')
   let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null
 
   let inFlight: AbortController | null = null
@@ -99,10 +101,45 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
     }
   }
 
+  const saveSchema = z.object({ path: z.string() })
+
+  async function saveToSpace(filename: string) {
+    if (!result.value || saving.value) return
+    saving.value = true
+    try {
+      const { data } = await httpAuthenticated.post(
+        '/api/synaplan/files',
+        { filename, text: result.value },
+        { schema: saveSchema, timeout: 0 }
+      )
+      savedPath.value = data.path
+      showMessage({ title: `Saved to ${data.path}` })
+    } catch (e) {
+      console.error('save to space failed', e)
+      showErrorMessage({
+        title: 'Could not save the file into your space',
+        errors: [e as Error]
+      })
+    } finally {
+      saving.value = false
+    }
+  }
+
   onBeforeUnmount(() => {
     if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
     inFlight?.abort()
   })
 
-  return { phase, result, error, justCopied, submit, cancel, copyResult }
+  return {
+    phase,
+    result,
+    error,
+    justCopied,
+    saving,
+    savedPath,
+    submit,
+    cancel,
+    copyResult,
+    saveToSpace
+  }
 }

@@ -110,6 +110,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Post("/api/synaplan/summarize", h.Summarize)
 				r.Post("/api/synaplan/knowledge", h.AddToKnowledge)
 				r.Get("/api/synaplan/knowledge/groups", h.KnowledgeGroups)
+				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
+				r.Delete("/api/synaplan/knowledge/{fileId}", h.RemoveFromKnowledge)
+				r.Post("/api/synaplan/files", h.SaveToSpace)
 			})
 
 			server := &stdhttp.Server{

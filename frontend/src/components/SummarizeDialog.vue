@@ -59,6 +59,16 @@
       <oc-button
         v-if="phase === 'done'"
         appearance="outline"
+        :disabled="saving"
+        data-testid="synaplan-summarize-save"
+        @click="onSave"
+      >
+        {{ savedPath ? $gettext('Saved') : $gettext('Save to your files') }}
+      </oc-button>
+
+      <oc-button
+        v-if="phase === 'done'"
+        appearance="outline"
         data-testid="synaplan-summarize-copy"
         @click="copyResult"
       >
@@ -78,6 +88,14 @@
         {{ phase === 'loading' ? $gettext('Summarizing…') : $gettext('Summarize') }}
       </oc-button>
     </div>
+
+    <p
+      v-if="savedPath"
+      class="ext:text-sm ext:text-role-on-surface-variant"
+      data-testid="synaplan-summarize-saved"
+    >
+      {{ $gettext('Saved to') }} {{ savedPath }}. {{ $gettext('Nothing else was changed.') }}
+    </p>
   </div>
 </template>
 
@@ -132,13 +150,29 @@ function onLengthChange(value: LengthOption | null) {
 
 const summarizeSchema = z.object({ summary: z.string() })
 
-const { phase, result, error, justCopied, submit, cancel, copyResult } = useSummaryDialog({
+const {
+  phase,
+  result,
+  error,
+  justCopied,
+  saving,
+  savedPath,
+  submit,
+  cancel,
+  copyResult,
+  saveToSpace
+} = useSummaryDialog({
   endpoint: '/api/synaplan/summarize',
   responseSchema: summarizeSchema,
   extractText: (data) => data.summary,
   failedMessage: $gettext('Summarization failed'),
   copyErrorTitle: $gettext('Could not copy summary')
 })
+
+function onSave() {
+  const base = (props.resource.name || 'document').replace(/\.[^.]+$/, '')
+  void saveToSpace(`Summary of ${base}.md`)
+}
 
 function onSubmit() {
   submit({

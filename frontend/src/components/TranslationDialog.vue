@@ -46,6 +46,16 @@
       <oc-button
         v-if="phase === 'done'"
         appearance="outline"
+        :disabled="saving"
+        data-testid="synaplan-translation-save"
+        @click="onSave"
+      >
+        {{ savedPath ? $gettext('Saved') : $gettext('Save to your files') }}
+      </oc-button>
+
+      <oc-button
+        v-if="phase === 'done'"
+        appearance="outline"
         data-testid="synaplan-translation-copy"
         @click="copyResult"
       >
@@ -65,6 +75,14 @@
         {{ phase === 'loading' ? $gettext('Translating…') : $gettext('Translate') }}
       </oc-button>
     </div>
+
+    <p
+      v-if="savedPath"
+      class="ext:text-sm ext:text-role-on-surface-variant"
+      data-testid="synaplan-translation-saved"
+    >
+      {{ $gettext('Saved to') }} {{ savedPath }}. {{ $gettext('Nothing else was changed.') }}
+    </p>
   </div>
 </template>
 
@@ -108,13 +126,29 @@ function onLanguageChange(value: LanguageOption | null) {
 
 const translateSchema = z.object({ translation: z.string() })
 
-const { phase, result, error, justCopied, submit, cancel, copyResult } = useSummaryDialog({
+const {
+  phase,
+  result,
+  error,
+  justCopied,
+  saving,
+  savedPath,
+  submit,
+  cancel,
+  copyResult,
+  saveToSpace
+} = useSummaryDialog({
   endpoint: '/api/synaplan/translate',
   responseSchema: translateSchema,
   extractText: (data) => data.translation,
   failedMessage: $gettext('Translation failed'),
   copyErrorTitle: $gettext('Could not copy translation')
 })
+
+function onSave() {
+  const base = (props.resource.name || 'document').replace(/\.[^.]+$/, '')
+  void saveToSpace(`Translation of ${base}.md`)
+}
 
 function onSubmit() {
   submit({

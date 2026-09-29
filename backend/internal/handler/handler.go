@@ -38,6 +38,8 @@ import (
 type Handler struct {
 	synaplanURL string
 	synaplanAPI *synaplanapi.ClientWithResponses
+	editor      synaplanapi.RequestEditorFn
+	httpClient  *http.Client
 	cs3         *cs3reader.Reader
 	assetProxy  *httputil.ReverseProxy
 }
@@ -74,6 +76,8 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 	return &Handler{
 		synaplanURL: synaplanURL,
 		synaplanAPI: apiClient,
+		editor:      editor,
+		httpClient:  &http.Client{},
 		cs3:         cs3,
 		assetProxy:  assetProxy,
 	}, nil
