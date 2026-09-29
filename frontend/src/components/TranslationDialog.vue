@@ -36,11 +36,10 @@
 
     <div
       v-if="phase === 'done'"
-      class="ext:rounded ext:border ext:bg-role-surface-container ext:p-3 ext:text-sm ext:whitespace-pre-wrap ext:max-h-96 ext:overflow-auto"
+      class="synaplan-md ext:rounded ext:border ext:bg-role-surface-container ext:p-3 ext:text-sm ext:max-h-96 ext:overflow-auto"
       data-testid="synaplan-translation-result"
-    >
-      {{ result }}
-    </div>
+      v-html="rendered"
+    />
 
     <div class="ext:flex ext:justify-end ext:gap-2 ext:pt-2">
       <oc-button
@@ -92,6 +91,7 @@ import { type Modal } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
+import { useRenderedMarkdown } from '../composables/useRenderedMarkdown'
 import { useSummaryDialog } from '../composables/useSummaryDialog'
 
 // Mounted by the modal system via dispatchModal({ customComponent:
@@ -145,6 +145,8 @@ const {
   copyErrorTitle: $gettext('Could not copy translation')
 })
 
+const rendered = useRenderedMarkdown(result)
+
 function onSave() {
   const base = (props.resource.name || 'document').replace(/\.[^.]+$/, '')
   void saveToSpace(`Translation of ${base}.md`)
@@ -159,3 +161,21 @@ function onSubmit() {
 
 defineExpose({ onCancel: cancel })
 </script>
+
+<style scoped>
+.synaplan-md :deep(p) {
+  margin: 0.35em 0;
+}
+.synaplan-md :deep(h1),
+.synaplan-md :deep(h2),
+.synaplan-md :deep(h3) {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.6em 0 0.25em;
+}
+.synaplan-md :deep(ul),
+.synaplan-md :deep(ol) {
+  margin: 0.35em 0;
+  padding-left: 1.2em;
+}
+</style>

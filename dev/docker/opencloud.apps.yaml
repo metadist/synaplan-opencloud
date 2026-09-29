@@ -1,3 +1,5 @@
 synaplan:
   config:
-    synaplanUrl: 'http://host.docker.internal:8000'
+    # Leave empty so the app menu opens the in-app page. A URL here is
+    # opened in a new tab instead, and the API host is not that page.
+    synaplanUrl: ''
