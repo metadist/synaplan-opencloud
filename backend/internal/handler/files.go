@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"path"
@@ -10,6 +11,11 @@ import (
 )
 
 const maxSavedTextBytes = 2 << 20
+
+// maxSaveBodyBytes bounds the JSON body before it is decoded. The
+// text field itself is capped separately at maxSavedTextBytes; this
+// extra room is only for the filename and JSON framing.
+const maxSaveBodyBytes = maxSavedTextBytes + 64<<10
 
 type saveFileRequest struct {
 	Filename string `json:"filename"`
@@ -26,8 +32,14 @@ type saveFileResponse struct {
 // where the file landed, including a " (2)" suffix when the name was
 // already taken.
 func (h *Handler) SaveToSpace(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSaveBodyBytes)
 	var req saveFileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) || strings.Contains(err.Error(), "request body too large") {
+			writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "text is too large to save"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body: " + err.Error()})
 		return
 	}

@@ -27,7 +27,8 @@
       </h1>
 
       <p class="ext:text-sm ext:text-role-on-surface-variant">
-        Your OpenCloud login is your Synaplan account. There is no second password.
+        Test the connection to Synaplan. With a shared login provider this OpenCloud account is
+        used. A shared API key uses one Synaplan account for everyone.
       </p>
 
       <p v-if="modelsConfigUrl" class="ext:text-sm">

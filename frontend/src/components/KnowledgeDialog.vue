@@ -97,7 +97,7 @@
         v-if="phase !== 'done'"
         appearance="filled"
         color-role="primary"
-        :disabled="phase === 'loading' || !selectedGroup.trim()"
+        :disabled="!statusReady || phase === 'loading' || !selectedGroup.trim()"
         :show-spinner="phase === 'loading'"
         data-testid="synaplan-knowledge-submit"
         @click="onSubmit"
@@ -171,6 +171,8 @@ const statusSchema = z.object({
 })
 
 const knowledgeStatus = ref({ inKnowledge: false, stale: false, synaplanFileId: 0 })
+const statusReady = ref(false)
+let statusSeq = 0
 
 const submitLabel = computed(() => {
   if (phase.value === 'loading') {
@@ -182,14 +184,19 @@ const submitLabel = computed(() => {
 })
 
 onMounted(async () => {
+  const seq = ++statusSeq
   try {
     const { data } = await httpAuthenticated.get(
       `/api/synaplan/knowledge/status?resourceId=${encodeURIComponent(props.resource.id)}`,
       { schema: statusSchema }
     )
+    // A submit that already started, or a newer status request, wins.
+    if (seq !== statusSeq || phase.value === 'loading' || phase.value === 'done') return
     knowledgeStatus.value = data
   } catch (e) {
     console.warn('synaplan knowledge status: fetch failed', e)
+  } finally {
+    if (seq === statusSeq) statusReady.value = true
   }
 })
 
@@ -215,11 +222,12 @@ function onGroupCreated(option: string) {
 
 async function onSubmit() {
   const trimmed = selectedGroup.value.trim()
-  if (!trimmed) return
+  if (!trimmed || !statusReady.value) return
 
   phase.value = 'loading'
   error.value = ''
   result.value = null
+  removed.value = false
   wasUpdate.value = knowledgeStatus.value.inKnowledge
 
   const controller = new AbortController()
@@ -257,12 +265,13 @@ async function onSubmit() {
 }
 
 async function onRemove() {
-  const id = knowledgeStatus.value.synaplanFileId
-  if (!id) return
+  if (!knowledgeStatus.value.inKnowledge) return
   phase.value = 'loading'
   error.value = ''
   try {
-    await httpAuthenticated.delete(`/api/synaplan/knowledge/${id}`)
+    await httpAuthenticated.delete(
+      `/api/synaplan/knowledge?resourceId=${encodeURIComponent(props.resource.id)}`
+    )
     knowledgeStatus.value = { inKnowledge: false, stale: false, synaplanFileId: 0 }
     removed.value = true
     phase.value = 'select'

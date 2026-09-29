@@ -1,13 +1,10 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/go-chi/chi/v5"
 )
 
 func TestSaveToSpace_RejectsBadInput(t *testing.T) {
@@ -46,13 +43,25 @@ func TestKnowledgeStatus_RequiresResourceID(t *testing.T) {
 	}
 }
 
-func TestRemoveFromKnowledge_RejectsBadID(t *testing.T) {
+func TestRemoveFromKnowledge_RequiresResourceID(t *testing.T) {
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/synaplan/knowledge/0", nil)
-	req = reqWithChiParam(req, "fileId", "0")
+	req := httptest.NewRequest(http.MethodDelete, "/api/synaplan/knowledge", nil)
 	(&Handler{}).RemoveFromKnowledge(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "resourceId is required") {
+		t.Errorf("body = %q", rr.Body.String())
+	}
+}
+
+func TestSaveToSpace_RejectsOversizedBody(t *testing.T) {
+	body := `{"filename":"note.md","text":"` + strings.Repeat("a", maxSaveBodyBytes) + `"}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/synaplan/files", strings.NewReader(body))
+	(&Handler{}).SaveToSpace(rr, req)
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413; body %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -64,12 +73,6 @@ func TestParseSynaplanAccount(t *testing.T) {
 	if parseSynaplanAccount([]byte(`{"success":false}`)) != nil {
 		t.Fatal("expected nil account")
 	}
-}
-
-func reqWithChiParam(req *http.Request, key, value string) *http.Request {
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add(key, value)
-	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
 func TestCleanSavedName(t *testing.T) {

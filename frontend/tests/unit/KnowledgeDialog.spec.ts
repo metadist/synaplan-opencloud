@@ -174,6 +174,7 @@ describe('KnowledgeDialog', () => {
     })
 
     const wrapper = mountDialog()
+    await flushPromises()
     await createNewGroup(wrapper, 'new_one')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
@@ -195,6 +196,7 @@ describe('KnowledgeDialog', () => {
     post.mockRejectedValueOnce(new Error('boom'))
 
     const wrapper = mountDialog()
+    await flushPromises()
     await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
@@ -207,6 +209,7 @@ describe('KnowledgeDialog', () => {
     post.mockRejectedValueOnce(new Error(''))
 
     const wrapper = mountDialog()
+    await flushPromises()
     await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
@@ -226,6 +229,7 @@ describe('KnowledgeDialog', () => {
     )
 
     const wrapper = mountDialog()
+    await flushPromises()
     await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()

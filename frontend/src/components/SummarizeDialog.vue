@@ -58,7 +58,7 @@
       <oc-button
         v-if="phase === 'done'"
         appearance="outline"
-        :disabled="saving"
+        :disabled="saving || !!savedPath"
         data-testid="synaplan-summarize-save"
         @click="onSave"
       >
