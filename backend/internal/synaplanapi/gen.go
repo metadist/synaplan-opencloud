@@ -7,8 +7,3 @@
 package synaplanapi
 
 //go:generate ../../scripts/generate-synaplan-client.sh
-
-// apiKeyContextKey is referenced by the generated client when the spec
-// advertises an ApiKey scheme. oapi-codegen v2.7.1 emits the constant
-// but not this type for the current Synaplan spec.
-type apiKeyContextKey string
