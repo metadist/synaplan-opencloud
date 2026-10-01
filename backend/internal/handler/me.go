@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,12 +11,21 @@ import (
 )
 
 type meResponse struct {
-	Status       string `json:"status"`
-	Timestamp    string `json:"timestamp"`
-	SynaplanURL  string `json:"synaplanUrl"`
-	UserID       string `json:"userId"`
-	SynaplanResp string `json:"synaplanResponse,omitempty"`
-	Error        string `json:"error,omitempty"`
+	Status       string           `json:"status"`
+	Timestamp    string           `json:"timestamp"`
+	SynaplanURL  string           `json:"synaplanUrl"`
+	UserID       string           `json:"userId"`
+	Account      *synaplanAccount `json:"account,omitempty"`
+	SynaplanResp string           `json:"synaplanResponse,omitempty"`
+	Error        string           `json:"error,omitempty"`
+}
+
+// synaplanAccount is the person the OIDC token exchange resolved to.
+// OpenCloud does not ask for a second password: this is that login.
+type synaplanAccount struct {
+	Email     string `json:"email,omitempty"`
+	FirstName string `json:"firstName,omitempty"`
+	Level     string `json:"level,omitempty"`
 }
 
 // Me tests the full per-user auth flow by calling Synaplan's
@@ -38,13 +48,37 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	account := parseSynaplanAccount(resp.Body)
+	status := "ok"
+	if resp.StatusCode() != http.StatusOK || account == nil {
+		status = "error"
+	}
 	writeJSON(w, http.StatusOK, meResponse{
 		Timestamp:    now(),
-		Status:       "ok",
+		Status:       status,
 		SynaplanURL:  h.synaplanURL,
 		UserID:       userID,
+		Account:      account,
 		SynaplanResp: string(resp.Body),
 	})
+}
+
+func parseSynaplanAccount(body []byte) *synaplanAccount {
+	var parsed struct {
+		User struct {
+			Email     string `json:"email"`
+			FirstName string `json:"firstName"`
+			Level     string `json:"level"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil || parsed.User.Email == "" {
+		return nil
+	}
+	return &synaplanAccount{
+		Email:     parsed.User.Email,
+		FirstName: parsed.User.FirstName,
+		Level:     parsed.User.Level,
+	}
 }
 
 func now() string {

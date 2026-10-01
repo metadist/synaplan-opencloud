@@ -36,13 +36,22 @@
 
     <div
       v-if="phase === 'done'"
-      class="ext:rounded ext:border ext:bg-role-surface-container ext:p-3 ext:text-sm ext:whitespace-pre-wrap ext:max-h-96 ext:overflow-auto"
+      class="synaplan-md ext:rounded ext:border ext:bg-role-surface-container ext:p-3 ext:text-sm ext:max-h-96 ext:overflow-auto"
       data-testid="synaplan-translation-result"
-    >
-      {{ result }}
-    </div>
+      v-html="rendered"
+    />
 
     <div class="ext:flex ext:justify-end ext:gap-2 ext:pt-2">
+      <oc-button
+        v-if="phase === 'done'"
+        appearance="outline"
+        :disabled="saving || !!savedPath"
+        data-testid="synaplan-translation-save"
+        @click="onSave"
+      >
+        {{ savedPath ? $gettext('Saved') : $gettext('Save to your files') }}
+      </oc-button>
+
       <oc-button
         v-if="phase === 'done'"
         appearance="outline"
@@ -65,6 +74,14 @@
         {{ phase === 'loading' ? $gettext('Translating…') : $gettext('Translate') }}
       </oc-button>
     </div>
+
+    <p
+      v-if="savedPath"
+      class="ext:text-sm ext:text-role-on-surface-variant"
+      data-testid="synaplan-translation-saved"
+    >
+      {{ $gettext('Saved to') }} {{ savedPath }}. {{ $gettext('Nothing else was changed.') }}
+    </p>
   </div>
 </template>
 
@@ -74,6 +91,7 @@ import { type Modal } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
+import { useRenderedMarkdown } from '../composables/useRenderedMarkdown'
 import { useSummaryDialog } from '../composables/useSummaryDialog'
 
 // Mounted by the modal system via dispatchModal({ customComponent:
@@ -108,13 +126,31 @@ function onLanguageChange(value: LanguageOption | null) {
 
 const translateSchema = z.object({ translation: z.string() })
 
-const { phase, result, error, justCopied, submit, cancel, copyResult } = useSummaryDialog({
+const {
+  phase,
+  result,
+  error,
+  justCopied,
+  saving,
+  savedPath,
+  submit,
+  cancel,
+  copyResult,
+  saveToSpace
+} = useSummaryDialog({
   endpoint: '/api/synaplan/translate',
   responseSchema: translateSchema,
   extractText: (data) => data.translation,
   failedMessage: $gettext('Translation failed'),
   copyErrorTitle: $gettext('Could not copy translation')
 })
+
+const rendered = useRenderedMarkdown(result)
+
+function onSave() {
+  const base = (props.resource.name || 'document').replace(/\.[^.]+$/, '')
+  void saveToSpace(`Translation of ${base}.md`)
+}
 
 function onSubmit() {
   submit({
@@ -125,3 +161,21 @@ function onSubmit() {
 
 defineExpose({ onCancel: cancel })
 </script>
+
+<style scoped>
+.synaplan-md :deep(p) {
+  margin: 0.35em 0;
+}
+.synaplan-md :deep(h1),
+.synaplan-md :deep(h2),
+.synaplan-md :deep(h3) {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.6em 0 0.25em;
+}
+.synaplan-md :deep(ul),
+.synaplan-md :deep(ol) {
+  margin: 0.35em 0;
+  padding-left: 1.2em;
+}
+</style>

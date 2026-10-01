@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
 	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
@@ -31,7 +32,13 @@ type File struct {
 	Name     string
 	MimeType string
 	Size     uint64
-	Body     io.ReadCloser
+	// Etag is the storage version captured at stat time. Knowledge
+	// uploads send it as source_etag so a later edit can be detected.
+	Etag string
+	// Path is the space-relative path (no leading slash), used as the
+	// original name Synaplan stores for provenance.
+	Path string
+	Body io.ReadCloser
 }
 
 // Reader opens files from the CS3 gateway.
@@ -50,6 +57,49 @@ func New(gws pool.Selectable[gateway.GatewayAPIClient], insecure bool) *Reader {
 	}
 }
 
+// Stat returns the file's name, mime type, size, etag and relative
+// path without downloading the bytes.
+func (r *Reader) Stat(ctx context.Context, resourceID string) (*File, error) {
+	if r == nil || r.gws == nil {
+		return nil, errors.New("cs3reader: not configured")
+	}
+	accessToken, ok := revactx.ContextGetToken(ctx)
+	if !ok || accessToken == "" {
+		return nil, errors.New("cs3reader: no reva access token in context (missing synaplanauth.Middleware?)")
+	}
+	gwc, err := r.gws.Next()
+	if err != nil {
+		return nil, fmt.Errorf("cs3reader: gateway client: %w", err)
+	}
+	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
+	return statFile(gwCtx, gwc, resourceID)
+}
+
+func statFile(ctx context.Context, gwc gateway.GatewayAPIClient, resourceID string) (*File, error) {
+	rid, err := storagespace.ParseID(resourceID)
+	if err != nil {
+		return nil, fmt.Errorf("cs3reader: parse resource id %q: %w", resourceID, err)
+	}
+	statRes, err := gwc.Stat(ctx, &provider.StatRequest{Ref: &provider.Reference{ResourceId: &rid}})
+	if err != nil {
+		return nil, fmt.Errorf("cs3reader: stat: %w", err)
+	}
+	if statRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
+		return nil, fmt.Errorf("cs3reader: stat: %s", statRes.GetStatus().GetMessage())
+	}
+	info := statRes.GetInfo()
+	if info.GetType() != provider.ResourceType_RESOURCE_TYPE_FILE {
+		return nil, errors.New("cs3reader: resource is not a file")
+	}
+	return &File{
+		Name:     info.GetName(),
+		MimeType: info.GetMimeType(),
+		Size:     info.GetSize(),
+		Etag:     info.GetEtag(),
+		Path:     strings.Trim(utils.MakeRelativePath(info.GetPath()), "/"),
+	}, nil
+}
+
 // Open stats and downloads the file identified by resourceID. The
 // reva access token must already be on ctx via revactx.ContextSetToken
 // — synaplanauth.Middleware lifts it out of the x-access-token header
@@ -58,6 +108,9 @@ func New(gws pool.Selectable[gateway.GatewayAPIClient], insecure bool) *Reader {
 //
 // Callers MUST close File.Body when done.
 func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
+	if r == nil || r.gws == nil {
+		return nil, errors.New("cs3reader: not configured")
+	}
 	accessToken, ok := revactx.ContextGetToken(ctx)
 	if !ok || accessToken == "" {
 		return nil, errors.New("cs3reader: no reva access token in context (missing synaplanauth.Middleware?)")
@@ -139,6 +192,8 @@ func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
 		Name:     info.GetName(),
 		MimeType: info.GetMimeType(),
 		Size:     info.GetSize(),
+		Etag:     info.GetEtag(),
+		Path:     strings.Trim(utils.MakeRelativePath(info.GetPath()), "/"),
 		Body:     resp.Body,
 	}, nil
 }

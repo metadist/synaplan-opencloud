@@ -12,16 +12,14 @@ test.afterEach(async () => {
 })
 
 test('in-app synaplan view test connection succeeds', async () => {
-  // Reach the view directly. The app-switcher menu item points at an
-  // external Synaplan URL when synaplanUrl is configured (see
-  // src/index.ts), so it can't be used to navigate to the internal
-  // page in production-style deployments.
+  // Reach the view directly. When synaplanUrl is set, the app-switcher
+  // item opens that URL in a new tab instead of this page.
   await userPage.goto('/synaplan')
   await expect(userPage.locator('[data-testid="synaplan-title"]')).toBeVisible()
 
   await userPage.locator('[data-testid="synaplan-test-btn"]').click()
 
-  const result = userPage.locator('[data-testid="synaplan-result"]')
-  await expect(result).toBeVisible({ timeout: 15_000 })
-  await expect(result).toContainText('"status": "ok"')
+  const account = userPage.locator('[data-testid="synaplan-account"]')
+  await expect(account).toBeVisible({ timeout: 15_000 })
+  await expect(account).toContainText('testuser@synaplan.com')
 })

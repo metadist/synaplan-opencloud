@@ -4,10 +4,11 @@ import { computed, defineComponent, h, ref } from 'vue'
 
 const post = vi.fn()
 const get = vi.fn()
+const del = vi.fn()
 const loadingAddTask = vi.fn(async (fn: () => Promise<unknown>) => fn())
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
-  useClientService: () => ({ httpAuthenticated: { post, get } }),
+  useClientService: () => ({ httpAuthenticated: { post, get, delete: del } }),
   useLoadingService: () => ({ addTask: loadingAddTask })
 }))
 
@@ -86,9 +87,25 @@ describe('KnowledgeDialog', () => {
   beforeEach(() => {
     post.mockReset()
     get.mockReset()
+    del.mockReset()
+    get.mockResolvedValue({
+      data: { inKnowledge: false, stale: false, synaplanFileId: 0 }
+    })
     loadingAddTask.mockClear()
     stubbedGroups.value = []
     vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  it('offers an update when the file is already in the knowledge base', async () => {
+    get.mockResolvedValueOnce({
+      data: { inKnowledge: true, stale: true, synaplanFileId: 9 }
+    })
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-knowledge-submit"]').text()).toContain(
+      'Update in Knowledge'
+    )
+    expect(wrapper.get('[data-testid="synaplan-knowledge-stale"]').text()).toContain('changed')
   })
 
   it('renders the resource name and the bird logo', () => {
@@ -157,6 +174,7 @@ describe('KnowledgeDialog', () => {
     })
 
     const wrapper = mountDialog()
+    await flushPromises()
     await createNewGroup(wrapper, 'new_one')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
@@ -178,6 +196,7 @@ describe('KnowledgeDialog', () => {
     post.mockRejectedValueOnce(new Error('boom'))
 
     const wrapper = mountDialog()
+    await flushPromises()
     await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
@@ -190,6 +209,7 @@ describe('KnowledgeDialog', () => {
     post.mockRejectedValueOnce(new Error(''))
 
     const wrapper = mountDialog()
+    await flushPromises()
     await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
@@ -209,6 +229,7 @@ describe('KnowledgeDialog', () => {
     )
 
     const wrapper = mountDialog()
+    await flushPromises()
     await pickExistingGroup(wrapper, 'X')
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()

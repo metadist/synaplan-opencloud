@@ -4,7 +4,9 @@
 
 📖 **[Service reference docs](https://metadist.github.io/synaplan-opencloud/)** — env vars, example config, and deprecations, regenerated from the `main` branch on every push.
 
-OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/synaplan) AI features into OpenCloud. Uses [RFC 8693 token exchange](https://datatracker.ietf.org/doc/html/rfc8693) for per-user authentication.
+OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/synaplan) AI features into OpenCloud. When both sides share a login provider, each person's OpenCloud login is exchanged for their own Synaplan account with [RFC 8693 token exchange](https://datatracker.ietf.org/doc/html/rfc8693). A shared API key is also supported; in that mode every person uses the same Synaplan account.
+
+From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). A summary or translation can be saved into your personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
 
 ![Screenshot](docs/screenshot.png)
 

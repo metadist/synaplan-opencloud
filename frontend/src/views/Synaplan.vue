@@ -27,7 +27,8 @@
       </h1>
 
       <p class="ext:text-sm ext:text-role-on-surface-variant">
-        Test the connection to your Synaplan instance via OIDC token exchange.
+        Test the connection to Synaplan. With a shared login provider this OpenCloud account is
+        used. A shared API key uses one Synaplan account for everyone.
       </p>
 
       <p v-if="modelsConfigUrl" class="ext:text-sm">
@@ -54,12 +55,16 @@
       </oc-button>
 
       <div
-        v-if="result"
-        class="ext:rounded ext:border ext:p-4 ext:text-xs ext:font-mono ext:whitespace-pre-wrap ext:break-all ext:max-h-96 ext:overflow-auto ext:bg-role-surface-container"
-        data-testid="synaplan-result"
+        v-if="result?.account?.email"
+        class="ext:rounded ext:border ext:bg-role-surface-container ext:p-4 ext:text-sm"
+        data-testid="synaplan-account"
       >
-        {{ JSON.stringify(result, null, 2) }}
+        {{ $gettext('Signed in to Synaplan as') }} {{ result.account.email }}.
       </div>
+
+      <p v-else-if="result && result.status !== 'ok'" class="ext:text-sm ext:text-role-error">
+        {{ $gettext('Synaplan did not accept this OpenCloud login.') }}
+      </p>
 
       <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-error">
         {{ error }}
@@ -70,6 +75,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useGettext } from 'vue3-gettext'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
@@ -84,11 +90,20 @@ const modelsConfigUrl = computed(() =>
   props.synaplanUrl ? `${props.synaplanUrl.replace(/\/+$/, '')}/config/ai-models` : ''
 )
 
+const { $gettext } = useGettext()
+
 const healthSchema = z.object({
   status: z.string(),
   timestamp: z.string().optional(),
   synaplanUrl: z.string().optional(),
   userId: z.string().optional(),
+  account: z
+    .object({
+      email: z.string().optional(),
+      firstName: z.string().optional(),
+      level: z.string().optional()
+    })
+    .optional(),
   synaplanResponse: z.string().optional(),
   error: z.string().optional()
 })

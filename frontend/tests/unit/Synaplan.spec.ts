@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { computed, defineComponent, h } from 'vue'
 
 const get = vi.fn()
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
   useClientService: () => ({ httpAuthenticated: { get } })
+}))
+
+vi.mock('vue3-gettext', () => ({
+  useGettext: () => ({ $gettext: (s: string) => s })
 }))
 
 vi.mock('../../src/composables/useSynaplanBird', () => ({
@@ -79,5 +83,18 @@ describe('Synaplan view', () => {
   it('hides the models config link when no synaplanUrl is configured', () => {
     const wrapper = mountView()
     expect(wrapper.find('[data-testid="synaplan-models-link"]').exists()).toBe(false)
+  })
+
+  it('shows the Synaplan account the OpenCloud login resolved to', async () => {
+    get.mockResolvedValueOnce({
+      data: {
+        status: 'ok',
+        account: { email: 'ada@example.com' }
+      }
+    })
+    const wrapper = mountView()
+    await wrapper.get('[data-testid="synaplan-test-btn"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-account"]').text()).toContain('ada@example.com')
   })
 })

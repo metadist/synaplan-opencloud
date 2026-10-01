@@ -20,6 +20,9 @@ const knowledgeGroupMaxLen = 64
 type knowledgeRequest struct {
 	ResourceID string `json:"resourceId"`
 	GroupKey   string `json:"groupKey"`
+	// Overwrite replaces the knowledge copy of this same OpenCloud
+	// file instead of adding a second one.
+	Overwrite bool `json:"overwrite"`
 }
 
 type knowledgeResponse struct {
@@ -27,6 +30,7 @@ type knowledgeResponse struct {
 	Vectorized          bool   `json:"vectorized"`
 	ChunksCreated       int    `json:"chunksCreated"`
 	ExtractedTextLength int    `json:"extractedTextLength"`
+	SynaplanFileID      int    `json:"synaplanFileId"`
 }
 
 // AddToKnowledge reads a file from OpenCloud storage via CS3 and
@@ -61,9 +65,16 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
 			return "", fmt.Errorf("unsupported mime type %q: %w", file.MimeType, errClientInput)
 		}
-		u, err := h.upload(ctx, file, groupKey, synaplanapi.Vectorize)
+		u, err := h.upload(ctx, file, groupKey, synaplanapi.Vectorize, &uploadProvenance{
+			SourceID:   req.ResourceID,
+			SourceEtag: file.Etag,
+			Overwrite:  req.Overwrite,
+		})
 		if err != nil {
 			return "", fmt.Errorf("synaplan upload: %w", err)
+		}
+		if u.ChunksCreated == 0 {
+			return "", fmt.Errorf("no text could be indexed from this file: %w", errClientInput)
 		}
 		uploaded = u
 		return "", nil
@@ -77,6 +88,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		Vectorized:          uploaded.Vectorized,
 		ChunksCreated:       uploaded.ChunksCreated,
 		ExtractedTextLength: uploaded.ExtractedTextLength,
+		SynaplanFileID:      uploaded.ID,
 	})
 }
 
