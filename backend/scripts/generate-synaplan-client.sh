@@ -89,6 +89,8 @@ fi
 SPEC_SIZE=$(wc -c < "${SPEC_FILE}")
 echo ">>> Extracted $(( SPEC_SIZE / 1024 )) KiB spec → ${SPEC_FILE}"
 
+# FIXME: remove once the pinned synaplan contains
+# https://github.com/metadist/synaplan/pull/2410.
 # Synaplan's spec references an ApiKey security scheme on some
 # operations without declaring it, which makes oapi-codegen emit a
 # constant of an undefined type. Declare it when it is missing.
