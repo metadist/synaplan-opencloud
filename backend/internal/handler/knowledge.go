@@ -110,7 +110,7 @@ type knowledgeGroupsResponse struct {
 // frontend can populate its group picker without duplicating the
 // shape or learning Synaplan's URLs directly.
 func (h *Handler) KnowledgeGroups(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.synaplanAPI.GetApiFilesGroupsWithResponse(r.Context())
+	resp, err := h.synaplanAPI.GetApiFilesGroupsWithResponse(r.Context(), nil)
 	if err != nil {
 		log.Printf("knowledge groups: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not fetch groups: " + err.Error()})
