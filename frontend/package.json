@@ -32,7 +32,7 @@
     "@vue/test-utils": "2.5.0",
     "eslint": "10.9.1",
     "happy-dom": "20.11.15",
-    "markdown-it": "14.1.1",
+    "markdown-it": "14.3.1",
     "prettier": "3.9.6",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
