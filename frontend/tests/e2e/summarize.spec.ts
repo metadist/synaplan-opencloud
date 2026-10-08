@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 import { fileURLToPath } from 'url'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
+import { openSynaplanMenu } from '../../support/helpers/contextMenuHelper'
 import {
   deleteFileQuiet,
   ensureFolder,
@@ -55,7 +56,7 @@ test('summarize file context action is visible for the signed-in user', async ({
   await navigateToTestsFolder(userPage)
 
   const row = await findFileRow(userPage, baseName)
-  await row.click({ button: 'right' })
+  await openSynaplanMenu(row)
 
   await expect(userPage.locator('.oc-files-actions-summarize-trigger')).toBeVisible({
     timeout: 10_000
@@ -108,7 +109,7 @@ async function runSummarizeFlow(
   lengthLabel: string
 ) {
   const row = await findFileRow(page, fileName)
-  await row.click({ button: 'right' })
+  await openSynaplanMenu(row)
 
   await page.locator('.oc-files-actions-summarize-trigger').click()
 

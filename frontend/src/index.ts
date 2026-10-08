@@ -10,9 +10,7 @@ import translations from '../l10n/translations.json'
 import { useGettext } from 'vue3-gettext'
 import { computed } from 'vue'
 import Synaplan from './views/Synaplan.vue'
-import { useTranslationExtension } from './extensions/useTranslationExtension'
-import { useSummarizeExtension } from './extensions/useSummarizeExtension'
-import { useKnowledgeExtension } from './extensions/useKnowledgeExtension'
+import { useSynaplanActionsExtension } from './extensions/useSynaplanActionsExtension'
 
 const appId = 'synaplan'
 
@@ -44,9 +42,7 @@ export default defineWebApplication({
       icon: 'magic'
     } satisfies ApplicationInformation
 
-    const translationExtension = useTranslationExtension()
-    const summarizeExtension = useSummarizeExtension()
-    const knowledgeExtension = useKnowledgeExtension()
+    const actionsExtension = useSynaplanActionsExtension()
 
     const menuItem: AppMenuItemExtension = {
       id: `app.${appInfo.id}.menuItem`,
@@ -58,12 +54,7 @@ export default defineWebApplication({
       ...(synaplanUrl ? { url: synaplanUrl } : { path: urlJoin(appInfo.id) })
     }
 
-    const extensions = computed<Extension[]>(() => [
-      menuItem,
-      translationExtension,
-      summarizeExtension,
-      knowledgeExtension
-    ])
+    const extensions = computed<Extension[]>(() => [menuItem, actionsExtension])
 
     return {
       appInfo,

@@ -52,11 +52,10 @@ describe('useTranslationExtension', () => {
     userRef.user = { id: 'u1' }
   })
 
-  it('registers itself against the files context-actions extension point', () => {
+  it('describes its action', () => {
     const ext = useTranslationExtension()
     expect(ext.id).toBe('com.synaplan.translation')
     expect(ext.type).toBe('action')
-    expect(ext.extensionPointIds).toContain('global.files.context-actions')
     expect(ext.action.class).toBe('oc-files-actions-translate-trigger')
   })
 

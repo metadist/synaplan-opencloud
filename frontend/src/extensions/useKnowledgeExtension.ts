@@ -43,12 +43,11 @@ export const useKnowledgeExtension = (): ActionExtension => {
   return {
     id: 'com.synaplan.knowledge',
     type: 'action',
-    extensionPointIds: ['global.files.context-actions'],
     action: {
       name: 'add-to-knowledge',
       icon: 'brain',
       iconFillType: 'line',
-      label: () => $gettext('Add to Synaplan knowledge…'),
+      label: () => $gettext('Add to knowledge…'),
       class: 'oc-files-actions-add-to-knowledge-trigger',
       handler,
       isVisible: (options: FileActionOptions) => isSingleSupportedFile(userStore.user, options)
