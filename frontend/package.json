@@ -17,35 +17,32 @@
     "test:e2e:dev": "BASE_URL_OC=https://host.docker.internal:9201 playwright test"
   },
   "devDependencies": {
-    "@opencloud-eu/design-system": "6.1.0",
-    "@opencloud-eu/eslint-config": "6.1.0",
-    "@opencloud-eu/extension-sdk": "6.1.0",
-    "@opencloud-eu/prettier-config": "6.1.0",
-    "@opencloud-eu/tsconfig": "6.1.0",
-    "@opencloud-eu/web-client": "6.1.0",
-    "@opencloud-eu/web-pkg": "6.1.0",
+    "@opencloud-eu/design-system": "8.1.0",
+    "@opencloud-eu/eslint-config": "8.1.0",
+    "@opencloud-eu/extension-sdk": "8.1.0",
+    "@opencloud-eu/prettier-config": "8.1.0",
+    "@opencloud-eu/tsconfig": "8.1.0",
+    "@opencloud-eu/web-client": "8.1.0",
+    "@opencloud-eu/web-pkg": "8.1.0",
     "@playwright/test": "1.62.1",
+    "@types/markdown-it": "14.1.2",
     "@types/node": "24.12.0",
     "@vue/compiler-dom": "3.5.42",
     "@vue/server-renderer": "3.5.42",
     "@vue/test-utils": "2.5.0",
     "eslint": "10.9.1",
     "happy-dom": "20.11.15",
+    "markdown-it": "14.1.1",
     "prettier": "3.9.6",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "uuid": "13.0.1",
     "vite": "8.0.16",
-    "vitest": "3.2.7",
+    "vitest": "5.0.3",
     "vue": "3.5.42",
     "vue-tsc": "3.3.11",
     "vue3-gettext": "4.0.0-beta.1",
     "zod": "4.3.6"
   },
-  "packageManager": "pnpm@10.28.1",
-  "pnpm": {
-    "overrides": {
-      "@module-federation/vite": "1.14.1"
-    }
-  }
+  "packageManager": "pnpm@10.28.1"
 }
