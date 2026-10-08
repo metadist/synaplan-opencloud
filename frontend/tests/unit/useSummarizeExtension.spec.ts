@@ -38,11 +38,10 @@ describe('useSummarizeExtension', () => {
     userRef.user = { id: 'u1' }
   })
 
-  it('registers against the files context-actions extension point', () => {
+  it('describes its action', () => {
     const ext = useSummarizeExtension()
     expect(ext.id).toBe('com.synaplan.summarize')
     expect(ext.type).toBe('action')
-    expect(ext.extensionPointIds).toContain('global.files.context-actions')
     expect(ext.action.class).toBe('oc-files-actions-summarize-trigger')
     expect(ext.action.icon).toBe('file-list-3')
     expect(ext.action.iconFillType).toBe('line')

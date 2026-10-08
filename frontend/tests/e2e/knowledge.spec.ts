@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 import { fileURLToPath } from 'url'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
+import { openSynaplanMenu } from '../../support/helpers/contextMenuHelper'
 import {
   deleteFileQuiet,
   ensureFolder,
@@ -77,7 +78,7 @@ test('add-to-knowledge context action is visible for the signed-in user', async 
   await navigateToTestsFolder(userPage)
 
   const row = await findFileRow(userPage, baseName)
-  await row.click({ button: 'right' })
+  await openSynaplanMenu(row)
 
   await expect(userPage.locator('.oc-files-actions-add-to-knowledge-trigger')).toBeVisible({
     timeout: 10_000
@@ -126,7 +127,7 @@ test('add a PDF file to a knowledge group end-to-end', async ({ request }) => {
 
 async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) {
   const row = await findFileRow(page, fileName)
-  await row.click({ button: 'right' })
+  await openSynaplanMenu(row)
 
   await page.locator('.oc-files-actions-add-to-knowledge-trigger').click()
 

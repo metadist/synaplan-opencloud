@@ -38,11 +38,10 @@ describe('useKnowledgeExtension', () => {
     userRef.user = { id: 'u1' }
   })
 
-  it('registers against the files context-actions extension point', () => {
+  it('describes its action', () => {
     const ext = useKnowledgeExtension()
     expect(ext.id).toBe('com.synaplan.knowledge')
     expect(ext.type).toBe('action')
-    expect(ext.extensionPointIds).toContain('global.files.context-actions')
     expect(ext.action.class).toBe('oc-files-actions-add-to-knowledge-trigger')
     expect(ext.action.icon).toBe('brain')
     expect(ext.action.iconFillType).toBe('line')

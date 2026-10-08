@@ -43,12 +43,11 @@ export const useSummarizeExtension = (): ActionExtension => {
   return {
     id: 'com.synaplan.summarize',
     type: 'action',
-    extensionPointIds: ['global.files.context-actions'],
     action: {
       name: 'summarize',
       icon: 'file-list-3',
       iconFillType: 'line',
-      label: () => $gettext('Summarize with Synaplan…'),
+      label: () => $gettext('Summarize…'),
       class: 'oc-files-actions-summarize-trigger',
       handler,
       isVisible: (options: FileActionOptions) => isSingleSupportedFile(userStore.user, options)

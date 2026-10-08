@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 import { fileURLToPath } from 'url'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
+import { openSynaplanMenu } from '../../support/helpers/contextMenuHelper'
 import {
   deleteFileQuiet,
   ensureFolder,
@@ -68,7 +69,7 @@ test('translate file context action is visible for the signed-in user', async ({
   await navigateToTestsFolder(userPage)
 
   const row = await findFileRow(userPage, baseName)
-  await row.click({ button: 'right' })
+  await openSynaplanMenu(row)
 
   await expect(userPage.locator('.oc-files-actions-translate-trigger')).toBeVisible({
     timeout: 10_000
@@ -124,7 +125,7 @@ test('translate a PDF file end-to-end', async ({ request }) => {
  */
 async function runTranslationFlow(page: Page, fileName: string, languageLabel: string) {
   const row = await findFileRow(page, fileName)
-  await row.click({ button: 'right' })
+  await openSynaplanMenu(row)
 
   // Target the action by its stable OC trigger class instead of
   // by-text — by-text occasionally flakes when the context menu

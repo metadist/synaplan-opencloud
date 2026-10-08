@@ -43,12 +43,11 @@ export const useTranslationExtension = (): ActionExtension => {
   return {
     id: 'com.synaplan.translation',
     type: 'action',
-    extensionPointIds: ['global.files.context-actions'],
     action: {
       name: 'translate',
       icon: 'translate-2',
       iconFillType: 'none',
-      label: () => $gettext('Translate with Synaplan…'),
+      label: () => $gettext('Translate…'),
       class: 'oc-files-actions-translate-trigger',
       handler,
       isVisible: (options: FileActionOptions) => isSingleSupportedFile(userStore.user, options)
