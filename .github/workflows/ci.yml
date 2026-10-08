@@ -199,6 +199,7 @@ jobs:
         working-directory: synaplan
         env:
           APP_IMAGE: ghcr.io/metadist/synaplan@${{ env.SYNAPLAN_IMAGE_DIGEST }}
+          OIDC_AUTO_REDIRECT: "true"
         run: |
           docker pull $APP_IMAGE
           # --profile oidc: Keycloak. --profile integration: Tika (PDF/Office).
