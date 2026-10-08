@@ -10,6 +10,8 @@ From a file you can summarize, translate, and add it to the Synaplan knowledge b
 
 ![Screenshot](docs/screenshot.png)
 
+**Requires OpenCloud 8.1.0 or later.**
+
 **Synaplan and OpenCloud must be behind the same OIDC identity provider (Keycloak).** Token exchange only works when both services trust the same Keycloak realm. There is currently no support for separate identity providers.
 
 > **Dev stack requires the [Synaplan dev stack](https://github.com/metadist/synaplan) running with `docker compose --profile oidc up -d`.**
@@ -77,6 +79,8 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 |-----|---------|
 | `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
 | `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. |
+
+The backend downloads file contents from OpenCloud's storage data server, so that server must be reachable from the backend. On the OpenCloud side set `STORAGE_USERS_HTTP_ADDR` to a non-loopback address and `STORAGE_USERS_DATA_SERVER_URL` to a URL the backend can resolve (for example `http://opencloud:9158/data`).
 
 The dev defaults live in [`docker-compose.yml`](docker-compose.yml) and use Mode A.
 
