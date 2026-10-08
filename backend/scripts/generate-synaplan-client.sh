@@ -89,6 +89,15 @@ fi
 SPEC_SIZE=$(wc -c < "${SPEC_FILE}")
 echo ">>> Extracted $(( SPEC_SIZE / 1024 )) KiB spec → ${SPEC_FILE}"
 
+# FIXME: remove once the pinned synaplan contains
+# https://github.com/metadist/synaplan/pull/2410.
+# Synaplan's spec references an ApiKey security scheme on some
+# operations without declaring it, which makes oapi-codegen emit a
+# constant of an undefined type. Declare it when it is missing.
+jq '.components.securitySchemes.ApiKey //= {"type": "apiKey", "in": "header", "name": "X-API-Key"}' \
+  "${SPEC_FILE}" > "${SPEC_FILE}.tmp"
+mv "${SPEC_FILE}.tmp" "${SPEC_FILE}"
+
 echo ">>> Running oapi-codegen → ${OUTPUT_FILE}"
 # Run from the target directory so oapi-codegen resolves `output:` relative
 # to the package dir, not the backend root. go tool still finds go.mod by

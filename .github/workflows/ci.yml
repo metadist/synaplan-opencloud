@@ -16,8 +16,8 @@ env:
   # auto-updated by Renovate via the customManager defined in
   # renovate.json5. SYNAPLAN_REF is updated manually alongside the
   # digest when moving to a new synaplan release.
-  SYNAPLAN_REF: 04ecbef63318181990fabebe4c1665c2435cafe4
-  SYNAPLAN_IMAGE_DIGEST: sha256:6f4b5eabf870afe961517cad0586d869b1817c7e1493c94c23eaf661363c3124
+  SYNAPLAN_REF: 69557222c1196dfa29a367fa00bcf9f56e15a81d
+  SYNAPLAN_IMAGE_DIGEST: sha256:7ea15100f51dc7479ed4b6ed71733af9445fb91bec332a1f84d9bb78cedd5a2a
 
 jobs:
   frontend:
@@ -199,6 +199,7 @@ jobs:
         working-directory: synaplan
         env:
           APP_IMAGE: ghcr.io/metadist/synaplan@${{ env.SYNAPLAN_IMAGE_DIGEST }}
+          OIDC_AUTO_REDIRECT: "true"
         run: |
           docker pull $APP_IMAGE
           # --profile oidc: Keycloak. --profile integration: Tika (PDF/Office).
