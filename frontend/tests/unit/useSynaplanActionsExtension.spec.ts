@@ -5,7 +5,8 @@ const userRef = { user: null as { id: string } | null }
 vi.mock('@opencloud-eu/web-pkg', () => ({
   useModals: () => ({ dispatchModal: vi.fn() }),
   useMessages: () => ({ showErrorMessage: vi.fn() }),
-  useUserStore: () => userRef
+  useUserStore: () => userRef,
+  useConfigStore: () => ({ serverUrl: 'https://oc.example.com/' })
 }))
 
 vi.mock('vue3-gettext', () => ({
@@ -36,6 +37,14 @@ describe('useSynaplanActionsExtension', () => {
     expect(ext.action.name).toBe('synaplan')
     expect(ext.action.label()).toBe('Synaplan')
     expect(ext.action.handler).toBeUndefined()
+  })
+
+  it('uses the Synaplan brand icon for the group', () => {
+    const { action } = useSynaplanActionsExtension()
+    expect(action.icon).toEqual({
+      src: 'https://oc.example.com/api/synaplan/assets/brand-icon?theme=light',
+      srcDark: 'https://oc.example.com/api/synaplan/assets/brand-icon?theme=dark'
+    })
   })
 
   it('groups the translate, summarize and knowledge actions', () => {

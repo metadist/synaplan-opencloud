@@ -3,6 +3,7 @@ import { useGettext } from 'vue3-gettext'
 import { useTranslationExtension } from './useTranslationExtension'
 import { useSummarizeExtension } from './useSummarizeExtension'
 import { useKnowledgeExtension } from './useKnowledgeExtension'
+import { useSynaplanBrandIcon } from '../composables/useSynaplanBrandIcon'
 
 export const useSynaplanActionsExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
@@ -19,7 +20,7 @@ export const useSynaplanActionsExtension = (): ActionExtension => {
     extensionPointIds: ['global.files.context-actions'],
     action: {
       name: 'synaplan',
-      icon: 'magic',
+      icon: useSynaplanBrandIcon(),
       label: () => $gettext('Synaplan'),
       children,
       isVisible: (options: FileActionOptions) => children.some((child) => child.isVisible(options))
