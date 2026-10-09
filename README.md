@@ -28,7 +28,7 @@ cd ../synaplan && docker compose --profile oidc up -d
 make frontend-install && make frontend-build && make docker-up
 
 # 3. Visit https://host.docker.internal:9200
-#    Login with: testuser / testpass123
+#    Login with: admin / admin, demo / demo or testuser / testpass123
 ```
 
 ## Configuration
