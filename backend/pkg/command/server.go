@@ -101,6 +101,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			)
 
 			// Public — <img> can't send a Bearer header.
+			mux.Get("/api/synaplan/assets/brand-icon", h.BrandIcon)
 			mux.Get("/api/synaplan/assets/{name}", h.Asset)
 
 			mux.Group(func(r chi.Router) {

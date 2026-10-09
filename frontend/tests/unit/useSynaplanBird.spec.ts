@@ -21,44 +21,44 @@ describe('useSynaplanBird', () => {
     serverUrl.value = 'https://oc.example.com/'
   })
 
-  it('returns the dark-fill variant on a light theme', () => {
+  it('asks for the light theme icon on a light theme', () => {
     expect(useSynaplanBird().value).toBe(
-      'https://oc.example.com/api/synaplan/assets/single_bird-dark.svg'
+      'https://oc.example.com/api/synaplan/assets/brand-icon?theme=light'
     )
   })
 
-  it('returns the light-fill variant on a dark theme', () => {
+  it('asks for the dark theme icon on a dark theme', () => {
     currentTheme.value = { isDark: true }
     expect(useSynaplanBird().value).toBe(
-      'https://oc.example.com/api/synaplan/assets/single_bird-light.svg'
+      'https://oc.example.com/api/synaplan/assets/brand-icon?theme=dark'
     )
   })
 
   it('reacts to theme changes', () => {
     const src = useSynaplanBird()
-    expect(src.value).toBe('https://oc.example.com/api/synaplan/assets/single_bird-dark.svg')
+    expect(src.value).toBe('https://oc.example.com/api/synaplan/assets/brand-icon?theme=light')
     currentTheme.value = { isDark: true }
-    expect(src.value).toBe('https://oc.example.com/api/synaplan/assets/single_bird-light.svg')
+    expect(src.value).toBe('https://oc.example.com/api/synaplan/assets/brand-icon?theme=dark')
   })
 
   it('reacts to serverUrl changes', () => {
     const src = useSynaplanBird()
-    expect(src.value).toBe('https://oc.example.com/api/synaplan/assets/single_bird-dark.svg')
+    expect(src.value).toBe('https://oc.example.com/api/synaplan/assets/brand-icon?theme=light')
     serverUrl.value = 'https://other.example.org/'
-    expect(src.value).toBe('https://other.example.org/api/synaplan/assets/single_bird-dark.svg')
+    expect(src.value).toBe('https://other.example.org/api/synaplan/assets/brand-icon?theme=light')
   })
 
   it('strips trailing slashes from the server URL so the path stays single-slash', () => {
     serverUrl.value = 'https://oc.example.com///'
     expect(useSynaplanBird().value).toBe(
-      'https://oc.example.com/api/synaplan/assets/single_bird-dark.svg'
+      'https://oc.example.com/api/synaplan/assets/brand-icon?theme=light'
     )
   })
 
   it('works when serverUrl has no trailing slash', () => {
     serverUrl.value = 'https://oc.example.com'
     expect(useSynaplanBird().value).toBe(
-      'https://oc.example.com/api/synaplan/assets/single_bird-dark.svg'
+      'https://oc.example.com/api/synaplan/assets/brand-icon?theme=light'
     )
   })
 })
