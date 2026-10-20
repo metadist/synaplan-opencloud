@@ -11,6 +11,7 @@ import { useGettext } from 'vue3-gettext'
 import { computed } from 'vue'
 import Synaplan from './views/Synaplan.vue'
 import { useSynaplanActionsExtension } from './extensions/useSynaplanActionsExtension'
+import { useSynaplanBrandIcon } from './composables/useSynaplanBrandIcon'
 
 const appId = 'synaplan'
 
@@ -39,7 +40,7 @@ export default defineWebApplication({
     const appInfo = {
       name: $gettext('Synaplan'),
       id: appId,
-      icon: 'magic'
+      icon: useSynaplanBrandIcon()
     } satisfies ApplicationInformation
 
     const actionsExtension = useSynaplanActionsExtension()
@@ -49,7 +50,7 @@ export default defineWebApplication({
       type: 'appMenuItem',
       label: () => appInfo.name,
       color: '#00b79d',
-      icon: appInfo.icon,
+      icon: useSynaplanBrandIcon('dark'),
       priority: 50,
       ...(synaplanUrl ? { url: synaplanUrl } : { path: urlJoin(appInfo.id) })
     }
