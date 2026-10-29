@@ -7,16 +7,21 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to the same branch supersedes the run it replaces.
+# Same shape as .github/workflows/docs.yml.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: metadist/synaplan-opencloud
-  # Pinned synaplan dependency — single source of truth for both CI
-  # and backend/scripts/generate-synaplan-client.sh (which greps the
-  # digest out of this file when running locally). The digest line is
-  # auto-updated by Renovate via the customManager defined in
-  # renovate.json5. SYNAPLAN_REF is updated manually alongside the
-  # digest when moving to a new synaplan release.
-  SYNAPLAN_REF: 05b8ba6a6ed4c086a04420042522dbde69824fa1
+  # Pinned Synaplan image. Single source of truth for this workflow and
+  # for backend/scripts/generate-synaplan-client.sh, which greps the digest
+  # out of this file when generating the client locally. Renovate bumps it
+  # via the customManager in renovate.json5. Integration tests do not run
+  # in this workflow; they run against the local Synaplan and OpenCloud
+  # stacks (see AGENTS.md).
   SYNAPLAN_IMAGE_DIGEST: sha256:593c220864051904f16b522ce1c9b72550bb1e43f64fc6cd1a65071bf72e61a4
 
 jobs:
@@ -138,151 +143,10 @@ jobs:
           path: /tmp/docker-image.tar
           retention-days: 1
 
-  e2e:
-    name: E2E
-    runs-on: ubuntu-latest
-    needs: [docker-build]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Add host.docker.internal to /etc/hosts
-        run: echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
-
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.28.1
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Download frontend dist
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: frontend-dist
-          path: frontend/dist/
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-playwright-chromium-
-
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        working-directory: frontend
-        run: pnpm exec playwright install-deps chromium
-
-      # --- Start Synaplan test stack ---
-      - name: Clone synaplan
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: metadist/synaplan
-          # Pin checkout and image together. Update both when bumping synaplan.
-          ref: ${{ env.SYNAPLAN_REF }}
-          path: synaplan
-
-      - name: Start Synaplan test stack
-        working-directory: synaplan
-        env:
-          APP_IMAGE: ghcr.io/metadist/synaplan@${{ env.SYNAPLAN_IMAGE_DIGEST }}
-          OIDC_AUTO_REDIRECT: "true"
-        run: |
-          docker pull $APP_IMAGE
-          # --profile oidc: Keycloak. --profile integration: Tika (PDF/Office).
-          # docker-compose.test.ci.yml overrides ollama_test profiles so the ollama/ollama image is not pulled (app_test uses ollama-stub).
-          COMPOSE="docker compose \
-            -f docker-compose.test.yml \
-            -f docker-compose.test.ci.yml \
-            --profile oidc --profile integration"
-          $COMPOSE up -d --wait
-          echo "Waiting for Keycloak setup..."
-          docker wait synaplan-keycloak-setup-test
-          echo "Synaplan test stack ready"
-
-      # --- Start synaplan-opencloud stack ---
-      - name: Download backend Docker image
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: docker-image
-          path: /tmp
-
-      - name: Load backend Docker image
-        run: |
-          docker load -i /tmp/docker-image.tar
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest synaplan-opencloud:ci 2>/dev/null || \
-            docker tag $(docker images --format '{{.Repository}}:{{.Tag}}' | grep synaplan-opencloud | head -1) synaplan-opencloud:ci
-
-      - name: Start synaplan-opencloud
-        env:
-          BACKEND_IMAGE: synaplan-opencloud:ci
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
-          echo "Waiting for OpenCloud..."
-          for i in $(seq 1 30); do
-            if curl -ks https://host.docker.internal:9200/status.php | grep -q installed; then
-              echo "OpenCloud is ready"
-              exit 0
-            fi
-            echo "Waiting... ($i/30)"
-            sleep 5
-          done
-          echo "OpenCloud did not become ready"
-          docker logs synaplan-opencloud-opencloud-1 2>&1 | tail -20
-          exit 1
-
-      # --- Run E2E tests ---
-      - name: Verify services
-        run: |
-          echo "=== Synaplan backend ==="
-          curl -s http://host.docker.internal:8001/api/health | head -1 || echo "FAILED"
-          echo "=== Keycloak ==="
-          curl -sk https://host.docker.internal:8444/realms/synaplan | head -1 || echo "FAILED"
-          echo "=== OpenCloud ==="
-          curl -sk https://host.docker.internal:9200/status.php | head -1 || echo "FAILED"
-          echo "=== Backend ==="
-          curl -s http://host.docker.internal:9106/api/synaplan/me | head -1 || echo "FAILED"
-          echo "=== Docker ps ==="
-          docker ps --format '{{.Names}} {{.Status}}'
-
-      - name: Run E2E tests
-        working-directory: frontend
-        env:
-          BASE_URL_OC: https://host.docker.internal:9200
-          KEYCLOAK_HTTPS_URL: https://host.docker.internal:8444
-          SYNAPLAN_API_URL: http://host.docker.internal:8001
-        run: pnpm test:e2e
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: failure()
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 7
-
-      - name: Teardown
-        if: always()
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
-          cd synaplan && docker compose -f docker-compose.test.yml -f docker-compose.test.ci.yml --profile oidc --profile integration down -v
-
   docker-push:
     name: Docker Push
     runs-on: ubuntu-latest
-    needs: [e2e]
+    needs: [docker-build]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
@@ -310,7 +174,7 @@ jobs:
   all-checks-passed:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [frontend, backend, docker-build, e2e, docker-push]
+    needs: [frontend, backend, docker-build, docker-push]
     if: always()
     steps:
       - name: Check for failures

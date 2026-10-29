@@ -30,7 +30,7 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
 | `frontend/tests/e2e/`, `frontend/support/` | Playwright journeys, helpers (`authHelper`, `filesHelper`, `contextMenuHelper`, `synaplanApiHelper`), page objects and fixtures. |
 | `dev/docker/` | OpenCloud proxy, CSP, web and apps config for the dev stack; Traefik TLS. |
-| `docker-compose.yml`, `docker-compose.ci.yml` | The dev stack; the CI overlay switches it to the pre-built image and the Synaplan test-stack ports. |
+| `docker-compose.yml` | The dev stack: OpenCloud, Traefik, and the Go service (air). |
 | `.github/workflows/ci.yml` | The gate (below). `docs.yml` builds the service reference site. `renovate.json5` keeps every pin current. |
 
 ## Prerequisites — the local stack
@@ -47,7 +47,6 @@ Keycloak confidential client used for token exchange.
 | `9106` | The Go service (air hot-reload inside the `synaplan-backend` container; Go edits apply without a rebuild) |
 | `8000` / `5173` | Synaplan API / UI (dev stack) |
 | `8443` / `8080` | Keycloak issuer (https) / admin + token endpoint (http) |
-| `8001`, `8444` / `8081` | The same in Synaplan's **test stack**, which CI uses (`docker-compose.ci.yml`) |
 
 - On Linux / WSL2 add `127.0.0.1 host.docker.internal` to `/etc/hosts` once;
   accept Keycloak's self-signed certificate once at
@@ -147,52 +146,61 @@ server's copy of the same app id.
   or Docker. A fake upstream is an `httptest.Server` (see `brandicon_test.go`).
   No sleeps, no shared mutable state between cases.
 
-## The gate — all of it, before every push
+## The gate — GitHub checks the code, this machine checks the integration
 
 `main` is protected. Nothing merges on a red check, and nothing is pushed
-that was not green locally first. The CI run is ~15 minutes; a miss costs a
-full cycle.
+that was not green locally first.
 
-| Local step | CI job it mirrors |
-| ---------- | ----------------- |
-| `make ci-local` | **Frontend** (`pnpm install --frozen-lockfile`, `lint`, `format:check`, `check:types`, `test:unit`, `build`) and **Backend** (`go generate`, `go test ./...`, `golangci-lint run`) |
-| `make frontend-build && CI=1 make frontend-test-e2e` (bundled `:9200` — the build refreshes `frontend/dist`, which OpenCloud serves; `ci-local` does not touch it) or `CI=1 make frontend-test-e2e-dev` (web dev server `:9201`, no build) | **E2E** (Playwright against the Synaplan test stack and the built image) |
-| `make frontend-build && docker build .` (after `ci-local` generated the client) | **Docker Build** — when the `Dockerfile`, a compose file, or the build inputs changed |
-| `make docs` | **Docs** — when `config.go` tags, the README or `.github/docs/` changed |
+GitHub runs the same shape as dschmidt's OpenCloud services
+(`dschmidt/opencloud-music`): **Frontend**, **Backend**, **Docker Build**,
+**Docker Push** on `main` and `v*` tags, folded into **All Checks Passed**.
+That is lint, format, types, unit tests, `golangci-lint`, client generation
+from the pinned Synaplan image, and a proof that the image builds. It does
+**not** clone Synaplan, start Keycloak, or boot OpenCloud. Those stacks are
+already running here. Starting them again on a runner costs several minutes
+of image pulls for a half-minute Playwright run, and it would exercise an
+Ollama stub instead of the providers this install actually uses.
+
+| Where | What |
+| ----- | ---- |
+| `make ci-local` | The **Frontend** and **Backend** jobs, same steps and flags. Run before every push. |
+| `make frontend-build && CI=1 make frontend-test-e2e` (bundled `:9200` — the build refreshes `frontend/dist`, which OpenCloud serves; `ci-local` does not touch it) or `CI=1 make frontend-test-e2e-dev` (`:9201`, no build) | The integration. Local Synaplan (`docker compose --profile oidc`) and local OpenCloud. **Not a GitHub job.** Required before pushing anything a person can see or that touches a route, the proxy config, auth, or the Synaplan client. |
+| `make frontend-build && docker build .` (after `ci-local` generated the client) | The **Docker Build** job, when the `Dockerfile`, a compose file, or the build inputs changed. |
+| `make docs` | The **Docs** workflow, when `config.go` tags, the README or `.github/docs/` changed. |
 
 Rules:
 
 - `make ci-local` first, always. A filtered run (`go test ./internal/handler`,
   `vitest <file>`, `playwright test tests/e2e/foo.spec.ts`) is diagnosis, not
   the gate — finish with the unfiltered targets.
-- E2E is **required** before pushing anything a person can see or that
-  touches a route, the proxy config, auth, or the Synaplan client. A
-  backend-only refactor with no HTTP contract change may skip it. A selector,
-  translation or route miss will not show up in Vitest.
-- Run E2E the way CI does: `CI=1` (one worker, one retry, trace on retry).
-  OpenCloud 8.1.0 crashes under parallel Playwright load
+- A backend-only refactor with no HTTP contract change may skip the
+  Playwright suite. A selector, translation or route miss will not show up
+  in Vitest.
+- Run Playwright with `CI=1` (one worker, one retry, trace on retry).
+  OpenCloud 8.1.0 crashes under parallel load
   (`fatal error: concurrent map read and map write`) and the container has
   no restart policy — bring it back with `docker compose up -d` and wait for
   `status.php`.
-- Locally the suite runs against **real AI providers** (the keys in
-  Synaplan's `.env`); in CI it runs against Synaplan's test stack with the
-  Ollama stub and Tika. A spec must pass in both: assert on the terminal
-  state (the result box is visible and non-empty, the success banner names
-  the group), never on model wording, never on timing.
-- Read the Go service log before blaming the extension:
-  `docker compose logs synaplan-backend`. `summarize: summary/generate status
-  500 … invalid x-api-key` — `translate:` uses the same Synaplan endpoint —
-  or any other provider `authentication_error` means the
-  model Synaplan has as default for `testuser` belongs to a provider whose
-  key in `../synaplan/backend/.env` is missing or invalid — fix the key or
-  pick a model with a working key in Synaplan's AI settings, restart its
-  `backend worker`, and rerun. The knowledge journeys only need embeddings
-  and Tika, so they stay green while summarize and translate fail that way.
+- The suite runs against the **real AI providers** in Synaplan's `.env`.
+  Assert on the terminal state (the result box is visible and non-empty, the
+  success banner names the group), never on model wording, never on timing.
+- Do not add a GitHub job that starts Synaplan, Keycloak or OpenCloud. A red
+  integration is reproduced on this machine: `playwright-report/` and
+  `docker compose logs synaplan-backend`.
+- Read the Go service log before blaming the extension.
+  `summarize: summary/generate status 500 … invalid x-api-key` —
+  `translate:` uses the same Synaplan endpoint — or any other provider
+  `authentication_error` means the model Synaplan has as default for
+  `testuser` belongs to a provider whose key in `../synaplan/backend/.env`
+  is missing or invalid — fix the key or pick a model with a working key in
+  Synaplan's AI settings, restart its `backend` and `worker`, and rerun. The
+  knowledge journeys only need embeddings and Tika, so they stay green while
+  summarize and translate fail that way.
 - Never `--no-verify`, never "fix" a flaky test by raising a timeout without
-  a timeline from the trace (`playwright-report/`, uploaded as an artifact
-  when CI fails).
-- After a Synaplan pin bump, run the whole gate: a regenerated client is a
-  compile-time contract check, and the E2E suite is the runtime one.
+  a timeline from the trace (`playwright-report/`).
+- After a Synaplan pin bump, run the whole gate: a regenerated client is the
+  compile-time contract check, and the local Playwright suite is the runtime
+  one.
 
 ## E2E with Playwright — how the journeys are built
 
@@ -218,9 +226,9 @@ sprint that touches one of them adds its journey in the same PR.
   `synaplanApiHelper` with a `synaplan-app` token, and the spec runs in
   `serial` mode because workers would race the wipe.
 - **Environment knobs.** `BASE_URL_OC` (UI under test: `:9200` or `:9201`),
-  `OC_API_URL` (Graph/WebDAV for fixtures, stays `:9200` in dev mode),
-  `KEYCLOAK_HTTPS_URL`, `SYNAPLAN_API_URL` — defaults are the dev stack, CI
-  overrides them in `ci.yml`. Never hardcode a port inside a spec.
+  `OC_API_URL` (Graph/WebDAV for fixtures, stays `:9200`),
+  `KEYCLOAK_HTTPS_URL`, `SYNAPLAN_API_URL`. The defaults are the local dev
+  stack. Never hardcode a port inside a spec.
 - **Timeouts are explicit and justified.** `test.setTimeout(60_000)` for a
   model round-trip, `toBeVisible({ timeout: 30_000 })` on the result. No
   `waitForTimeout`. When a future feature streams a result (SSE or a
@@ -234,8 +242,9 @@ sprint that touches one of them adds its journey in the same PR.
   journey's name in the PR body next to the local run that walked it.
 - Add helpers to `support/helpers/` when two specs need the same step; keep
   page objects (`support/pages/`) for OpenCloud's own screens only.
-- A spec that needs a new Synaplan capability also needs the Synaplan pin
-  that has it — the test stack in CI runs exactly `SYNAPLAN_REF`.
+- A spec that needs a new Synaplan capability also needs the image pin that
+  has it (`SYNAPLAN_IMAGE_DIGEST`) and a local Synaplan checkout new enough
+  to serve it.
 
 ## Pinned Synaplan and other dependencies
 
@@ -243,12 +252,12 @@ sprint that touches one of them adds its journey in the same PR.
   every Docker image by digest; Go and npm dependencies by exact version.
   Renovate (`renovate.json5`) raises the PRs and groups them; each one still
   goes through the full gate and a review. Do not loosen a pin by hand.
-- `SYNAPLAN_REF` (git SHA, the compose files the E2E job clones) and
-  `SYNAPLAN_IMAGE_DIGEST` (the image the client is generated from and the test
-  stack runs) in `ci.yml` are **one pair** and the single source of truth —
-  `generate-synaplan-client.sh` greps the digest out of that file. Bump them
-  together, in a `chore: bump Synaplan to …` PR, and say what changed in the
-  API. Renovate opens the paired bump as the `Synaplan` group.
+- `SYNAPLAN_IMAGE_DIGEST` in `ci.yml` is the single source of truth for the
+  generated client — `generate-synaplan-client.sh` greps it out of that file.
+  Bump it in a `chore: bump Synaplan to …` PR and say what changed in the
+  API. Renovate opens that bump as the `Synaplan` group. The local
+  integration run uses the Synaplan checkout on this machine, which should
+  be that release or newer.
 - OpenCloud is pinned in `docker-compose.yml` and `frontend/package.json`
   (`@opencloud-eu/*` all on the same version). A bump is its own PR with the
   E2E run on the new version; `README.md` states the minimum version.
@@ -313,12 +322,12 @@ order. None is optional and none is done in parallel with the next topic.
    text matches the reply. Push the fixes to the same branch; never open a
    second PR for them.
 6. **Make CI green on the same branch.** Reproduce a red check locally
-   first (`make ci-local`; the failing spec with its trace from the
-   `playwright-report` artifact; the backend logs in the job output), name
+   first (`make ci-local`, or `docker build .` when the image job failed).
+   A red integration is reproduced here, from `playwright-report/` and
+   `docker compose logs synaplan-backend` — GitHub does not run it. Name
    the cause, fix it, re-run the local step that covers the diff, push, and
    wait again. Never retry a timing failure blind, never raise a timeout
-   without the timeline, never re-run a job as the fix — unless every E2E
-   job died at `Unable to download artifact`, which is Actions infra.
+   without the timeline, never re-run a job as the fix.
 7. **Ready** means: `All Checks Passed` green on the current head and every
    thread answered. Say so in the PR. The owner merges; do not merge your
    own PR and do not start the next topic before this one is ready.
@@ -363,6 +372,8 @@ order. None is optional and none is done in parallel with the next topic.
 - Commit `client.gen.go`, `.cache/openapi.json`, `frontend/dist*`,
   `node_modules/`, `backend/bin/`, or anything from `.github/docs/.cache/`.
 - Merge, or ask to merge, with a red or skipped check.
+- Add a GitHub job that clones Synaplan or starts Keycloak, OpenCloud, Tika
+  or a model server. That integration runs locally.
 - Hand-edit generated code, or hand-write a Synaplan API call the generated
   client does not have.
 - Hardcode a host or port in shipped code; the dev defaults belong in the
