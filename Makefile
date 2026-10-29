@@ -1,4 +1,4 @@
-.PHONY: frontend-install frontend-build frontend-serve frontend-lint frontend-format-check frontend-format frontend-typecheck frontend-test-unit frontend-test-e2e frontend-test-e2e-dev backend-build backend-dev backend-test backend-lint backend-format format docker-up docker-down docs docs-serve-prod docs-clean
+.PHONY: frontend-install frontend-build frontend-serve frontend-lint frontend-format-check frontend-format frontend-typecheck frontend-test-unit frontend-test-e2e frontend-test-e2e-dev backend-build backend-dev backend-test backend-lint backend-format format ci-local docker-up docker-down docs docs-serve-prod docs-clean
 
 # Frontend
 frontend-install:
@@ -51,6 +51,30 @@ backend-format:
 format:
 	make frontend-format
 	make backend-format
+
+# Local mirror of the `frontend` and `backend` jobs in
+# .github/workflows/ci.yml — same steps, same order, same flags. Green here
+# means those two jobs are green. It does NOT run the E2E job: run
+# `make frontend-build && CI=1 make frontend-test-e2e` (bundled build on
+# :9200 — the build refreshes frontend/dist, which OpenCloud serves) or
+# `CI=1 make frontend-test-e2e-dev` (web dev server on :9201) against the
+# local stack before pushing. CI=1 selects one worker and one retry, exactly
+# as CI runs it. See AGENTS.md, "The gate".
+#
+# The production bundle is written to frontend/dist-ci/ (gitignored) instead
+# of frontend/dist/, so running the gate never swaps the extension that the
+# running OpenCloud container — or the :9201 web dev server — is serving.
+# OPENCLOUD_EXTENSION_DIST_DIR is honoured by @opencloud-eu/extension-sdk.
+#
+# `make -C backend test lint` in one invocation runs `generate` once for both.
+ci-local:
+	cd frontend && pnpm install --frozen-lockfile
+	make frontend-lint
+	make frontend-format-check
+	make frontend-typecheck
+	make frontend-test-unit
+	cd frontend && OPENCLOUD_EXTENSION_DIST_DIR=dist-ci pnpm build
+	make -C backend test lint
 
 # Docker
 docker-up:
