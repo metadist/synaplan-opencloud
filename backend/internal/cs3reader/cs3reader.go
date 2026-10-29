@@ -45,6 +45,7 @@ type File struct {
 type Reader struct {
 	gws        pool.Selectable[gateway.GatewayAPIClient]
 	httpClient *http.Client
+	machineKey string
 }
 
 // New creates a Reader that routes gateway calls through the given

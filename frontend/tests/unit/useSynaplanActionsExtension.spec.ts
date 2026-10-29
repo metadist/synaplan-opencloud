@@ -6,7 +6,8 @@ vi.mock('@opencloud-eu/web-pkg', () => ({
   useModals: () => ({ dispatchModal: vi.fn() }),
   useMessages: () => ({ showErrorMessage: vi.fn() }),
   useUserStore: () => userRef,
-  useConfigStore: () => ({ serverUrl: 'https://oc.example.com/' })
+  useConfigStore: () => ({ serverUrl: 'https://oc.example.com/' }),
+  useClientService: () => ({ httpAuthenticated: { get: vi.fn(), put: vi.fn(), post: vi.fn() } })
 }))
 
 vi.mock('vue3-gettext', () => ({
@@ -47,12 +48,16 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize and knowledge actions', () => {
+  it('groups the file actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
       'summarize',
-      'add-to-knowledge'
+      'add-to-knowledge',
+      'chat-about-file',
+      'watch',
+      'from-synaplan',
+      'let-synaplan-read'
     ])
   })
 
@@ -62,13 +67,19 @@ describe('useSynaplanActionsExtension', () => {
       expect(action.isVisible(options())).toBe(true)
     })
 
-    it.each([
-      ['a folder', options({ isFolder: true })],
-      ['an unsupported mime type', options({ mimeType: 'image/png' })],
-      ['multiple resources', { resources: [{}, {}] } as unknown as FileActionOptions]
-    ])('hides the group for %s', (_, opts) => {
+    it('shows the group for a folder, because a folder can be watched', () => {
       const { action } = useSynaplanActionsExtension()
-      expect(action.isVisible(opts)).toBe(false)
+      expect(action.isVisible(options({ isFolder: true }))).toBe(true)
+    })
+
+    it('shows the group for a file Synaplan cannot read, because it can still be watched', () => {
+      const { action } = useSynaplanActionsExtension()
+      expect(action.isVisible(options({ mimeType: 'image/png' }))).toBe(true)
+    })
+
+    it('hides the group for multiple resources', () => {
+      const { action } = useSynaplanActionsExtension()
+      expect(action.isVisible({ resources: [{}, {}] } as unknown as FileActionOptions)).toBe(false)
     })
 
     it('hides the group when the user is not signed in', () => {

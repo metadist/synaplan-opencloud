@@ -33,6 +33,26 @@ type Config struct {
 	OIDCExchangeSecret   string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience   string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
+	// Instance credential. Empty until an OpenCloud administrator registers
+	// this OpenCloud on the Synaplan page (a Synaplan administrator then
+	// approves it), or the operator configures a credential obtained that
+	// way. The service never holds a Synaplan admin key.
+	InstanceID     string `yaml:"instance_id" env:"SYNAPLAN_INSTANCE_ID" desc:"Platform instance id Synaplan assigned to this OpenCloud."`
+	InstanceSecret string `yaml:"instance_secret" env:"SYNAPLAN_INSTANCE_SECRET" desc:"Instance secret. Used for copies, folder reads and watches. Never logged."`
+	DeliveryURL    string `yaml:"delivery_url" env:"SYNAPLAN_DELIVERY_URL" desc:"Address Synaplan calls to deliver a copy or ask for a folder read. Example: http://synaplan-backend:9106/api/synaplan/inbound."`
+	PublicURL      string `yaml:"public_url" env:"SYNAPLAN_PUBLIC_URL" desc:"Address a person opens in the browser, used in links back to a file."`
+	ServerID       string `yaml:"server_id" env:"SYNAPLAN_SERVER_ID" desc:"Stable id of this OpenCloud server, sent when the instance is registered."`
+	MachineAuthKey string `yaml:"machine_auth_api_key" env:"OC_MACHINE_AUTH_API_KEY;SYNAPLAN_MACHINE_AUTH_API_KEY" desc:"OpenCloud machine-auth key. Copies and watches use it to read and write a person's files without their browser session."`
+	OpenCloudURL   string `yaml:"opencloud_url" env:"SYNAPLAN_OPENCLOUD_URL;OC_URL" desc:"Address of OpenCloud's own API as this service reaches it. Used to ask the Graph API whether a person is an administrator."`
+	StatePath      string `yaml:"state_path" env:"SYNAPLAN_STATE_PATH" desc:"File that stores read settings, the administrator's choices and the key used while a person is away. Put it on durable storage. Empty keeps that state in memory only."`
+	StateKey       string `yaml:"state_key" env:"SYNAPLAN_STATE_KEY;OC_JWT_SECRET" desc:"Secret used to encrypt keys in the state file. Falls back to the OpenCloud JWT secret. Never logged."`
+
+	// Answer language and memories. An OpenCloud administrator can change
+	// these on the Synaplan page; the values here are the starting point.
+	DefaultAnswerLanguage string `yaml:"default_answer_language" env:"SYNAPLAN_DEFAULT_ANSWER_LANGUAGE" desc:"Language the AI answers in unless the person asks for another one (ISO 639-1, for example de)."`
+	UseUserLanguage       bool   `yaml:"use_user_language" env:"SYNAPLAN_USE_USER_LANGUAGE" desc:"Answer in each person's OpenCloud interface language when it is supported; the default language is the fallback."`
+	AllowMemories         bool   `yaml:"allow_memories" env:"SYNAPLAN_ALLOW_MEMORIES" desc:"Let the chat use a person's Synaplan memories. Synaplan's memory service must be available."`
+
 	Context context.Context `yaml:"-"`
 }
 

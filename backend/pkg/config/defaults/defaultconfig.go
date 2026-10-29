@@ -34,7 +34,7 @@ func DefaultConfig() *config.Config {
 			Namespace: "eu.opencloud.synaplan",
 			CORS: config.CORS{
 				AllowedOrigins:   []string{"*"},
-				AllowedMethods:   []string{"GET", "POST"},
+				AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
 				AllowedHeaders:   []string{"Authorization", "Origin", "Content-Type", "Accept", "X-Requested-With", "X-Request-Id"},
 				AllowCredentials: true,
 			},
@@ -42,11 +42,14 @@ func DefaultConfig() *config.Config {
 		GRPCClientTLS: &shared.GRPCClientTLS{
 			Mode: "off",
 		},
-		SynaplanURL:          "http://host.docker.internal:8000",
-		OIDCTokenEndpoint:    "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token",
-		OIDCExchangeClientID: "synaplan-opencloud",
-		OIDCExchangeSecret:   "synaplan-opencloud-secret",
-		OIDCTargetAudience:   "synaplan-app",
+		SynaplanURL:           "http://host.docker.internal:8000",
+		OIDCTokenEndpoint:     "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token",
+		OIDCExchangeClientID:  "synaplan-opencloud",
+		OIDCExchangeSecret:    "synaplan-opencloud-secret",
+		OIDCTargetAudience:    "synaplan-app",
+		DefaultAnswerLanguage: "en",
+		UseUserLanguage:       true,
+		AllowMemories:         true,
 	}
 }
 

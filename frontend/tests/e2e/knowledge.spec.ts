@@ -125,6 +125,67 @@ test('add a PDF file to a knowledge group end-to-end', async ({ request }) => {
   await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
 })
 
+test('keep a file up to date and find its state in the Synaplan tab', async ({ request }) => {
+  test.setTimeout(90_000)
+
+  const baseName = `keep-${Date.now()}.txt`
+  const remotePath = `${TESTS_DIR}/${baseName}`
+  await uploadTextFile(
+    request,
+    webDavUrl,
+    accessToken,
+    remotePath,
+    'Keep this sentence searchable.'
+  )
+  filesToCleanup.push(remotePath)
+
+  await navigateToTestsFolder(userPage)
+  const row = await findFileRow(userPage, baseName)
+  await openSynaplanMenu(row)
+  await userPage.locator('.oc-files-actions-add-to-knowledge-trigger').click()
+
+  const dialog = userPage.locator('[data-testid="synaplan-knowledge-dialog"]')
+  await expect(dialog).toBeVisible({ timeout: 10_000 })
+
+  const picker = userPage.locator('[data-testid="synaplan-knowledge-group"]')
+  await picker.locator('.vs__dropdown-toggle').click()
+  await userPage.keyboard.type(KNOWLEDGE_GROUP)
+  await picker.locator('.vs__dropdown-option').first().click()
+
+  await userPage.locator('[data-testid="synaplan-knowledge-keep"] input').check()
+  const submit = userPage.locator('[data-testid="synaplan-knowledge-submit"]')
+  await expect(submit).toBeEnabled({ timeout: 5_000 })
+  await submit.click()
+
+  await expect(userPage.locator('[data-testid="synaplan-knowledge-success"]')).toBeVisible({
+    timeout: 30_000
+  })
+  // Honest outcome: either changes follow, or one sentence says why not
+  // (this login is not connected). Never silence.
+  const kept = userPage.locator('[data-testid="synaplan-knowledge-kept"]')
+  const notKept = userPage.locator('[data-testid="synaplan-knowledge-not-kept"]')
+  await expect(kept.or(notKept)).toBeVisible()
+
+  await userPage.locator('.oc-modal-title-actions-cancel').click()
+  await expect(dialog).toBeHidden()
+
+  // Ten-second findability: the file's Synaplan tab names the state and the folder.
+  await openSynaplanTab(userPage, baseName)
+  await expect(userPage.locator('[data-testid="synaplan-sidebar-state"]')).toBeVisible({
+    timeout: 30_000
+  })
+  await expect(userPage.locator('[data-testid="synaplan-sidebar"]')).toContainText(KNOWLEDGE_GROUP)
+  await expect(userPage.locator('[data-testid="synaplan-sidebar-remove"]')).toBeVisible()
+})
+
+async function openSynaplanTab(page: Page, name: string) {
+  const row = await findFileRow(page, name)
+  await row.click({ button: 'right' })
+  await page.locator('.oc-files-actions-show-details-trigger').click()
+  await page.locator('#sidebar-panel-synaplan-select').click()
+  await expect(page.locator('[data-testid="synaplan-sidebar"]')).toBeVisible({ timeout: 10_000 })
+}
+
 async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) {
   const row = await findFileRow(page, fileName)
   await openSynaplanMenu(row)

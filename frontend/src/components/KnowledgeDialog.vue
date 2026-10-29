@@ -18,13 +18,13 @@
     </p>
 
     <p v-if="removed" class="ext:text-sm" data-testid="synaplan-knowledge-removed">
-      {{ $gettext('Removed from the knowledge base. It is no longer searchable.') }}
+      {{ $gettext('Removed from the knowledge folder. It is no longer searchable.') }}
     </p>
 
     <div v-if="phase === 'select' || phase === 'error'">
       <oc-select
         :model-value="selectedGroup"
-        :label="$gettext('Knowledge group')"
+        :label="$gettext('Knowledge folder')"
         :options="groupOptions"
         :taggable="true"
         :clearable="false"
@@ -32,7 +32,7 @@
         :position-fixed="true"
         :create-option="createOption"
         :description-message="
-          $gettext('Pick an existing group or type a new name — Synaplan will create it.')
+          $gettext('Pick a knowledge folder or type a new name. Synaplan will create it.')
         "
         data-testid="synaplan-knowledge-group"
         @update:model-value="onGroupChange"
@@ -59,12 +59,12 @@
       <p class="ext:font-semibold ext:mb-2">
         {{
           wasUpdate
-            ? $gettext('Updated in the Synaplan knowledge base.')
-            : $gettext('Added to the Synaplan knowledge base.')
+            ? $gettext('Updated. This file is searchable by AI.')
+            : $gettext('This file is searchable by AI.')
         }}
       </p>
       <dl class="ext:grid ext:grid-cols-2 ext:gap-x-4 ext:gap-y-1 ext:text-xs">
-        <dt class="ext:text-role-on-surface-variant">{{ $gettext('Group') }}</dt>
+        <dt class="ext:text-role-on-surface-variant">{{ $gettext('Knowledge folder') }}</dt>
         <dd>{{ result.groupKey }}</dd>
         <dt class="ext:text-role-on-surface-variant">{{ $gettext('Chunks created') }}</dt>
         <dd>{{ result.chunksCreated }}</dd>
@@ -73,6 +73,24 @@
           <dd>{{ result.extractedTextLength }} {{ $gettext('characters') }}</dd>
         </template>
       </dl>
+      <p
+        v-if="result.keptUpToDate"
+        class="ext:mt-2 ext:text-xs"
+        data-testid="synaplan-knowledge-kept"
+      >
+        {{ $gettext('Changes to this file follow in Synaplan.') }}
+      </p>
+      <p
+        v-else-if="keepSyncedAsked"
+        class="ext:mt-2 ext:text-xs"
+        data-testid="synaplan-knowledge-not-kept"
+      >
+        {{
+          $gettext(
+            'Changes to this file will not follow: this login is not connected to Synaplan yet. Connect it on the Synaplan page, then make the file searchable again.'
+          )
+        }}
+      </p>
     </div>
 
     <div
@@ -83,6 +101,13 @@
       {{ error }}
     </div>
 
+    <oc-checkbox
+      v-if="phase !== 'done'"
+      v-model="keepSynced"
+      :label="$gettext('Keep it up to date when the file changes.')"
+      data-testid="synaplan-knowledge-keep"
+    />
+
     <div class="ext:flex ext:justify-end ext:gap-2 ext:pt-2">
       <oc-button
         v-if="knowledgeStatus.inKnowledge && phase !== 'loading'"
@@ -90,7 +115,7 @@
         data-testid="synaplan-knowledge-remove"
         @click="onRemove"
       >
-        {{ $gettext('Remove from Knowledge') }}
+        {{ $gettext('Remove from the knowledge folder') }}
       </oc-button>
 
       <oc-button
@@ -115,6 +140,7 @@ import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 import { useKnowledgeGroups } from '../composables/useKnowledgeGroups'
+import { invalidateCloudStatus, markFor } from '../composables/cloudStatus'
 
 const props = defineProps<{
   modal: Modal
@@ -150,7 +176,8 @@ const knowledgeResponseSchema = z.object({
   vectorized: z.boolean(),
   chunksCreated: z.number(),
   extractedTextLength: z.number(),
-  synaplanFileId: z.number().optional()
+  synaplanFileId: z.number().optional(),
+  keptUpToDate: z.boolean().optional()
 })
 
 type KnowledgeResult = z.infer<typeof knowledgeResponseSchema>
@@ -159,6 +186,8 @@ type Phase = 'select' | 'loading' | 'done' | 'error'
 
 const phase = ref<Phase>('select')
 const selectedGroup = ref<string>('')
+const keepSynced = ref(true)
+const keepSyncedAsked = ref(false)
 const result = ref<KnowledgeResult | null>(null)
 const error = ref('')
 const removed = ref(false)
@@ -179,8 +208,8 @@ const submitLabel = computed(() => {
     return knowledgeStatus.value.inKnowledge ? $gettext('Updating…') : $gettext('Uploading…')
   }
   return knowledgeStatus.value.inKnowledge
-    ? $gettext('Update in Knowledge')
-    : $gettext('Add to Knowledge')
+    ? $gettext('Update in the knowledge folder')
+    : $gettext('Make searchable by AI')
 })
 
 onMounted(async () => {
@@ -193,6 +222,12 @@ onMounted(async () => {
     // A submit that already started, or a newer status request, wins.
     if (seq !== statusSeq || phase.value === 'loading' || phase.value === 'done') return
     knowledgeStatus.value = data
+    // A file that is already searchable keeps its knowledge folder
+    // preselected; the folder view already knows it from the bird.
+    const known = markFor(props.resource.id)?.folder
+    if (data.inKnowledge && known && !selectedGroup.value) {
+      onGroupCreated(known)
+    }
   } catch (e) {
     console.warn('synaplan knowledge status: fetch failed', e)
   } finally {
@@ -235,9 +270,15 @@ async function onSubmit() {
 
   try {
     const data = await loadingService.addTask(async () => {
-      const body: { resourceId: string; groupKey: string; overwrite?: boolean } = {
+      const body: {
+        resourceId: string
+        groupKey: string
+        overwrite?: boolean
+        keepSynced?: boolean
+      } = {
         resourceId: props.resource.id,
-        groupKey: trimmed
+        groupKey: trimmed,
+        keepSynced: keepSynced.value
       }
       if (knowledgeStatus.value.inKnowledge) body.overwrite = true
       const res = await httpAuthenticated.post('/api/synaplan/knowledge', body, {
@@ -248,11 +289,13 @@ async function onSubmit() {
       return res.data
     })
     result.value = data
+    keepSyncedAsked.value = keepSynced.value
     knowledgeStatus.value = {
       inKnowledge: true,
       stale: false,
       synaplanFileId: data.synaplanFileId ?? knowledgeStatus.value.synaplanFileId
     }
+    invalidateCloudStatus(props.resource.id)
     phase.value = 'done'
   } catch (e) {
     if (controller.signal.aborted) return
@@ -274,6 +317,7 @@ async function onRemove() {
     )
     knowledgeStatus.value = { inKnowledge: false, stale: false, synaplanFileId: 0 }
     removed.value = true
+    invalidateCloudStatus(props.resource.id)
     phase.value = 'select'
   } catch (e) {
     console.error('synaplan knowledge remove failed', e)
