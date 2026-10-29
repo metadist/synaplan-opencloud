@@ -156,7 +156,7 @@ full cycle.
 | Local step | CI job it mirrors |
 | ---------- | ----------------- |
 | `make ci-local` | **Frontend** (`pnpm install --frozen-lockfile`, `lint`, `format:check`, `check:types`, `test:unit`, `build`) and **Backend** (`go generate`, `go test ./...`, `golangci-lint run`) |
-| `CI=1 make frontend-test-e2e` (bundled `:9200`) or `CI=1 make frontend-test-e2e-dev` (web dev server `:9201`) | **E2E** (Playwright against the Synaplan test stack and the built image) |
+| `make frontend-build && CI=1 make frontend-test-e2e` (bundled `:9200` — the build refreshes `frontend/dist`, which OpenCloud serves; `ci-local` does not touch it) or `CI=1 make frontend-test-e2e-dev` (web dev server `:9201`, no build) | **E2E** (Playwright against the Synaplan test stack and the built image) |
 | `make frontend-build && docker build .` (after `ci-local` generated the client) | **Docker Build** — when the `Dockerfile`, a compose file, or the build inputs changed |
 | `make docs` | **Docs** — when `config.go` tags, the README or `.github/docs/` changed |
 

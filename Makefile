@@ -55,9 +55,11 @@ format:
 # Local mirror of the `frontend` and `backend` jobs in
 # .github/workflows/ci.yml — same steps, same order, same flags. Green here
 # means those two jobs are green. It does NOT run the E2E job: run
-# `make frontend-test-e2e` (bundled build on :9200) or
-# `make frontend-test-e2e-dev` (web dev server on :9201) against the local
-# stack before pushing. See AGENTS.md, "The gate".
+# `make frontend-build && CI=1 make frontend-test-e2e` (bundled build on
+# :9200 — the build refreshes frontend/dist, which OpenCloud serves) or
+# `CI=1 make frontend-test-e2e-dev` (web dev server on :9201) against the
+# local stack before pushing. CI=1 selects one worker and one retry, exactly
+# as CI runs it. See AGENTS.md, "The gate".
 #
 # The production bundle is written to frontend/dist-ci/ (gitignored) instead
 # of frontend/dist/, so running the gate never swaps the extension that the
