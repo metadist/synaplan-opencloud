@@ -10,10 +10,14 @@ vi.mock('@opencloud-eu/web-pkg', () => ({
   useClientService: () => ({ httpAuthenticated: { get, put, post } })
 }))
 
+const interpolate = (s: string, vars?: Record<string, string>) =>
+  vars ? s.replace(/%\{(\w+)\}/g, (_, key) => vars[key] ?? '') : s
+
 vi.mock('vue3-gettext', () => ({
   useGettext: () => ({
-    $gettext: (s: string, vars?: Record<string, string>) =>
-      vars ? s.replace(/%\{(\w+)\}/g, (_, key) => vars[key] ?? '') : s
+    $gettext: interpolate,
+    $ngettext: (one: string, many: string, n: number, vars?: Record<string, string>) =>
+      interpolate(n === 1 ? one : many, vars)
   })
 }))
 
@@ -63,7 +67,11 @@ function mountIt() {
   })
 }
 
-const instance = { registered: true, status: 'active', host: 'cloud.example' }
+const instance: { registered: boolean; status: string; host: string; conflicts?: number } = {
+  registered: true,
+  status: 'active',
+  host: 'cloud.example'
+}
 
 /** GET answers by route: the settings and the instance state are two calls. */
 function answer(settingsData: typeof settings, instanceData = instance) {
@@ -168,6 +176,15 @@ describe('AdminSettings registration', () => {
       'Ask your administrator'
     )
     expect(wrapper.find('[data-testid="synaplan-instance-register"]').exists()).toBe(false)
+  })
+
+  it('names a conflicting registration so the administrator can clean it up', async () => {
+    answer(settings, { registered: true, status: 'active', host: 'cloud.example', conflicts: 2 })
+    const wrapper = mountIt()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-instance-conflict"]').text()).toContain(
+      '2 other clouds'
+    )
   })
 
   it('says a pending instance waits for a Synaplan administrator', async () => {

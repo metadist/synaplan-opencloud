@@ -10,6 +10,20 @@
     <template v-if="settings">
       <h2 class="ext:text-lg ext:font-semibold">{{ $gettext('This OpenCloud in Synaplan') }}</h2>
       <p class="ext:text-sm" data-testid="synaplan-instance-state">{{ instanceSentence }}</p>
+      <p
+        v-if="instance && instance.conflicts > 0"
+        class="ext:text-sm ext:text-role-error"
+        data-testid="synaplan-instance-conflict"
+      >
+        {{
+          $ngettext(
+            'Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.',
+            'Synaplan knows %{count} other clouds for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove those no longer in use.',
+            instance.conflicts,
+            { count: String(instance.conflicts) }
+          )
+        }}
+      </p>
       <oc-button
         v-if="settings.isAdmin && instance && !instance.registered"
         appearance="filled"
@@ -127,7 +141,7 @@ import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { sentenceFor } from '../failures'
 
-const { $gettext } = useGettext()
+const { $gettext, $ngettext } = useGettext()
 const { httpAuthenticated } = useClientService()
 
 const languageSchema = z.object({ code: z.string(), name: z.string() })
@@ -146,7 +160,8 @@ type LanguageOption = z.infer<typeof languageSchema>
 const instanceSchema = z.object({
   registered: z.boolean(),
   status: z.string(),
-  host: z.string()
+  host: z.string(),
+  conflicts: z.number().default(0)
 })
 type InstanceState = z.infer<typeof instanceSchema>
 

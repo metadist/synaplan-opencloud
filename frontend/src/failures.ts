@@ -33,6 +33,14 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
       )
+    case 'platform_disconnected':
+      return $gettext(
+        'This login is not connected to Synaplan yet. Connect it on the Synaplan page, or ask your administrator.'
+      )
+    case 'platform_ambiguous':
+      return $gettext(
+        'Synaplan knows more than one cloud for this login. Ask a Synaplan administrator to remove the one no longer in use.'
+      )
     case 'saved_not_reported':
       return $gettext(
         'The setting was saved here, but Synaplan did not receive it. Save again in a minute.'

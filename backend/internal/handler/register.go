@@ -44,6 +44,10 @@ type instanceStatus struct {
 	Registered bool   `json:"registered"`
 	Status     string `json:"status"`
 	Host       string `json:"host"`
+	// Conflicts counts other active instances in Synaplan whose tokens name
+	// the same OIDC client. Above zero, nothing this cloud sends with a
+	// person's token can be attributed, and the page says so.
+	Conflicts int `json:"conflicts"`
 }
 
 // InstanceStatus reports the registration state. Everyone may read it;
@@ -70,10 +74,12 @@ func (h *Handler) instanceState(ctx context.Context) instanceStatus {
 		return state
 	}
 	var parsed struct {
-		Status string `json:"status"`
+		Status    string `json:"status"`
+		Conflicts int    `json:"conflicting_instances"`
 	}
 	_ = json.Unmarshal(body, &parsed)
 	state.Status = parsed.Status
+	state.Conflicts = parsed.Conflicts
 	if state.Status == "" {
 		state.Status = "pending"
 	}

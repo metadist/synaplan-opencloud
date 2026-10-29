@@ -146,7 +146,13 @@
     "Register this OpenCloud": "Diese OpenCloud registrieren",
     "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Noch nicht registriert. Registrieren Sie sie mit Ihrem Login: Kopien, Ordnerzugriffe und Beobachtungen funktionieren, sobald Synaplan sie angenommen hat.",
     "Registered as %{host} and accepted by Synaplan.": "Als %{host} registriert und von Synaplan angenommen.",
-    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Als %{host} registriert. Wartet darauf, dass ein Synaplan-Administrator sie in Synaplan freigibt."
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Als %{host} registriert. Wartet darauf, dass ein Synaplan-Administrator sie in Synaplan freigibt.",
+    "This login is not connected to Synaplan yet. Connect it on the Synaplan page, or ask your administrator.": "Dieser Login ist noch nicht mit Synaplan verbunden. Verbinden Sie ihn auf der Synaplan-Seite oder fragen Sie Ihren Administrator.",
+    "Synaplan knows more than one cloud for this login. Ask a Synaplan administrator to remove the one no longer in use.": "Synaplan kennt mehr als eine Cloud für diesen Login. Bitten Sie einen Synaplan-Administrator, die nicht mehr genutzte zu entfernen.",
+    "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
+      "Synaplan kennt eine weitere Cloud für diesen Login, daher kann nichts, was mit einem persönlichen Login gesendet wird, dieser zugeordnet werden. Bitten Sie einen Synaplan-Administrator, die nicht mehr genutzte zu entfernen.",
+      "Synaplan kennt %{count} weitere Clouds für diesen Login, daher kann nichts, was mit einem persönlichen Login gesendet wird, dieser zugeordnet werden. Bitten Sie einen Synaplan-Administrator, die nicht mehr genutzten zu entfernen."
+    ]
   },
   "es": {
     "Synaplan": "Synaplan",
@@ -295,7 +301,13 @@
     "Register this OpenCloud": "Registrar este OpenCloud",
     "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Aún no registrado. Regístralo con tu inicio de sesión: las copias, lecturas de carpetas y vigilancias funcionarán cuando Synaplan lo haya aceptado.",
     "Registered as %{host} and accepted by Synaplan.": "Registrado como %{host} y aceptado por Synaplan.",
-    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Registrado como %{host}. Esperando a que un administrador de Synaplan lo apruebe en Synaplan."
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Registrado como %{host}. Esperando a que un administrador de Synaplan lo apruebe en Synaplan.",
+    "This login is not connected to Synaplan yet. Connect it on the Synaplan page, or ask your administrator.": "Este inicio de sesión aún no está conectado a Synaplan. Conéctalo en la página de Synaplan o pregunta a tu administrador.",
+    "Synaplan knows more than one cloud for this login. Ask a Synaplan administrator to remove the one no longer in use.": "Synaplan conoce más de una nube para este inicio de sesión. Pide a un administrador de Synaplan que elimine la que ya no se usa.",
+    "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
+      "Synaplan conoce otra nube para este inicio de sesión, así que nada enviado con el inicio de sesión de una persona puede atribuirse a esta. Pide a un administrador de Synaplan que elimine la que ya no se usa.",
+      "Synaplan conoce %{count} nubes más para este inicio de sesión, así que nada enviado con el inicio de sesión de una persona puede atribuirse a esta. Pide a un administrador de Synaplan que elimine las que ya no se usan."
+    ]
   },
   "fr": {
     "Synaplan": "Synaplan",
@@ -444,7 +456,13 @@
     "Register this OpenCloud": "Enregistrer cet OpenCloud",
     "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Pas encore enregistré. Enregistrez-le avec votre identifiant : copies, lectures de dossiers et surveillances fonctionneront dès que Synaplan l'aura accepté.",
     "Registered as %{host} and accepted by Synaplan.": "Enregistré sous %{host} et accepté par Synaplan.",
-    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Enregistré sous %{host}. En attente de l'approbation d'un administrateur Synaplan dans Synaplan."
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Enregistré sous %{host}. En attente de l'approbation d'un administrateur Synaplan dans Synaplan.",
+    "This login is not connected to Synaplan yet. Connect it on the Synaplan page, or ask your administrator.": "Cet identifiant n'est pas encore connecté à Synaplan. Connectez-le sur la page Synaplan ou demandez à votre administrateur.",
+    "Synaplan knows more than one cloud for this login. Ask a Synaplan administrator to remove the one no longer in use.": "Synaplan connaît plus d'un cloud pour cet identifiant. Demandez à un administrateur Synaplan de retirer celui qui n'est plus utilisé.",
+    "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
+      "Synaplan connaît un autre cloud pour cet identifiant ; rien de ce qui est envoyé avec l'identifiant d'une personne ne peut donc être attribué à celui-ci. Demandez à un administrateur Synaplan de retirer celui qui n'est plus utilisé.",
+      "Synaplan connaît %{count} autres clouds pour cet identifiant ; rien de ce qui est envoyé avec l'identifiant d'une personne ne peut donc être attribué à celui-ci. Demandez à un administrateur Synaplan de retirer ceux qui ne sont plus utilisés."
+    ]
   },
   "tr": {
     "Synaplan": "Synaplan",
@@ -593,6 +611,12 @@
     "Register this OpenCloud": "Bu OpenCloud'u kaydet",
     "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Henüz kaydedilmedi. Kendi girişinizle kaydedin: Synaplan kabul ettiğinde kopyalar, klasör okumaları ve izlemeler çalışmaya başlar.",
     "Registered as %{host} and accepted by Synaplan.": "%{host} olarak kaydedildi ve Synaplan tarafından kabul edildi.",
-    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "%{host} olarak kaydedildi. Bir Synaplan yöneticisinin Synaplan'da onaylaması bekleniyor."
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "%{host} olarak kaydedildi. Bir Synaplan yöneticisinin Synaplan'da onaylaması bekleniyor.",
+    "This login is not connected to Synaplan yet. Connect it on the Synaplan page, or ask your administrator.": "Bu giriş henüz Synaplan'a bağlı değil. Synaplan sayfasında bağlayın veya yöneticinize sorun.",
+    "Synaplan knows more than one cloud for this login. Ask a Synaplan administrator to remove the one no longer in use.": "Synaplan bu giriş için birden fazla bulut tanıyor. Artık kullanılmayanı kaldırması için bir Synaplan yöneticisine sorun.",
+    "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
+      "Synaplan bu giriş için bir bulut daha tanıyor; bu yüzden bir kişinin girişiyle gönderilen hiçbir şey buna atfedilemez. Artık kullanılmayanı kaldırması için bir Synaplan yöneticisine sorun.",
+      "Synaplan bu giriş için %{count} bulut daha tanıyor; bu yüzden bir kişinin girişiyle gönderilen hiçbir şey buna atfedilemez. Artık kullanılmayanları kaldırması için bir Synaplan yöneticisine sorun."
+    ]
   }
 }

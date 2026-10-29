@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 const src = join(import.meta.dirname, '../../src')
 const catalog = JSON.parse(
   readFileSync(join(import.meta.dirname, '../../l10n/translations.json'), 'utf8')
-) as Record<string, Record<string, string>>
+) as Record<string, Record<string, string | string[]>>
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -18,14 +18,30 @@ function files(dir: string): string[] {
   })
 }
 
+const literal = `(?:'((?:\\\\'|[^'])*)'|"((?:\\\\"|[^"])*)")`
+const unescape = (raw: string) => raw.replace(/\\'/g, "'").replace(/\\"/g, '"')
+
+/** Every `$gettext('…')` and `$gettext('…', {…})` source string. */
 function sourceStrings(): string[] {
-  const pattern = /\$gettext\(\s*(?:'((?:\\'|[^'])*)'|"((?:\\"|[^"])*)")\s*\)/gs
+  const pattern = new RegExp(`\\$gettext\\(\\s*${literal}\\s*[,)]`, 'gs')
   const found = new Set<string>()
   for (const path of files(src)) {
     const text = readFileSync(path, 'utf8')
     for (const match of text.matchAll(pattern)) {
-      const raw = match[1] ?? match[2]
-      found.add(raw.replace(/\\'/g, "'").replace(/\\"/g, '"'))
+      found.add(unescape(match[1] ?? match[2]))
+    }
+  }
+  return [...found]
+}
+
+/** Every `$ngettext('one', 'many', …)` singular, which is the catalog key. */
+function pluralStrings(): string[] {
+  const pattern = new RegExp(`\\$ngettext\\(\\s*${literal}\\s*,\\s*${literal}\\s*,`, 'gs')
+  const found = new Set<string>()
+  for (const path of files(src)) {
+    const text = readFileSync(path, 'utf8')
+    for (const match of text.matchAll(pattern)) {
+      found.add(unescape(match[1] ?? match[2]))
     }
   }
   return [...found]
@@ -39,6 +55,19 @@ describe('locale catalog', () => {
     for (const source of sourceStrings()) {
       for (const locale of locales) {
         if (!catalog[locale]?.[source]) missing.push(`${locale}: ${source}`)
+      }
+    }
+    expect(missing).toEqual([])
+  })
+
+  it('translates every plural string with both forms in de, es, fr and tr', () => {
+    const missing: string[] = []
+    for (const source of pluralStrings()) {
+      for (const locale of locales) {
+        const entry = catalog[locale]?.[source] as unknown
+        if (!Array.isArray(entry) || entry.length !== 2 || entry.some((form) => !form)) {
+          missing.push(`${locale}: ${source}`)
+        }
       }
     }
     expect(missing).toEqual([])

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -110,5 +111,26 @@ func TestSynaplanDoSendsTheExchangedToken(t *testing.T) {
 	}
 	if got != "Bearer exchanged-for-synaplan" {
 		t.Fatalf("Authorization = %q", got)
+	}
+}
+
+// Synaplan's watch routes answer {error: <code>, message: <sentence>}; the
+// code must survive so the browser can pick its own sentence for it.
+func TestWriteUpstreamKeepsACodeSentAsError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeUpstream(rec, http.StatusConflict, []byte(`{"error":"platform_ambiguous","message":"More than one cloud is registered for this login."}`))
+	var got errorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusConflict || got.Code != "platform_ambiguous" || got.Error != "More than one cloud is registered for this login." {
+		t.Fatalf("got %d %+v", rec.Code, got)
+	}
+
+	rec = httptest.NewRecorder()
+	writeUpstream(rec, http.StatusBadRequest, []byte(`{"error":"Choose a folder.","message":""}`))
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Code != "synaplan_error" || got.Error != "Choose a folder." {
+		t.Fatalf("a sentence in error must not become the code: %+v", got)
 	}
 }

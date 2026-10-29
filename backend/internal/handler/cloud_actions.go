@@ -541,7 +541,11 @@ func writeUpstream(w http.ResponseWriter, status int, body []byte) {
 	if sentence == "" || len(sentence) > 300 || strings.Contains(sentence, "Exception") {
 		sentence = "Synaplan could not finish this. Try again in a minute, or ask your administrator."
 	}
+	// Synaplan answers either {code, error} or {error: <code>, message}.
 	code := parsed.Code
+	if code == "" && parsed.Message != "" && looksLikeCode(parsed.Error) {
+		code = parsed.Error
+	}
 	if code == "" {
 		code = "synaplan_error"
 	}
@@ -550,4 +554,18 @@ func writeUpstream(w http.ResponseWriter, status int, body []byte) {
 		out = status
 	}
 	writeJSON(w, out, errorResponse{Error: sentence, Code: code})
+}
+
+// looksLikeCode tells a machine code such as platform_ambiguous from a
+// sentence: lower-case letters, digits and underscores only.
+func looksLikeCode(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
