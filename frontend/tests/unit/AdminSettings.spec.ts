@@ -4,9 +4,10 @@ import { defineComponent, h } from 'vue'
 
 const get = vi.fn()
 const put = vi.fn()
+const post = vi.fn()
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
-  useClientService: () => ({ httpAuthenticated: { get, put } })
+  useClientService: () => ({ httpAuthenticated: { get, put, post } })
 }))
 
 vi.mock('vue3-gettext', () => ({
@@ -62,14 +63,24 @@ function mountIt() {
   })
 }
 
+const instance = { registered: true, status: 'active', host: 'cloud.example' }
+
+/** GET answers by route: the settings and the instance state are two calls. */
+function answer(settingsData: typeof settings, instanceData = instance) {
+  get.mockImplementation((url: string) =>
+    Promise.resolve({ data: url.includes('/instance') ? instanceData : settingsData })
+  )
+}
+
 describe('AdminSettings', () => {
   beforeEach(() => {
     get.mockReset()
     put.mockReset()
+    post.mockReset()
   })
 
   it('shows the four modes with the active one checked and the OpenCloud-only ones explained', async () => {
-    get.mockResolvedValueOnce({ data: settings })
+    answer(settings)
     const wrapper = mountIt()
     await flushPromises()
     const radios = wrapper.findAll('[data-testid="synaplan-admin-mode"] input[type="radio"]')
@@ -80,7 +91,7 @@ describe('AdminSettings', () => {
   })
 
   it('lets an administrator save language and memory choices', async () => {
-    get.mockResolvedValueOnce({ data: settings })
+    answer(settings)
     put.mockResolvedValueOnce({ data: { saved: true } })
     const wrapper = mountIt()
     await flushPromises()
@@ -96,7 +107,7 @@ describe('AdminSettings', () => {
   })
 
   it('shows a person who is not an administrator only the answer-language sentence', async () => {
-    get.mockResolvedValueOnce({ data: { ...settings, isAdmin: false, useUserLanguage: false } })
+    answer({ ...settings, isAdmin: false, useUserLanguage: false })
     const wrapper = mountIt()
     await flushPromises()
     expect(wrapper.find('[data-testid="synaplan-admin-language"]').exists()).toBe(false)
@@ -106,7 +117,7 @@ describe('AdminSettings', () => {
   })
 
   it('says why saving failed in one sentence', async () => {
-    get.mockResolvedValueOnce({ data: settings })
+    answer(settings)
     put.mockRejectedValueOnce({
       response: { data: { code: 'admin_only', error: 'Only an administrator can change this.' } }
     })
@@ -116,6 +127,55 @@ describe('AdminSettings', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-admin-error"]').text()).toBe(
       'Only an administrator can change this.'
+    )
+  })
+})
+
+describe('AdminSettings registration', () => {
+  beforeEach(() => {
+    get.mockReset()
+    put.mockReset()
+    post.mockReset()
+  })
+
+  it('lets an administrator register an unregistered OpenCloud with their own login', async () => {
+    answer(settings, { registered: false, status: '', host: 'cloud.example' })
+    post.mockResolvedValueOnce({
+      data: { registered: true, status: 'active', host: 'cloud.example' }
+    })
+    const wrapper = mountIt()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
+      'Not registered yet'
+    )
+    await wrapper.get('[data-testid="synaplan-instance-register"]').trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenCalledWith('/api/synaplan/instance/register', {}, expect.anything())
+    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
+      'accepted by Synaplan'
+    )
+    expect(wrapper.find('[data-testid="synaplan-instance-register"]').exists()).toBe(false)
+  })
+
+  it('tells a regular user to ask their administrator and offers no button', async () => {
+    answer(
+      { ...settings, isAdmin: false },
+      { registered: false, status: '', host: 'cloud.example' }
+    )
+    const wrapper = mountIt()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
+      'Ask your administrator'
+    )
+    expect(wrapper.find('[data-testid="synaplan-instance-register"]').exists()).toBe(false)
+  })
+
+  it('says a pending instance waits for a Synaplan administrator', async () => {
+    answer(settings, { registered: true, status: 'pending', host: 'cloud.example' })
+    const wrapper = mountIt()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
+      'Waiting for a Synaplan administrator'
     )
   })
 })

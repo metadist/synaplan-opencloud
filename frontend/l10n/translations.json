@@ -141,7 +141,12 @@
     "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Nur hier gespeichert: Diese OpenCloud ist noch nicht mit Synaplan verbunden. Fragen Sie Ihren Administrator.",
     "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "Die Einstellung wurde hier gespeichert, aber Synaplan hat sie nicht erhalten. Speichern Sie in einer Minute erneut.",
     "Find a file": "Datei finden",
-    "Only the newest files are listed. Type part of a name to narrow the list.": "Nur die neuesten Dateien sind aufgeführt. Geben Sie einen Teil des Namens ein, um die Liste einzugrenzen."
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Nur die neuesten Dateien sind aufgeführt. Geben Sie einen Teil des Namens ein, um die Liste einzugrenzen.",
+    "This OpenCloud in Synaplan": "Diese OpenCloud in Synaplan",
+    "Register this OpenCloud": "Diese OpenCloud registrieren",
+    "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Noch nicht registriert. Registrieren Sie sie mit Ihrem Login: Kopien, Ordnerzugriffe und Beobachtungen funktionieren, sobald Synaplan sie angenommen hat.",
+    "Registered as %{host} and accepted by Synaplan.": "Als %{host} registriert und von Synaplan angenommen.",
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Als %{host} registriert. Wartet darauf, dass ein Synaplan-Administrator sie in Synaplan freigibt."
   },
   "es": {
     "Synaplan": "Synaplan",
@@ -285,7 +290,12 @@
     "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Guardado solo aquí: este OpenCloud aún no está conectado a Synaplan. Pregunta a tu administrador.",
     "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "El ajuste se guardó aquí, pero Synaplan no lo recibió. Guarda de nuevo en un minuto.",
     "Find a file": "Buscar un archivo",
-    "Only the newest files are listed. Type part of a name to narrow the list.": "Solo se muestran los archivos más recientes. Escribe parte de un nombre para acotar la lista."
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Solo se muestran los archivos más recientes. Escribe parte de un nombre para acotar la lista.",
+    "This OpenCloud in Synaplan": "Este OpenCloud en Synaplan",
+    "Register this OpenCloud": "Registrar este OpenCloud",
+    "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Aún no registrado. Regístralo con tu inicio de sesión: las copias, lecturas de carpetas y vigilancias funcionarán cuando Synaplan lo haya aceptado.",
+    "Registered as %{host} and accepted by Synaplan.": "Registrado como %{host} y aceptado por Synaplan.",
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Registrado como %{host}. Esperando a que un administrador de Synaplan lo apruebe en Synaplan."
   },
   "fr": {
     "Synaplan": "Synaplan",
@@ -429,7 +439,12 @@
     "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Enregistré ici seulement : cet OpenCloud n'est pas encore connecté à Synaplan. Demandez à votre administrateur.",
     "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "Le réglage a été enregistré ici, mais Synaplan ne l'a pas reçu. Enregistrez de nouveau dans une minute.",
     "Find a file": "Trouver un fichier",
-    "Only the newest files are listed. Type part of a name to narrow the list.": "Seuls les fichiers les plus récents sont listés. Saisissez une partie d'un nom pour affiner la liste."
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Seuls les fichiers les plus récents sont listés. Saisissez une partie d'un nom pour affiner la liste.",
+    "This OpenCloud in Synaplan": "Cet OpenCloud dans Synaplan",
+    "Register this OpenCloud": "Enregistrer cet OpenCloud",
+    "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Pas encore enregistré. Enregistrez-le avec votre identifiant : copies, lectures de dossiers et surveillances fonctionneront dès que Synaplan l'aura accepté.",
+    "Registered as %{host} and accepted by Synaplan.": "Enregistré sous %{host} et accepté par Synaplan.",
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "Enregistré sous %{host}. En attente de l'approbation d'un administrateur Synaplan dans Synaplan."
   },
   "tr": {
     "Synaplan": "Synaplan",
@@ -573,6 +588,11 @@
     "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Yalnızca burada kaydedildi: bu OpenCloud henüz Synaplan'a bağlı değil. Yöneticinize sorun.",
     "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "Ayar burada kaydedildi ama Synaplan almadı. Bir dakika sonra yeniden kaydedin.",
     "Find a file": "Dosya bul",
-    "Only the newest files are listed. Type part of a name to narrow the list.": "Yalnızca en yeni dosyalar listeleniyor. Listeyi daraltmak için adın bir kısmını yazın."
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Yalnızca en yeni dosyalar listeleniyor. Listeyi daraltmak için adın bir kısmını yazın.",
+    "This OpenCloud in Synaplan": "Synaplan'da bu OpenCloud",
+    "Register this OpenCloud": "Bu OpenCloud'u kaydet",
+    "Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.": "Henüz kaydedilmedi. Kendi girişinizle kaydedin: Synaplan kabul ettiğinde kopyalar, klasör okumaları ve izlemeler çalışmaya başlar.",
+    "Registered as %{host} and accepted by Synaplan.": "%{host} olarak kaydedildi ve Synaplan tarafından kabul edildi.",
+    "Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.": "%{host} olarak kaydedildi. Bir Synaplan yöneticisinin Synaplan'da onaylaması bekleniyor."
   }
 }

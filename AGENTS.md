@@ -126,6 +126,22 @@ server's copy of the same app id.
   minutes; `/me` uses the incoming context).
 - Errors carry context: `fmt.Errorf("creating synaplan API client: %w", err)`.
   Never log or echo `SYNAPLAN_API_KEY`, exchanged tokens or `OC_JWT_SECRET`.
+- **The right token for the right service, always.** The token OpenCloud's
+  proxy hands us was issued for OpenCloud: it goes to OpenCloud's own APIs
+  (Graph, the admin check) and into the RFC 8693 exchange as
+  `subject_token` — nowhere else. Every call to Synaplan carries one of
+  exactly three things: the token the exchange minted for Synaplan
+  (`synaplanauth.NewRequestEditor`), this instance's credential
+  (`X-Instance-Id/Secret`, for calls about the cloud rather than a person),
+  or a key Synaplan itself issued (the per-person background key). All
+  Synaplan traffic goes through `synaplanDo`, which refuses to send a
+  request whose bearer equals the incoming OpenCloud token
+  (`refuseOpenCloudToken`); do not add a second HTTP path to Synaplan.
+  The service never holds a Synaplan admin key: an administrator
+  registers the instance from the Synaplan page with their own exchanged
+  identity, and a credential is never minted in CI — the test realm's
+  Keycloak `admin` is a Synaplan administrator, which is all the E2E
+  setup needs.
 - Env var conventions: service-specific vars use the bare service name,
   `SYNAPLAN_HTTP_ADDR`, `SYNAPLAN_URL`, `SYNAPLAN_OIDC_*`; cross-service vars
   use `OC_`: `OC_REVA_GATEWAY`, `OC_JWT_SECRET`, `OC_INSECURE`; where both

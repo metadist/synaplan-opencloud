@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
 
 // callOptions tunes one outbound Synaplan request.
@@ -73,6 +75,9 @@ func (h *Handler) synaplanDo(ctx context.Context, method, rel string, payload an
 			req.Header.Set(key, value)
 		}
 	}
+	if err := refuseOpenCloudToken(ctx, req); err != nil {
+		return 0, nil, err
+	}
 	client := h.httpClient
 	if client == nil {
 		client = http.DefaultClient
@@ -119,4 +124,27 @@ func (h *Handler) instanceHeaders() http.Header {
 		"X-Instance-Id":     {id},
 		"X-Instance-Secret": {secret},
 	}
+}
+
+// errOpenCloudTokenForwarded is the one mistake this service must never
+// make: the token OpenCloud's proxy handed us was issued for OpenCloud.
+// Synaplan gets the token the exchange minted for it, an instance
+// credential, or a key Synaplan issued — never that one.
+var errOpenCloudTokenForwarded = errors.New("refusing to send the OpenCloud token to Synaplan; exchange it first")
+
+// refuseOpenCloudToken is the last check before a request leaves for
+// Synaplan. Every editor already exchanges; this makes a future editor,
+// header option or copy-paste that forwards the incoming token fail
+// loudly instead of quietly working against a Synaplan that happens to
+// accept it.
+func refuseOpenCloudToken(ctx context.Context, req *http.Request) error {
+	incoming := synaplanauth.OIDCTokenFromContext(ctx)
+	if incoming == "" {
+		return nil
+	}
+	outgoing := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	if outgoing != "" && outgoing == incoming {
+		return errOpenCloudTokenForwarded
+	}
+	return nil
 }

@@ -8,6 +8,19 @@
       {{ error }}
     </p>
     <template v-if="settings">
+      <h2 class="ext:text-lg ext:font-semibold">{{ $gettext('This OpenCloud in Synaplan') }}</h2>
+      <p class="ext:text-sm" data-testid="synaplan-instance-state">{{ instanceSentence }}</p>
+      <oc-button
+        v-if="settings.isAdmin && instance && !instance.registered"
+        appearance="filled"
+        color-role="primary"
+        :disabled="registering"
+        :show-spinner="registering"
+        data-testid="synaplan-instance-register"
+        @click="register"
+      >
+        {{ $gettext('Register this OpenCloud') }}
+      </oc-button>
       <h2 class="ext:text-lg ext:font-semibold">
         {{ $gettext('How do people here use Synaplan?') }}
       </h2>
@@ -130,7 +143,16 @@ const settingsSchema = z.object({
 type AdminSettingsData = z.infer<typeof settingsSchema>
 type LanguageOption = z.infer<typeof languageSchema>
 
+const instanceSchema = z.object({
+  registered: z.boolean(),
+  status: z.string(),
+  host: z.string()
+})
+type InstanceState = z.infer<typeof instanceSchema>
+
 const settings = ref<AdminSettingsData | null>(null)
+const instance = ref<InstanceState | null>(null)
+const registering = ref(false)
 const selectedLanguage = ref<LanguageOption | null>(null)
 const useUserLanguage = ref(true)
 const allowMemories = ref(true)
@@ -184,11 +206,64 @@ const answerLanguageSentence = computed(() => {
     : $gettext('Answers come in %{language}.', { language: name })
 })
 
+// Who connected this cloud, and whether Synaplan has said yes yet. The
+// administrator's own login does the registering; nothing is pasted.
+const instanceSentence = computed(() => {
+  if (!instance.value) return ''
+  if (!instance.value.registered) {
+    return settings.value?.isAdmin
+      ? $gettext(
+          'Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.'
+        )
+      : $gettext('Ask your administrator to connect this OpenCloud to Synaplan.')
+  }
+  if (instance.value.status === 'active') {
+    return $gettext('Registered as %{host} and accepted by Synaplan.', {
+      host: instance.value.host
+    })
+  }
+  return $gettext(
+    'Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.',
+    { host: instance.value.host }
+  )
+})
+
+async function loadInstance() {
+  try {
+    const res = await httpAuthenticated.get('/api/synaplan/instance', { schema: instanceSchema })
+    instance.value = res.data
+  } catch {
+    instance.value = null
+  }
+}
+
+async function register() {
+  registering.value = true
+  error.value = ''
+  try {
+    const res = await httpAuthenticated.post(
+      '/api/synaplan/instance/register',
+      {},
+      { schema: instanceSchema }
+    )
+    instance.value = res.data
+  } catch (e) {
+    error.value = sentenceFor(
+      $gettext,
+      e,
+      $gettext('Synaplan could not finish this. Try again in a minute, or ask your administrator.')
+    )
+  } finally {
+    registering.value = false
+  }
+}
+
 function onLanguageChange(value: LanguageOption | null) {
   if (value) selectedLanguage.value = value
 }
 
 onMounted(async () => {
+  void loadInstance()
   try {
     const res = await httpAuthenticated.get('/api/synaplan/settings', { schema: settingsSchema })
     const data: AdminSettingsData = res.data

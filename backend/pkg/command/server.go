@@ -78,7 +78,6 @@ func Server(cfg *config.Config) *cobra.Command {
 			h, err := handler.New(editor, cfg.SynaplanURL, cs3, handler.Settings{
 				InstanceID:     cfg.InstanceID,
 				InstanceSecret: cfg.InstanceSecret,
-				AdminAPIKey:    cfg.AdminAPIKey,
 				DeliveryURL:    cfg.DeliveryURL,
 				PublicURL:      cfg.PublicURL,
 				ServerID:       cfg.ServerID,
@@ -156,6 +155,8 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/preferences", h.Preferences)
 				r.Put("/api/synaplan/preferences", h.SavePreferences)
 				r.Get("/api/synaplan/connection", h.Connection)
+				r.Get("/api/synaplan/instance", h.InstanceStatus)
+				r.Post("/api/synaplan/instance/register", h.RegisterInstance)
 				r.Post("/api/synaplan/connection/bind", h.Bind)
 				r.Get("/api/synaplan/settings", h.Settings)
 				r.Put("/api/synaplan/settings", h.SaveSettings)

@@ -44,7 +44,6 @@ import (
 type Settings struct {
 	InstanceID     string
 	InstanceSecret string
-	AdminAPIKey    string
 	DeliveryURL    string
 	PublicURL      string
 	ServerID       string

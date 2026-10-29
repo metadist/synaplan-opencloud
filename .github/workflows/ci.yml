@@ -224,21 +224,6 @@ jobs:
           docker wait synaplan-keycloak-setup-test
           echo "Synaplan test stack ready"
 
-      # The Go service registers this OpenCloud as a platform instance on
-      # startup when it has an administrator's API key. Mint one from the
-      # fixture administrator of the test stack; it never leaves the runner.
-      - name: Mint a Synaplan admin key for the instance registration
-        run: |
-          JAR=$(mktemp)
-          curl -sf -c "$JAR" -o /dev/null -X POST http://host.docker.internal:8001/api/v1/auth/login \
-            -H 'content-type: application/json' \
-            -d '{"email":"admin@synaplan.com","password":"admin123"}'
-          KEY=$(curl -sf -b "$JAR" -X POST http://host.docker.internal:8001/api/v1/apikeys \
-            -H 'content-type: application/json' \
-            -d '{"name":"synaplan-opencloud CI"}' | jq -r '.api_key.key // empty')
-          test -n "$KEY"
-          echo "::add-mask::$KEY"
-          echo "SYNAPLAN_ADMIN_API_KEY=$KEY" >> "$GITHUB_ENV"
 
       # --- Start synaplan-opencloud stack ---
       - name: Download backend Docker image

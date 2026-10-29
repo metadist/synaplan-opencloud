@@ -6,22 +6,24 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
-// registrationAttempts is how often startup registration is retried
-// before it gives up until the next restart. The waits grow from 5 s.
+// registrationAttempts bounds the startup announcement; later changes go
+// through the normal request path.
 const registrationAttempts = 6
 
-// RegisterInBackground registers and announces this OpenCloud without
-// holding up the HTTP listener. Each attempt has its own deadline, so a
-// Synaplan that accepts a connection and never answers costs one wait,
-// not the service's health endpoint.
+// RegisterInBackground announces this OpenCloud to Synaplan on startup
+// when an instance credential is held, with backoff while Synaplan is
+// still coming up. It never registers: that is the administrator's click
+// on the Synaplan page ({@see RegisterInstance}), or a credential the
+// operator obtained and configured.
 func (h *Handler) RegisterInBackground(ctx context.Context) {
 	wait := 5 * time.Second
 	for attempt := 1; attempt <= registrationAttempts; attempt++ {
 		attemptCtx, cancel := bounded(ctx)
-		done := h.ensureRegistered(attemptCtx)
+		done := h.announce(attemptCtx)
 		cancel()
 		if done || ctx.Err() != nil {
 			return
@@ -33,52 +35,117 @@ func (h *Handler) RegisterInBackground(ctx context.Context) {
 		}
 		wait *= 2
 	}
-	log.Printf("register instance: giving up after %d attempts; copies, folder reads and watches stay off until a restart", registrationAttempts)
+	log.Printf("announce instance: giving up after %d attempts; Synaplan learns this app's capabilities at the next restart", registrationAttempts)
 }
 
-// ensureRegistered registers this OpenCloud with Synaplan when an admin
-// key is configured and no instance id is stored yet, then tells Synaplan
-// which features this app can do and where to call it. It reports whether
-// there is nothing left to do.
-func (h *Handler) ensureRegistered(ctx context.Context) bool {
-	if h == nil {
-		return true
+// instanceStatus is what the Synaplan page shows about this OpenCloud's
+// registration: nothing yet, waiting for approval, or approved.
+type instanceStatus struct {
+	Registered bool   `json:"registered"`
+	Status     string `json:"status"`
+	Host       string `json:"host"`
+}
+
+// InstanceStatus reports the registration state. Everyone may read it;
+// only an administrator can change it.
+func (h *Handler) InstanceStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.instanceState(r.Context()))
+}
+
+func (h *Handler) instanceState(ctx context.Context) instanceStatus {
+	state := instanceStatus{Host: h.publicHost()}
+	if !h.hasInstance() {
+		return state
+	}
+	state.Registered = true
+	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/api/v1/platform-links/instances/self", nil, callOptions{
+		skipUser: true,
+		extra:    h.instanceHeaders(),
+	})
+	if err != nil || status != http.StatusOK {
+		// Synaplan refuses a pending instance's credential on most routes;
+		// self answers for both, so anything else is an outage or a
+		// revoked instance. Say "pending" rather than invent "active".
+		state.Status = "pending"
+		return state
+	}
+	var parsed struct {
+		Status string `json:"status"`
+	}
+	_ = json.Unmarshal(body, &parsed)
+	state.Status = parsed.Status
+	if state.Status == "" {
+		state.Status = "pending"
+	}
+	return state
+}
+
+// RegisterInstance registers this OpenCloud with Synaplan. An OpenCloud
+// administrator triggers it, and the call carries their own identity
+// through the standard token exchange: when that person is a Synaplan
+// administrator too, the instance is active at once; otherwise it is
+// pending until a Synaplan administrator approves it. No key of any kind
+// is involved; the credential Synaplan hands back is this instance's own
+// and is stored here.
+func (h *Handler) RegisterInstance(w http.ResponseWriter, r *http.Request) {
+	if !h.isAdmin(r.Context()) {
+		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Only an administrator can register this OpenCloud.", Code: "admin_only"})
+		return
 	}
 	if h.hasInstance() {
-		return h.announce(ctx)
+		writeJSON(w, http.StatusOK, h.instanceState(r.Context()))
+		return
 	}
-	if h.settings.AdminAPIKey == "" {
-		return true
-	}
-	host := h.settings.PublicURL
-	if parsed, err := url.Parse(h.settings.PublicURL); err == nil && parsed.Host != "" {
-		host = parsed.Host
-	}
-	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/instances", map[string]any{
+	status, body, err := h.synaplanCall(r.Context(), http.MethodPost, "/api/v1/platform-links/instances", map[string]any{
 		"client":        "opencloud",
-		"host":          host,
+		"host":          h.publicHost(),
 		"redirect_uris": []string{h.settings.PublicURL},
-	}, callOptions{apiKey: h.settings.AdminAPIKey})
-	if err != nil || status >= 400 {
-		log.Printf("register instance: status %d err %v", status, err)
-		return false
+	})
+	if err != nil {
+		log.Printf("register instance: %v", err)
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
+		return
+	}
+	if status >= 400 {
+		writeUpstream(w, status, body)
+		return
 	}
 	var created struct {
 		InstanceID     string `json:"instance_id"`
 		InstanceSecret string `json:"instance_secret"`
+		Status         string `json:"status"`
 	}
 	if err := json.Unmarshal(body, &created); err != nil || created.InstanceID == "" || created.InstanceSecret == "" {
 		log.Printf("register instance: response had no credentials")
-		return true
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"})
+		return
 	}
 	h.setCredential(created.InstanceID, created.InstanceSecret)
 	if err := h.store().SetInstance(created.InstanceID, created.InstanceSecret); err != nil {
 		log.Printf("store instance: %v", err)
 	}
-	return h.announce(ctx)
+	// A pending instance cannot announce yet; the startup path repeats
+	// this once the instance is approved and the service restarts.
+	h.announce(r.Context())
+	writeJSON(w, http.StatusOK, instanceStatus{
+		Registered: true,
+		Status:     firstNonEmpty(created.Status, "pending"),
+		Host:       h.publicHost(),
+	})
 }
 
-// announce tells Synaplan what this app can do and where to call it.
+// publicHost is the host part of the address people open, the name
+// Synaplan lists this OpenCloud under.
+func (h *Handler) publicHost() string {
+	if parsed, err := url.Parse(h.settings.PublicURL); err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	return strings.TrimPrefix(strings.TrimPrefix(h.settings.PublicURL, "https://"), "http://")
+}
+
+// announce tells Synaplan what this app can do and where to call it. It
+// reports whether there is nothing left to do: no instance to announce,
+// or the announcement arrived.
 func (h *Handler) announce(ctx context.Context) bool {
 	if !h.hasInstance() {
 		return true
@@ -103,4 +170,13 @@ func (h *Handler) announce(ctx context.Context) bool {
 		return false
 	}
 	return true
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

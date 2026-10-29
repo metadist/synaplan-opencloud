@@ -80,14 +80,19 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 | `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
 | `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. Also encrypts keys in the state file when `SYNAPLAN_STATE_KEY` is unset. |
 | `OC_MACHINE_AUTH_API_KEY` | Same value as on OpenCloud. Lets copies and watches read and write a person's files without their browser session. |
-| `SYNAPLAN_INSTANCE_ID` / `SYNAPLAN_INSTANCE_SECRET` | The platform instance Synaplan assigned to this OpenCloud. Needed for copies, folder reads and watches. |
-| `SYNAPLAN_ADMIN_API_KEY` | When set, and no instance id is stored yet, the service registers this OpenCloud on startup. |
+| `SYNAPLAN_INSTANCE_ID` / `SYNAPLAN_INSTANCE_SECRET` | The instance credential: which cloud this is. Normally left empty — an OpenCloud administrator registers from the Synaplan page (below). Set only when an operator obtained a credential elsewhere. |
 | `SYNAPLAN_DELIVERY_URL` | Address Synaplan calls. In dev: `http://host.docker.internal:9106/api/synaplan/inbound`. |
 | `SYNAPLAN_PUBLIC_URL` | Address a person opens in the browser, used in links back to a file. |
 | `SYNAPLAN_OPENCLOUD_URL` (or `OC_URL`) | OpenCloud's own address, for the Graph lookup that tells an administrator from a user. Without it only the roles in the request token count. |
 | `SYNAPLAN_SERVER_ID` | Name this OpenCloud announces to Synaplan. |
 | `SYNAPLAN_STATE_PATH` | File for read settings, away-keys and the administrator's choices. Empty keeps them in memory only, so a restart forgets them. |
 | `SYNAPLAN_STATE_KEY` | Encrypts the away-keys in the state file. Defaults to `OC_JWT_SECRET`. |
+
+### Registering this OpenCloud with Synaplan
+
+Copies, folder reads and watches need Synaplan to know this cloud. An OpenCloud administrator opens the Synaplan page (`/synaplan`) and clicks **Register this OpenCloud**. The request carries the administrator's own identity through the token exchange: when that person is a Synaplan administrator as well, the instance is active at once; otherwise it is pending until a Synaplan administrator approves it in Synaplan. The credential Synaplan hands back is stored in the state file. No API key is involved at any point, and the service never holds a Synaplan admin key.
+
+**Tokens never cross services.** The token OpenCloud's proxy hands the service was issued for OpenCloud and is used only for OpenCloud's own APIs and as the subject of the RFC 8693 exchange. Every call to Synaplan carries the exchanged token, this instance's credential, or a key Synaplan itself issued; the service refuses to send the OpenCloud token to Synaplan.
 
 ### Administrator choices
 

@@ -95,10 +95,12 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
       OC_MACHINE_AUTH_API_KEY: synaplan-dev-machine
-      # Registration. Put a Synaplan admin key in a gitignored `.env` next to
-      # this file and the service registers itself on start; or paste the
-      # instance credential an administrator already has. Never commit either.
-      SYNAPLAN_ADMIN_API_KEY: "${SYNAPLAN_ADMIN_API_KEY:-}"
+      # The instance credential says which cloud this is; the person's own
+      # identity always comes from the OIDC token exchange. Leave both empty:
+      # an OpenCloud administrator registers from the Synaplan page, and
+      # because the dev realm's admin is a Synaplan administrator too, the
+      # instance is active at once. Paste a credential here only when an
+      # operator obtained one elsewhere. Never commit one.
       SYNAPLAN_INSTANCE_ID: "${SYNAPLAN_INSTANCE_ID:-}"
       SYNAPLAN_INSTANCE_SECRET: "${SYNAPLAN_INSTANCE_SECRET:-}"
       SYNAPLAN_DELIVERY_URL: "http://host.docker.internal:9106/api/synaplan/inbound"
