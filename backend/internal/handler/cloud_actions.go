@@ -154,6 +154,8 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "This file is no longer there. Reload the folder and try again.", Code: "file_not_found"})
 		return
 	}
+	uid := currentUserID(r.Context())
+	h.linked(r.Context(), uid)
 	body := map[string]any{
 		"target_kind": req.TargetKind,
 		"target_id":   req.TargetID,
@@ -180,7 +182,6 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 		ID int `json:"id"`
 	}
 	_ = json.Unmarshal(raw, &created)
-	uid := currentUserID(r.Context())
 	if created.ID > 0 {
 		_ = h.store().RememberWatch(state.Watch{
 			ID: created.ID, TargetKind: req.TargetKind, TargetID: req.TargetID, UserID: uid,
@@ -382,9 +383,7 @@ func (h *Handler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := currentUserID(r.Context())
-	status, body, err := h.synaplanDo(r.Context(), http.MethodPost, "/api/v1/platform-links/sso/bind", map[string]string{
-		"external_id": uid,
-	}, callOptions{extra: h.instanceHeaders()})
+	status, body, err := h.bindLogin(r.Context(), uid)
 	if err != nil {
 		log.Printf("sso bind: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
@@ -393,6 +392,20 @@ func (h *Handler) Bind(w http.ResponseWriter, r *http.Request) {
 	if status >= 400 {
 		writeUpstream(w, status, body)
 		return
+	}
+	h.ensureBackgroundKey(r.Context(), uid)
+	writeJSON(w, http.StatusOK, map[string]any{"bound": true})
+}
+
+// bindLogin tells Synaplan that this OpenCloud login is the person's
+// Synaplan login. The person's own token proves it, so the first cloud
+// action (a watch, keep up to date) may do it without a separate click.
+func (h *Handler) bindLogin(ctx context.Context, uid string) (int, []byte, error) {
+	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/sso/bind", map[string]string{
+		"external_id": uid,
+	}, callOptions{extra: h.instanceHeaders()})
+	if err != nil || status >= 400 {
+		return status, body, err
 	}
 	var bound struct {
 		LinkID int `json:"link_id"`
@@ -405,8 +418,21 @@ func (h *Handler) Bind(w http.ResponseWriter, r *http.Request) {
 			log.Printf("store link id: %v", err)
 		}
 	}
-	h.ensureBackgroundKey(r.Context(), uid)
-	writeJSON(w, http.StatusOK, map[string]any{"bound": true})
+	return status, body, nil
+}
+
+// linked makes sure the person's login is bound before a call that needs
+// the identity row. A failed bind is left to the call itself to report.
+func (h *Handler) linked(ctx context.Context, uid string) {
+	if uid == "" || !h.hasInstance() || h.store().User(uid).LinkID > 0 {
+		return
+	}
+	if h.bound(ctx) {
+		return
+	}
+	if _, _, err := h.bindLogin(ctx, uid); err != nil {
+		log.Printf("sso bind before cloud action: %v", err)
+	}
 }
 
 func (h *Handler) bound(ctx context.Context) bool {
@@ -435,6 +461,7 @@ func (h *Handler) ensureBackgroundKey(ctx context.Context, uid string) bool {
 	if h.store().User(uid).BackgroundKey != "" {
 		return true
 	}
+	h.linked(ctx, uid)
 	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/sso/background-key", map[string]string{
 		"external_id": uid,
 	}, callOptions{extra: h.instanceHeaders()})

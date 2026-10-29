@@ -202,16 +202,43 @@ jobs:
           OIDC_AUTO_REDIRECT: "true"
         run: |
           docker pull $APP_IMAGE
+          # The cloud features (copies, folder reads, watches, the Synaplan
+          # tab) sit behind Synaplan's PLATFORM_LINKS and CLOUD_FILES flags,
+          # which a fresh install ships off. Force both on for the test stack.
+          cat > /tmp/platform-links.override.yml <<'EOF'
+          services:
+            app_test:
+              environment:
+                FEATURE_PLATFORM_LINKS_ENABLED: "true"
+                CLOUD_FILES_ENABLED: "1"
+          EOF
           # --profile oidc: Keycloak. --profile integration: Tika (PDF/Office).
           # docker-compose.test.ci.yml overrides ollama_test profiles so the ollama/ollama image is not pulled (app_test uses ollama-stub).
           COMPOSE="docker compose \
             -f docker-compose.test.yml \
             -f docker-compose.test.ci.yml \
+            -f /tmp/platform-links.override.yml \
             --profile oidc --profile integration"
           $COMPOSE up -d --wait
           echo "Waiting for Keycloak setup..."
           docker wait synaplan-keycloak-setup-test
           echo "Synaplan test stack ready"
+
+      # The Go service registers this OpenCloud as a platform instance on
+      # startup when it has an administrator's API key. Mint one from the
+      # fixture administrator of the test stack; it never leaves the runner.
+      - name: Mint a Synaplan admin key for the instance registration
+        run: |
+          JAR=$(mktemp)
+          curl -sf -c "$JAR" -o /dev/null -X POST http://host.docker.internal:8001/api/v1/auth/login \
+            -H 'content-type: application/json' \
+            -d '{"email":"admin@synaplan.com","password":"admin123"}'
+          KEY=$(curl -sf -b "$JAR" -X POST http://host.docker.internal:8001/api/v1/apikeys \
+            -H 'content-type: application/json' \
+            -d '{"name":"synaplan-opencloud CI"}' | jq -r '.api_key.key // empty')
+          test -n "$KEY"
+          echo "::add-mask::$KEY"
+          echo "SYNAPLAN_ADMIN_API_KEY=$KEY" >> "$GITHUB_ENV"
 
       # --- Start synaplan-opencloud stack ---
       - name: Download backend Docker image

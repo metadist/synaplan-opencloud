@@ -36,7 +36,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
-import { invalidateCloudStatus, loadCloudStatus, markFor } from '../composables/cloudStatus'
+import {
+  invalidateCloudStatus,
+  loadCloudStatus,
+  markFor,
+  type CloudMark
+} from '../composables/cloudStatus'
 
 const props = defineProps<{
   resource?: { id?: string; etag?: string; name?: string }
@@ -48,7 +53,12 @@ const loading = ref(true)
 const stopping = ref(false)
 const message = ref('')
 
-const row = computed(() => (props.resource?.id ? markFor(props.resource.id) : undefined))
+// Without a registered instance Synaplan answers no cloud status; the
+// knowledge check still knows whether this file is searchable.
+const fallback = ref<CloudMark | undefined>(undefined)
+const row = computed(() =>
+  props.resource?.id ? (markFor(props.resource.id) ?? fallback.value) : undefined
+)
 const folderName = computed(() => row.value?.folder ?? '')
 const fileId = computed(() => row.value?.fileId ?? 0)
 const stateSentence = computed(() => {
@@ -70,13 +80,39 @@ const stateSentence = computed(() => {
 async function refresh() {
   loading.value = true
   message.value = ''
+  fallback.value = undefined
   if (props.resource?.id) {
     invalidateCloudStatus(props.resource.id)
     await loadCloudStatus(httpAuthenticated, [
       { id: props.resource.id, version: props.resource.etag ?? '' }
     ])
+    if (!markFor(props.resource.id)) fallback.value = await knowledgeMark(props.resource.id)
   }
   loading.value = false
+}
+
+const knowledgeSchema = z.object({
+  inKnowledge: z.boolean(),
+  stale: z.boolean(),
+  synaplanFileId: z.number()
+})
+
+async function knowledgeMark(id: string): Promise<CloudMark | undefined> {
+  try {
+    const res = await httpAuthenticated.get(
+      `/api/synaplan/knowledge/status?resourceId=${encodeURIComponent(id)}`,
+      { schema: knowledgeSchema }
+    )
+    if (!res.data.inKnowledge) return undefined
+    return {
+      state: res.data.stale ? 'changed' : 'searchable',
+      folder: '',
+      fileId: res.data.synaplanFileId,
+      watched: false
+    }
+  } catch {
+    return undefined
+  }
 }
 
 // The panel stays mounted while the person clicks through files.
