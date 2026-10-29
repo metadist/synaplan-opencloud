@@ -12,6 +12,7 @@ export const cloudMarks = reactive<Record<string, CloudMark>>({})
 
 const statusSchema = z.object({
   enabled: z.boolean().optional(),
+  unreachable: z.boolean().optional(),
   items: z
     .array(
       z.object({
@@ -88,6 +89,7 @@ export async function loadCloudStatus(http: Http, items: Item[], now = Date.now(
   try {
     const res = await http.post('/api/synaplan/cloud/status', { items }, { schema: statusSchema })
     data = statusSchema.parse(res.data)
+    if (data.unreachable) throw new Error('synaplan unreachable')
   } catch {
     // Ask again on the next look instead of showing a stale bird.
     for (const item of items) fetchedAt.delete(item.id)
@@ -96,6 +98,7 @@ export async function loadCloudStatus(http: Http, items: Item[], now = Date.now(
   const watched = new Set(
     data.watches.map((watch) => watch.target_id).filter((id): id is string => !!id)
   )
+  const moving: Item[] = []
   for (const item of data.items) {
     cloudMarks[item.id] = {
       state: item.state,
@@ -103,5 +106,29 @@ export async function loadCloudStatus(http: Http, items: Item[], now = Date.now(
       fileId: item.file_id ?? 0,
       watched: watched.has(item.id)
     }
+    if (IN_PROGRESS.has(item.state)) {
+      const asked = items.find((requested) => requested.id === item.id)
+      if (asked) moving.push(asked)
+    }
   }
+  scheduleFollowUp(http, moving)
+}
+
+let followUp: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * A file that Synaplan is still adding or updating is asked about again
+ * after its TTL, so an idle view reaches the settled state on its own.
+ * Nothing renders twice: the next answer only replaces the mark.
+ */
+function scheduleFollowUp(http: Http, moving: Item[]) {
+  if (followUp) clearTimeout(followUp)
+  followUp = undefined
+  if (!moving.length) return
+  followUp = setTimeout(() => {
+    followUp = undefined
+    const still = moving.filter((item) => IN_PROGRESS.has(cloudMarks[item.id]?.state ?? ''))
+    for (const item of still) fetchedAt.delete(item.id)
+    if (still.length) void loadCloudStatus(http, still)
+  }, IN_PROGRESS_TTL_MS)
 }

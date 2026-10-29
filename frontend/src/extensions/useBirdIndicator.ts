@@ -13,6 +13,21 @@ export const useBirdIndicator = (): ResourceIndicatorExtension => {
   const { httpAuthenticated } = useClientService()
   const icon = useSynaplanBrandIcon()
 
+  // The same words the Synaplan tab uses for that state.
+  const stateLabel = (state: string) => {
+    switch (state) {
+      case 'adding':
+      case 'updating':
+        return $gettext('Changed — updating.')
+      case 'changed':
+        return $gettext('Changed since it was made searchable.')
+      case 'failed':
+        return $gettext('Synaplan could not make this file searchable.')
+      default:
+        return $gettext('Searchable by AI')
+    }
+  }
+
   return {
     id: 'com.synaplan.bird',
     type: 'resourceIndicator',
@@ -23,7 +38,7 @@ export const useBirdIndicator = (): ResourceIndicatorExtension => {
       queueCloudStatus(httpAuthenticated, { id: item.id, version: item.etag ?? '' })
       const mark = markFor(item.id)
       if (!mark || (mark.state === 'none' && !mark.watched)) return
-      const label = mark.watched ? $gettext('Watched by Synaplan') : $gettext('Searchable by AI')
+      const label = mark.watched ? $gettext('Watched by Synaplan') : stateLabel(mark.state)
       return [
         {
           id: `synaplan-${item.id}`,

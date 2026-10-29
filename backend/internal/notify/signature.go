@@ -33,11 +33,16 @@ const (
 	sigBytes       = ed25519.SignatureSize
 )
 
-// Verify checks signature, instance and time. now is unix seconds.
-// keys are the public keys from instances/self (publicKey field).
-func Verify(body map[string]any, instanceID string, keys []string, now int64) string {
+// Precheck is the part of Verify that needs no key: a signature is
+// present and well-formed, the instance is this one, the time is within
+// the window. It returns OK or the reason, so a caller can refuse a body
+// before fetching the current keys.
+func Precheck(body map[string]any, instanceID string, now int64) string {
 	signature, _ := body["sig"].(string)
 	if signature == "" {
+		return BadSignature
+	}
+	if _, ok := decode(signature, sigBytes); !ok {
 		return BadSignature
 	}
 	got, _ := body["instance_id"].(string)
@@ -48,6 +53,16 @@ func Verify(body map[string]any, instanceID string, keys []string, now int64) st
 	if !ok || abs(now-ts) > windowSeconds {
 		return Stale
 	}
+	return OK
+}
+
+// Verify checks signature, instance and time. now is unix seconds.
+// keys are the public keys from instances/self (publicKey field).
+func Verify(body map[string]any, instanceID string, keys []string, now int64) string {
+	if reason := Precheck(body, instanceID, now); reason != OK {
+		return reason
+	}
+	signature, _ := body["sig"].(string)
 	message, err := canonical(body)
 	if err != nil {
 		return BadSignature

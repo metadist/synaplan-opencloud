@@ -7,12 +7,19 @@
         )
       }}
     </p>
+    <oc-text-input
+      v-if="files.length > 8"
+      v-model="filter"
+      :label="$gettext('Find a file')"
+      data-testid="synaplan-from-filter"
+    />
     <p v-if="loading" class="ext:text-sm">{{ $gettext('Loading…') }}</p>
     <ul v-else class="ext:max-h-64 ext:overflow-auto ext:text-sm" data-testid="synaplan-from-list">
-      <li v-for="file in files" :key="file.id">
+      <li v-for="file in shown" :key="file.id">
         <button
           type="button"
           class="ext:w-full ext:px-2 ext:py-1 ext:text-left hover:ext:underline"
+          :class="{ 'ext:font-semibold': chosen?.id === file.id }"
           :data-testid="`synaplan-from-file-${file.id}`"
           @click="chosen = file"
         >
@@ -22,6 +29,9 @@
     </ul>
     <p v-if="files.length === 0 && !loading" class="ext:text-sm">
       {{ $gettext('You have no files in Synaplan yet.') }}
+    </p>
+    <p v-if="hasMore && !loading" class="ext:text-sm ext:text-role-on-surface-variant">
+      {{ $gettext('Only the newest files are listed. Type part of a name to narrow the list.') }}
     </p>
     <p v-if="saved" data-testid="synaplan-from-saved">{{ saved }}</p>
     <p v-if="error" class="ext:text-sm ext:text-role-error">{{ error }}</p>
@@ -41,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useClientService, type Modal } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
@@ -61,25 +71,43 @@ const saving = ref(false)
 const saved = ref('')
 const error = ref('')
 
+const fileRow = z.object({
+  id: z.number(),
+  filename: z.string().optional(),
+  name: z.string().optional()
+})
 const listSchema = z.object({
-  files: z
-    .array(
-      z.object({ id: z.number(), filename: z.string().optional(), name: z.string().optional() })
-    )
-    .optional()
-    .default([]),
-  data: z
-    .array(
-      z.object({ id: z.number(), filename: z.string().optional(), name: z.string().optional() })
-    )
-    .optional()
+  files: z.array(fileRow).optional().default([]),
+  data: z.array(fileRow).optional(),
+  pagination: z.object({ page: z.number(), pages: z.number() }).optional()
+})
+
+/** Pages fetched before the dialog stops and asks the person to narrow the list. */
+const MAX_PAGES = 10
+
+const filter = ref('')
+const hasMore = ref(false)
+const shown = computed(() => {
+  const needle = filter.value.trim().toLowerCase()
+  if (!needle) return files.value
+  return files.value.filter((file) => file.name.toLowerCase().includes(needle))
 })
 
 onMounted(async () => {
   try {
-    const res = await httpAuthenticated.get('/api/synaplan/from-synaplan', { schema: listSchema })
-    const rows = res.data.files.length ? res.data.files : (res.data.data ?? [])
-    files.value = rows.map((row: { id: number; name?: string; filename?: string }) => ({
+    const rows: z.infer<typeof fileRow>[] = []
+    let page = 1
+    let pages = 1
+    do {
+      const res = await httpAuthenticated.get(`/api/synaplan/from-synaplan?page=${page}`, {
+        schema: listSchema
+      })
+      rows.push(...(res.data.files.length ? res.data.files : (res.data.data ?? [])))
+      pages = res.data.pagination?.pages ?? 1
+      page += 1
+    } while (page <= pages && page <= MAX_PAGES)
+    hasMore.value = pages > MAX_PAGES
+    files.value = rows.map((row) => ({
       id: row.id,
       name: row.name || row.filename || String(row.id)
     }))

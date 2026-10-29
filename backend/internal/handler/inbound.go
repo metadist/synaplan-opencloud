@@ -36,7 +36,15 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	instanceID, _ := h.instance()
-	keys := h.notifyKeys(r.Context())
+	// Reject what cannot verify before touching the key cache: the checks
+	// that need no key first, then the key fetch on a short deadline.
+	if reason := notify.Precheck(body, instanceID, time.Now().Unix()); reason != notify.OK {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": reason})
+		return
+	}
+	keyCtx, cancelKeys := context.WithTimeout(r.Context(), keyFetchTimeout)
+	keys := h.notifyKeys(keyCtx)
+	cancelKeys()
 	reason := notify.Verify(body, instanceID, keys, time.Now().Unix())
 	if reason != notify.OK {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": reason})
@@ -117,6 +125,11 @@ func (h *Handler) revokeIdentity(id string) {
 // notifyKeys returns Synaplan's current notify public keys. A 200 answer
 // is authoritative, an empty list included: a key Synaplan dropped must
 // stop being trusted. Only a failed or unreadable answer keeps the cache.
+// keyFetchTimeout bounds the fetch of Synaplan's notification keys, which
+// runs under the key cache's lock: one slow answer must not hold every
+// later notification.
+const keyFetchTimeout = 10 * time.Second
+
 func (h *Handler) notifyKeys(ctx context.Context) []string {
 	h.keysMu.Lock()
 	defer h.keysMu.Unlock()

@@ -52,7 +52,13 @@
         {{ $gettext('Save') }}
       </oc-button>
       <p v-if="savedRead" class="ext:text-sm" data-testid="synaplan-read-saved">
-        {{ $gettext('Saved. Synaplan will follow this setting.') }}
+        {{
+          savedLocally
+            ? $gettext(
+                'Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.'
+              )
+            : $gettext('Saved. Synaplan will follow this setting.')
+        }}
       </p>
     </div>
     <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-account-error">
@@ -91,6 +97,7 @@ const readMode = ref('watched')
 const readFolders = ref<{ id: string; path: string }[]>([])
 const copyFolder = ref('')
 const savedRead = ref(false)
+const savedLocally = ref(false)
 const error = ref('')
 
 const connectionText = computed(() => {
@@ -112,6 +119,7 @@ onMounted(loadSettings)
 
 async function loadSettings() {
   savedRead.value = false
+  savedLocally.value = false
   error.value = ''
   try {
     const [prefRes, connRes] = await Promise.all([
@@ -131,14 +139,21 @@ async function loadSettings() {
 async function saveRead() {
   error.value = ''
   try {
-    await httpAuthenticated.put(
+    const res = await httpAuthenticated.put(
       '/api/synaplan/preferences',
       { mode: readMode.value, folders: readFolders.value, copyFolder: copyFolder.value },
-      { schema: z.object({ saved: z.boolean() }) }
+      { schema: z.object({ saved: z.boolean(), reported: z.boolean().default(false) }) }
     )
     savedRead.value = true
+    savedLocally.value = !res.data.reported
   } catch (e) {
-    error.value = sentenceFor($gettext, e, couldNotFinish())
+    error.value = sentenceFor(
+      $gettext,
+      e,
+      $gettext(
+        'The setting was saved here, but Synaplan did not receive it. Save again in a minute.'
+      )
+    )
   }
 }
 

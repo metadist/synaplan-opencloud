@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -335,8 +336,13 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := currentUserID(r.Context())
+	folders, err := h.resolveFolders(r.Context(), req.Folders)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "This folder is no longer there. Reload the folder and try again.", Code: "file_not_found"})
+		return
+	}
 	user := h.store().User(uid)
-	user.ReadScope = state.ReadScope{Mode: req.Mode, Folders: req.Folders}
+	user.ReadScope = state.ReadScope{Mode: req.Mode, Folders: folders}
 	user.CopyFolder = strings.Trim(req.CopyFolder, "/")
 	if err := h.store().PutUser(uid, user); err != nil {
 		log.Printf("save preferences: %v", err)
@@ -350,7 +356,7 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 	status, _, err := h.synaplanDo(r.Context(), http.MethodPut, "/api/v1/platform-links/read-scope", map[string]any{
 		"external_id": uid,
 		"mode":        req.Mode,
-		"folders":     req.Folders,
+		"folders":     folders,
 	}, callOptions{skipUser: true, extra: h.instanceHeaders()})
 	if err != nil || status >= 400 {
 		// The setting is kept here and enforced here. Synaplan does not know
@@ -358,11 +364,38 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 		log.Printf("report read scope: status %d err %v", status, err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{
 			Error: "The setting was saved here, but Synaplan did not receive it. Save again in a minute.",
-			Code:  "synaplan_unreachable",
+			Code:  "saved_not_reported",
 		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "reported": true})
+}
+
+// resolveFolders replaces whatever path the browser sent with the path
+// OpenCloud knows for that id, so a folder named like an allowed one, or
+// a display name instead of a path, never widens what Synaplan may read.
+func (h *Handler) resolveFolders(ctx context.Context, folders []state.Folder) ([]state.Folder, error) {
+	out := make([]state.Folder, 0, len(folders))
+	for _, folder := range folders {
+		if folder.ID == "" {
+			continue
+		}
+		if h.cs3 == nil {
+			return nil, fmt.Errorf("resolve folder %s: storage is not configured", folder.ID)
+		}
+		meta, err := h.cs3.StatAny(ctx, folder.ID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve folder %s: %w", folder.ID, err)
+		}
+		out = append(out, state.Folder{ID: folder.ID, Path: canonicalPath(meta.Path)})
+	}
+	return out, nil
+}
+
+// canonicalPath is the space-relative form both the read scope and the
+// pickup compare: no leading "./" or "/", no trailing "/".
+func canonicalPath(path string) string {
+	return strings.Trim(strings.TrimPrefix(path, "./"), "/")
 }
 
 // Connection says whether this OpenCloud login is bound to Synaplan.

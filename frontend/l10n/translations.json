@@ -137,7 +137,11 @@
     "Stopped. Nothing more is sent to Synaplan from here.": "Beendet. Von hier wird nichts mehr an Synaplan gesendet.",
     "Synaplan runs that task when something new arrives. Stop it any time from the Synaplan tab of this item.": "Synaplan führt diese Aufgabe aus, wenn etwas Neues eintrifft. Jederzeit im Synaplan-Tab dieses Elements beendbar.",
     "New files become searchable in the knowledge folder you chose. Stop it any time from the Synaplan tab of this item.": "Neue Dateien werden im gewählten Wissensordner durchsuchbar. Jederzeit im Synaplan-Tab dieses Elements beendbar.",
-    "What Synaplan may read": "Was Synaplan lesen darf"
+    "What Synaplan may read": "Was Synaplan lesen darf",
+    "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Nur hier gespeichert: Diese OpenCloud ist noch nicht mit Synaplan verbunden. Fragen Sie Ihren Administrator.",
+    "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "Die Einstellung wurde hier gespeichert, aber Synaplan hat sie nicht erhalten. Speichern Sie in einer Minute erneut.",
+    "Find a file": "Datei finden",
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Nur die neuesten Dateien sind aufgeführt. Geben Sie einen Teil des Namens ein, um die Liste einzugrenzen."
   },
   "es": {
     "Synaplan": "Synaplan",
@@ -277,7 +281,11 @@
     "Stopped. Nothing more is sent to Synaplan from here.": "Detenido. Desde aquí ya no se envía nada a Synaplan.",
     "Synaplan runs that task when something new arrives. Stop it any time from the Synaplan tab of this item.": "Synaplan ejecuta esa tarea cuando llega algo nuevo. Puedes detenerlo en cualquier momento desde la pestaña Synaplan de este elemento.",
     "New files become searchable in the knowledge folder you chose. Stop it any time from the Synaplan tab of this item.": "Los archivos nuevos pasan a ser buscables en la carpeta de conocimiento elegida. Puedes detenerlo en cualquier momento desde la pestaña Synaplan de este elemento.",
-    "What Synaplan may read": "Qué puede leer Synaplan"
+    "What Synaplan may read": "Qué puede leer Synaplan",
+    "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Guardado solo aquí: este OpenCloud aún no está conectado a Synaplan. Pregunta a tu administrador.",
+    "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "El ajuste se guardó aquí, pero Synaplan no lo recibió. Guarda de nuevo en un minuto.",
+    "Find a file": "Buscar un archivo",
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Solo se muestran los archivos más recientes. Escribe parte de un nombre para acotar la lista."
   },
   "fr": {
     "Synaplan": "Synaplan",
@@ -417,7 +425,11 @@
     "Stopped. Nothing more is sent to Synaplan from here.": "Arrêté. Plus rien n'est envoyé à Synaplan depuis ici.",
     "Synaplan runs that task when something new arrives. Stop it any time from the Synaplan tab of this item.": "Synaplan exécute cette tâche quand quelque chose de nouveau arrive. Arrêtez-le à tout moment depuis l'onglet Synaplan de cet élément.",
     "New files become searchable in the knowledge folder you chose. Stop it any time from the Synaplan tab of this item.": "Les nouveaux fichiers deviennent consultables dans le dossier de connaissances choisi. Arrêtez-le à tout moment depuis l'onglet Synaplan de cet élément.",
-    "What Synaplan may read": "Ce que Synaplan peut lire"
+    "What Synaplan may read": "Ce que Synaplan peut lire",
+    "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Enregistré ici seulement : cet OpenCloud n'est pas encore connecté à Synaplan. Demandez à votre administrateur.",
+    "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "Le réglage a été enregistré ici, mais Synaplan ne l'a pas reçu. Enregistrez de nouveau dans une minute.",
+    "Find a file": "Trouver un fichier",
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Seuls les fichiers les plus récents sont listés. Saisissez une partie d'un nom pour affiner la liste."
   },
   "tr": {
     "Synaplan": "Synaplan",
@@ -557,6 +569,10 @@
     "Stopped. Nothing more is sent to Synaplan from here.": "Durduruldu. Buradan Synaplan'a artık bir şey gönderilmiyor.",
     "Synaplan runs that task when something new arrives. Stop it any time from the Synaplan tab of this item.": "Yeni bir şey geldiğinde Synaplan bu görevi çalıştırır. Bu öğenin Synaplan sekmesinden istediğiniz zaman durdurabilirsiniz.",
     "New files become searchable in the knowledge folder you chose. Stop it any time from the Synaplan tab of this item.": "Yeni dosyalar seçtiğiniz bilgi klasöründe aranabilir olur. Bu öğenin Synaplan sekmesinden istediğiniz zaman durdurabilirsiniz.",
-    "What Synaplan may read": "Synaplan neleri okuyabilir"
+    "What Synaplan may read": "Synaplan neleri okuyabilir",
+    "Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.": "Yalnızca burada kaydedildi: bu OpenCloud henüz Synaplan'a bağlı değil. Yöneticinize sorun.",
+    "The setting was saved here, but Synaplan did not receive it. Save again in a minute.": "Ayar burada kaydedildi ama Synaplan almadı. Bir dakika sonra yeniden kaydedin.",
+    "Find a file": "Dosya bul",
+    "Only the newest files are listed. Type part of a name to narrow the list.": "Yalnızca en yeni dosyalar listeleniyor. Listeyi daraltmak için adın bir kısmını yazın."
   }
 }

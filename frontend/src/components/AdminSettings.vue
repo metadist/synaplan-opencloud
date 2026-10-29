@@ -1,100 +1,109 @@
 <template>
-  <section v-if="settings" class="ext:space-y-4" data-testid="synaplan-admin">
-    <h2 class="ext:text-lg ext:font-semibold">
-      {{ $gettext('How do people here use Synaplan?') }}
-    </h2>
-    <div class="ext:space-y-2" data-testid="synaplan-admin-mode">
-      <div v-for="option in modes" :key="option.id" class="ext:space-y-1">
-        <label
-          class="ext:flex ext:items-center ext:gap-2 ext:text-sm"
-          :class="{ 'ext:opacity-60': !option.available }"
-        >
-          <input
-            type="radio"
-            name="synaplan-mode"
-            :value="option.id"
-            :checked="settings.mode === option.id"
-            :disabled="true"
-          />
-          {{ option.label }}
-        </label>
-        <p class="ext:pl-6 ext:text-xs ext:text-role-on-surface-variant">{{ option.hint }}</p>
-      </div>
-      <p class="ext:text-xs ext:text-role-on-surface-variant">
-        {{
-          $gettext(
-            'The mode is set in the service configuration: a shared key (SYNAPLAN_API_KEY) means one shared account, otherwise the organisation login is used.'
-          )
-        }}
-      </p>
-    </div>
-
-    <template v-if="settings.isAdmin">
-      <h2 class="ext:text-lg ext:font-semibold">{{ $gettext('Language & AI behaviour') }}</h2>
-      <p class="ext:text-sm ext:text-role-on-surface-variant">
-        {{
-          $gettext(
-            'Choose which language the AI answers in, and whether personal memories may be used in chat.'
-          )
-        }}
-      </p>
-      <oc-select
-        :model-value="selectedLanguage"
-        :label="$gettext('Default answer language')"
-        :options="settings.languages"
-        option-label="name"
-        :clearable="false"
-        :searchable="false"
-        :position-fixed="true"
-        data-testid="synaplan-admin-language"
-        @update:model-value="onLanguageChange"
-      />
-      <oc-checkbox
-        v-model="useUserLanguage"
-        :label="$gettext('Use each person’s OpenCloud interface language when supported')"
-        data-testid="synaplan-admin-user-language"
-      />
-      <oc-checkbox
-        v-model="allowMemories"
-        :label="$gettext('Allow personal memories in chat')"
-        data-testid="synaplan-admin-memories"
-      />
-      <p
-        v-if="allowMemories && !settings.memoriesAvailable"
-        class="ext:text-xs ext:text-role-error"
-      >
-        {{
-          $gettext(
-            'Synaplan’s memory service does not answer right now. Memories stay off until it does.'
-          )
-        }}
-      </p>
-      <div class="ext:flex ext:items-center ext:gap-3">
-        <oc-button
-          appearance="filled"
-          color-role="primary"
-          :disabled="saving"
-          :show-spinner="saving"
-          data-testid="synaplan-admin-save"
-          @click="save"
-        >
-          {{ $gettext('Save') }}
-        </oc-button>
-        <span v-if="saved" class="ext:text-sm" data-testid="synaplan-admin-saved">
-          {{ $gettext('Saved. New answers follow these settings.') }}
-        </span>
-      </div>
-    </template>
+  <section class="ext:space-y-4" data-testid="synaplan-admin">
     <p
-      v-else
-      class="ext:text-sm ext:text-role-on-surface-variant"
-      data-testid="synaplan-admin-readonly"
+      v-if="!settings && error"
+      class="ext:text-sm ext:text-role-error"
+      data-testid="synaplan-admin-error"
     >
-      {{ answerLanguageSentence }}
-    </p>
-    <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-admin-error">
       {{ error }}
     </p>
+    <template v-if="settings">
+      <h2 class="ext:text-lg ext:font-semibold">
+        {{ $gettext('How do people here use Synaplan?') }}
+      </h2>
+      <div class="ext:space-y-2" data-testid="synaplan-admin-mode">
+        <div v-for="option in modes" :key="option.id" class="ext:space-y-1">
+          <label
+            class="ext:flex ext:items-center ext:gap-2 ext:text-sm"
+            :class="{ 'ext:opacity-60': !option.available }"
+          >
+            <input
+              type="radio"
+              name="synaplan-mode"
+              :value="option.id"
+              :checked="settings.mode === option.id"
+              :disabled="true"
+            />
+            {{ option.label }}
+          </label>
+          <p class="ext:pl-6 ext:text-xs ext:text-role-on-surface-variant">{{ option.hint }}</p>
+        </div>
+        <p class="ext:text-xs ext:text-role-on-surface-variant">
+          {{
+            $gettext(
+              'The mode is set in the service configuration: a shared key (SYNAPLAN_API_KEY) means one shared account, otherwise the organisation login is used.'
+            )
+          }}
+        </p>
+      </div>
+
+      <template v-if="settings.isAdmin">
+        <h2 class="ext:text-lg ext:font-semibold">{{ $gettext('Language & AI behaviour') }}</h2>
+        <p class="ext:text-sm ext:text-role-on-surface-variant">
+          {{
+            $gettext(
+              'Choose which language the AI answers in, and whether personal memories may be used in chat.'
+            )
+          }}
+        </p>
+        <oc-select
+          :model-value="selectedLanguage"
+          :label="$gettext('Default answer language')"
+          :options="settings.languages"
+          option-label="name"
+          :clearable="false"
+          :searchable="false"
+          :position-fixed="true"
+          data-testid="synaplan-admin-language"
+          @update:model-value="onLanguageChange"
+        />
+        <oc-checkbox
+          v-model="useUserLanguage"
+          :label="$gettext('Use each person’s OpenCloud interface language when supported')"
+          data-testid="synaplan-admin-user-language"
+        />
+        <oc-checkbox
+          v-model="allowMemories"
+          :label="$gettext('Allow personal memories in chat')"
+          data-testid="synaplan-admin-memories"
+        />
+        <p
+          v-if="allowMemories && !settings.memoriesAvailable"
+          class="ext:text-xs ext:text-role-error"
+        >
+          {{
+            $gettext(
+              'Synaplan’s memory service does not answer right now. Memories stay off until it does.'
+            )
+          }}
+        </p>
+        <div class="ext:flex ext:items-center ext:gap-3">
+          <oc-button
+            appearance="filled"
+            color-role="primary"
+            :disabled="saving"
+            :show-spinner="saving"
+            data-testid="synaplan-admin-save"
+            @click="save"
+          >
+            {{ $gettext('Save') }}
+          </oc-button>
+          <span v-if="saved" class="ext:text-sm" data-testid="synaplan-admin-saved">
+            {{ $gettext('Saved. New answers follow these settings.') }}
+          </span>
+        </div>
+      </template>
+      <p
+        v-else
+        class="ext:text-sm ext:text-role-on-surface-variant"
+        data-testid="synaplan-admin-readonly"
+      >
+        {{ answerLanguageSentence }}
+      </p>
+      <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-admin-error">
+        {{ error }}
+      </p>
+    </template>
   </section>
 </template>
 

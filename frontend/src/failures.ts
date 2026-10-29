@@ -33,6 +33,10 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
       )
+    case 'saved_not_reported':
+      return $gettext(
+        'The setting was saved here, but Synaplan did not receive it. Save again in a minute.'
+      )
     case 'rate_limited':
       return $gettext('Synaplan is busy or your limit is reached. Try again later.')
     default:

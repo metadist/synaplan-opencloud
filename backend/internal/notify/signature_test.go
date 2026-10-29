@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -51,4 +52,31 @@ func TestSeenReplay(t *testing.T) {
 	if seen.AlreadySeen("delivery", "9", 1000+11*60) {
 		t.Fatal("a forgotten id was still treated as a replay")
 	}
+}
+
+func TestPrecheckNeedsNoKey(t *testing.T) {
+	now := int64(1_700_000_000)
+	cases := map[string]struct {
+		body map[string]any
+		want string
+	}{
+		"unsigned":       {map[string]any{"instance_id": "pi_abc", "ts": now}, BadSignature},
+		"garbage sig":    {map[string]any{"sig": "ed25519:zz", "instance_id": "pi_abc", "ts": now}, BadSignature},
+		"other instance": {map[string]any{"sig": "ed25519:" + validSig(), "instance_id": "pi_x", "ts": now}, WrongInstance},
+		"too old":        {map[string]any{"sig": "ed25519:" + validSig(), "instance_id": "pi_abc", "ts": now - 1000}, Stale},
+		"plausible":      {map[string]any{"sig": "ed25519:" + validSig(), "instance_id": "pi_abc", "ts": now}, OK},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := Precheck(tc.body, "pi_abc", now); got != tc.want {
+				t.Fatalf("Precheck() = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// validSig is a well-formed signature of the right length; Precheck does
+// not verify it, Verify would.
+func validSig() string {
+	return base64.RawURLEncoding.EncodeToString(make([]byte, sigBytes))
 }

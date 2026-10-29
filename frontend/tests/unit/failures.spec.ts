@@ -25,3 +25,11 @@ describe('sentenceFor', () => {
     expect(sentenceFor((s) => `[${s}]`, error, 'fallback')).toMatch(/^\[Synaplan cannot be reached/)
   })
 })
+
+describe('sentenceFor partial writes', () => {
+  it('keeps the saved-here-only sentence for a read scope Synaplan did not receive', () => {
+    const t = (source: string) => source
+    const error = { response: { data: { code: 'saved_not_reported', error: 'x' } } }
+    expect(sentenceFor(t, error, 'fallback')).toContain('saved here')
+  })
+})

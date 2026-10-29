@@ -42,13 +42,22 @@ export const useReadFolderExtension = (): ActionExtension => {
           const folders = current.data.readScope.folders.filter(
             (folder: { id: string; path: string }) => folder.id !== resource.id
           )
-          folders.push({ id: resource.id, path: resource.name ?? '' })
-          await httpAuthenticated.put(
+          // The service replaces the path with the one OpenCloud knows for the id.
+          folders.push({ id: resource.id, path: resource.path ?? resource.name ?? '' })
+          const saved = await httpAuthenticated.put(
             '/api/synaplan/preferences',
             { mode: 'allowed', folders, copyFolder: current.data.copyFolder },
-            { schema: z.object({ saved: z.boolean() }) }
+            { schema: z.object({ saved: z.boolean(), reported: z.boolean().default(false) }) }
           )
-          showMessage({ title: $gettext('Synaplan may read this folder.') })
+          if (saved.data.reported) {
+            showMessage({ title: $gettext('Synaplan may read this folder.') })
+          } else {
+            showErrorMessage({
+              title: $gettext(
+                'Saved here only: this OpenCloud is not connected to Synaplan yet. Ask your administrator.'
+              )
+            })
+          }
         } catch {
           showErrorMessage({
             title: $gettext(

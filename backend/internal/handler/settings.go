@@ -284,13 +284,20 @@ func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 
 // memoriesAvailable asks Synaplan once every five minutes whether its
 // memory service answers. A failed check counts as unavailable.
+// memoryCheckTimeout bounds the memory-service health check.
+const memoryCheckTimeout = 5 * time.Second
+
 func (h *Handler) memoriesAvailable(ctx context.Context) bool {
 	h.memoryMu.Lock()
 	defer h.memoryMu.Unlock()
 	if time.Since(h.memoryAt) < 5*time.Minute {
 		return h.memoryOK
 	}
-	status, body, err := h.synaplanCall(ctx, http.MethodGet, "/api/v1/config/memory-service/check", nil)
+	// Under the lock: a short deadline of its own, so one slow health
+	// check cannot hold every later settings read and chat.
+	checkCtx, cancel := context.WithTimeout(ctx, memoryCheckTimeout)
+	defer cancel()
+	status, body, err := h.synaplanCall(checkCtx, http.MethodGet, "/api/v1/config/memory-service/check", nil)
 	available := false
 	if err == nil && status == http.StatusOK {
 		var parsed struct {

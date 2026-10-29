@@ -35,32 +35,43 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 	if status != http.StatusOK {
 		return map[string]any{"status": "failed", "listed": 0, "sent": 0, "skipped": []any{}}
 	}
+	// The selector follows Synaplan's pickup contract: folder_id names the
+	// folder, folder_path is only what the requester claimed.
 	var claim struct {
 		ExternalID string `json:"external_id"`
 		Selector   struct {
-			ID   string `json:"id"`
-			Path string `json:"path"`
+			FolderID string `json:"folder_id"`
 		} `json:"selector"`
 	}
 	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID == "" {
 		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
 	}
-	if h.cs3 == nil || h.settings.MachineAuthKey == "" || claim.Selector.ID == "" {
+	folderID := claim.Selector.FolderID
+	if h.cs3 == nil || h.settings.MachineAuthKey == "" || folderID == "" {
 		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
-	}
-	// The person's setting as it is now, not as it was when the read was
-	// queued. "Only what I watch" is checked against their current watches.
-	user := h.store().User(claim.ExternalID)
-	watched := h.activeWatchesFor(ctx, claim.ExternalID)
-	if !scopeAllows(user.ReadScope, watched, claim.Selector.ID, claim.Selector.Path) {
-		return h.finishPickup(ctx, id, "failed", 0, 0, []map[string]string{{"id": claim.Selector.ID, "reason": "not_allowed"}})
 	}
 	userCtx, err := h.cs3.Impersonate(ctx, claim.ExternalID)
 	if err != nil {
 		log.Printf("pickup impersonate: %v", err)
 		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
 	}
-	children, err := h.cs3.List(userCtx, claim.Selector.ID)
+	// The folder's real path comes from OpenCloud, never from the request:
+	// a signature proves Synaplan asked, not that the id lives where the
+	// selector says it does.
+	meta, err := h.cs3.StatAny(userCtx, folderID)
+	if err != nil {
+		log.Printf("pickup stat: %v", err)
+		return h.finishPickup(ctx, id, "failed", 0, 0, []map[string]string{{"id": folderID, "reason": "not_found"}})
+	}
+	folderPath := canonicalPath(meta.Path)
+	// The person's setting as it is now, not as it was when the read was
+	// queued. "Only what I watch" is checked against their current watches.
+	user := h.store().User(claim.ExternalID)
+	watched := h.activeWatchesFor(ctx, claim.ExternalID)
+	if !scopeAllows(user.ReadScope, watched, folderID, folderPath) {
+		return h.finishPickup(ctx, id, "failed", 0, 0, []map[string]string{{"id": folderID, "reason": "not_allowed"}})
+	}
+	children, err := h.cs3.List(userCtx, folderID)
 	if err != nil {
 		log.Printf("pickup list: %v", err)
 		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
@@ -74,7 +85,7 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 		byID[child.ID] = child
 		items = append(items, map[string]any{
 			"id": child.ID, "version": child.Etag, "name": child.Name,
-			"folder": claim.Selector.Path, "size": child.Size, "mime": child.MimeType,
+			"folder": folderPath, "size": child.Size, "mime": child.MimeType,
 		})
 	}
 	listStatus, listBody, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/listing", map[string]any{"items": items}, callOptions{
