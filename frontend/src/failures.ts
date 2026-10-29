@@ -1,12 +1,14 @@
-import { useGettext } from 'vue3-gettext'
+export type Translate = (source: string) => string
 
 /**
  * One sentence for a failed Synaplan action. A code the app knows maps to
  * that sentence. Anything else is the fallback, never the raw error.
- * Call this from a component event so vue3-gettext can see the instance.
+ *
+ * `$gettext` is passed in by the caller, captured during component setup:
+ * this runs after an awaited request, where vue3-gettext has no injection
+ * context and `useGettext()` would throw.
  */
-export function sentenceFor(error: unknown, fallback: string): string {
-  const { $gettext } = useGettext()
+export function sentenceFor($gettext: Translate, error: unknown, fallback: string): string {
   const data = (error as { response?: { data?: { error?: string; code?: string } } } | undefined)
     ?.response?.data
   const code = data?.code
@@ -19,6 +21,8 @@ export function sentenceFor(error: unknown, fallback: string): string {
       return $gettext('This file is no longer there. Reload the folder and try again.')
     case 'file_empty':
       return $gettext('This file is empty.')
+    case 'file_too_large':
+      return $gettext('This file is too large for Synaplan. Try a smaller file.')
     case 'unsupported_type':
       return $gettext('Synaplan cannot read this kind of file.')
     case 'no_text':

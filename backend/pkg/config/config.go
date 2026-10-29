@@ -43,8 +43,15 @@ type Config struct {
 	PublicURL      string `yaml:"public_url" env:"SYNAPLAN_PUBLIC_URL" desc:"Address a person opens in the browser, used in links back to a file."`
 	ServerID       string `yaml:"server_id" env:"SYNAPLAN_SERVER_ID" desc:"Stable id of this OpenCloud server, sent when the instance is registered."`
 	MachineAuthKey string `yaml:"machine_auth_api_key" env:"OC_MACHINE_AUTH_API_KEY;SYNAPLAN_MACHINE_AUTH_API_KEY" desc:"OpenCloud machine-auth key. Copies and watches use it to read and write a person's files without their browser session."`
-	StatePath      string `yaml:"state_path" env:"SYNAPLAN_STATE_PATH" desc:"File that stores read settings and the key used while a person is away. Empty keeps that state in memory only."`
+	OpenCloudURL   string `yaml:"opencloud_url" env:"SYNAPLAN_OPENCLOUD_URL;OC_URL" desc:"Address of OpenCloud's own API as this service reaches it. Used to ask the Graph API whether a person is an administrator."`
+	StatePath      string `yaml:"state_path" env:"SYNAPLAN_STATE_PATH" desc:"File that stores read settings, the administrator's choices and the key used while a person is away. Put it on durable storage. Empty keeps that state in memory only."`
 	StateKey       string `yaml:"state_key" env:"SYNAPLAN_STATE_KEY;OC_JWT_SECRET" desc:"Secret used to encrypt keys in the state file. Falls back to the OpenCloud JWT secret. Never logged."`
+
+	// Answer language and memories. An OpenCloud administrator can change
+	// these on the Synaplan page; the values here are the starting point.
+	DefaultAnswerLanguage string `yaml:"default_answer_language" env:"SYNAPLAN_DEFAULT_ANSWER_LANGUAGE" desc:"Language the AI answers in unless the person asks for another one (ISO 639-1, for example de)."`
+	UseUserLanguage       bool   `yaml:"use_user_language" env:"SYNAPLAN_USE_USER_LANGUAGE" desc:"Answer in each person's OpenCloud interface language when it is supported; the default language is the fallback."`
+	AllowMemories         bool   `yaml:"allow_memories" env:"SYNAPLAN_ALLOW_MEMORIES" desc:"Let the chat use a person's Synaplan memories. Synaplan's memory service must be available."`
 
 	Context context.Context `yaml:"-"`
 }

@@ -42,11 +42,14 @@ func DefaultConfig() *config.Config {
 		GRPCClientTLS: &shared.GRPCClientTLS{
 			Mode: "off",
 		},
-		SynaplanURL:          "http://host.docker.internal:8000",
-		OIDCTokenEndpoint:    "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token",
-		OIDCExchangeClientID: "synaplan-opencloud",
-		OIDCExchangeSecret:   "synaplan-opencloud-secret",
-		OIDCTargetAudience:   "synaplan-app",
+		SynaplanURL:           "http://host.docker.internal:8000",
+		OIDCTokenEndpoint:     "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token",
+		OIDCExchangeClientID:  "synaplan-opencloud",
+		OIDCExchangeSecret:    "synaplan-opencloud-secret",
+		OIDCTargetAudience:    "synaplan-app",
+		DefaultAnswerLanguage: "en",
+		UseUserLanguage:       true,
+		AllowMemories:         true,
 	}
 }
 

@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
-
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/state"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
@@ -36,6 +34,9 @@ type knowledgeResponse struct {
 	ChunksCreated       int    `json:"chunksCreated"`
 	ExtractedTextLength int    `json:"extractedTextLength"`
 	SynaplanFileID      int    `json:"synaplanFileId"`
+	// KeptUpToDate says whether later edits will follow. False when it was
+	// asked for but this login holds no key that works while they are away.
+	KeptUpToDate bool `json:"keptUpToDate"`
 }
 
 // AddToKnowledge reads a file from OpenCloud storage via CS3 and
@@ -65,6 +66,12 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Keeping the copy up to date needs the key that works while the person
+	// is away. Without it the flag is not sent: Synaplan would wait for an
+	// upload that never comes, and the person would be told it is followed.
+	userID := currentUserID(r.Context())
+	keepSynced := req.KeepSynced && h.ensureBackgroundKey(r.Context(), userID)
+
 	var uploaded *uploadedFile
 	var savedPath, savedEtag string
 	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
@@ -75,7 +82,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 			SourceID:   req.ResourceID,
 			SourceEtag: file.Etag,
 			Overwrite:  req.Overwrite,
-			KeepSynced: req.KeepSynced,
+			KeepSynced: keepSynced,
 		})
 		if err != nil {
 			return "", fmt.Errorf("synaplan upload: %w", err)
@@ -92,11 +99,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.KeepSynced {
-		userID := ""
-		if user, ok := revactx.ContextGetUser(r.Context()); ok {
-			userID = user.GetId().GetOpaqueId()
-		}
+	if keepSynced {
 		_ = h.store().RememberSynced(state.Synced{
 			ResourceID: req.ResourceID,
 			Etag:       savedEtag,
@@ -104,6 +107,8 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 			UserID:     userID,
 			GroupKey:   groupKey,
 		})
+	} else {
+		_ = h.store().ForgetSynced(userID, req.ResourceID)
 	}
 
 	writeJSON(w, http.StatusOK, knowledgeResponse{
@@ -112,6 +117,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		ChunksCreated:       uploaded.ChunksCreated,
 		ExtractedTextLength: uploaded.ExtractedTextLength,
 		SynaplanFileID:      uploaded.ID,
+		KeptUpToDate:        keepSynced,
 	})
 }
 

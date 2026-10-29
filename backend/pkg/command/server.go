@@ -88,11 +88,19 @@ func Server(cfg *config.Config) *cobra.Command {
 				StateKey:       cfg.StateKey,
 				HoldInbound:    os.Getenv("SYNAPLAN_DEV_HOLD_INBOUND") == "1",
 				AllowSelfWrite: os.Getenv("SYNAPLAN_DEV_ALLOW_SELF_WRITE") == "1",
+				SharedKey:      cfg.SynaplanAPIKey != "",
+				OpenCloudURL:   cfg.OpenCloudURL,
+				Insecure:       cfg.Insecure,
+
+				DefaultAnswerLanguage: cfg.DefaultAnswerLanguage,
+				UseUserLanguage:       cfg.UseUserLanguage,
+				AllowMemories:         cfg.AllowMemories,
 			})
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
-			h.EnsureRegistered(ctx)
+			// Neither waits for Synaplan: the listener comes up regardless.
+			go h.RegisterInBackground(ctx)
 			go h.RunReconciler(ctx)
 
 			mux := chi.NewMux()
@@ -141,6 +149,7 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/cloud/files", h.CloudDetail)
 				r.Get("/api/synaplan/watches/options", h.WatchOptions)
 				r.Post("/api/synaplan/watches", h.WatchStart)
+				r.Delete("/api/synaplan/watches", h.WatchStop)
 				r.Post("/api/synaplan/watches/reconcile", h.WatchReconcileNow)
 				r.Get("/api/synaplan/from-synaplan", h.ListSynaplanFiles)
 				r.Post("/api/synaplan/from-synaplan", h.CopyFromSynaplan)
@@ -148,6 +157,8 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Put("/api/synaplan/preferences", h.SavePreferences)
 				r.Get("/api/synaplan/connection", h.Connection)
 				r.Post("/api/synaplan/connection/bind", h.Bind)
+				r.Get("/api/synaplan/settings", h.Settings)
+				r.Put("/api/synaplan/settings", h.SaveSettings)
 			})
 
 			server := &stdhttp.Server{

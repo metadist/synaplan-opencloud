@@ -95,9 +95,19 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
       OC_MACHINE_AUTH_API_KEY: synaplan-dev-machine
+      # Registration. Put a Synaplan admin key in a gitignored `.env` next to
+      # this file and the service registers itself on start; or paste the
+      # instance credential an administrator already has. Never commit either.
+      SYNAPLAN_ADMIN_API_KEY: "${SYNAPLAN_ADMIN_API_KEY:-}"
+      SYNAPLAN_INSTANCE_ID: "${SYNAPLAN_INSTANCE_ID:-}"
+      SYNAPLAN_INSTANCE_SECRET: "${SYNAPLAN_INSTANCE_SECRET:-}"
       SYNAPLAN_DELIVERY_URL: "http://host.docker.internal:9106/api/synaplan/inbound"
       SYNAPLAN_PUBLIC_URL: "https://host.docker.internal:9200"
-      SYNAPLAN_STATE_PATH: "/tmp/synaplan-state/state.json"
+      # OpenCloud's own API, for the administrator check through Graph.
+      SYNAPLAN_OPENCLOUD_URL: "https://host.docker.internal:9200"
+      # Inside the ./backend bind mount, so it survives a container recreate
+      # and is owned by the host user the container runs as. Gitignored.
+      SYNAPLAN_STATE_PATH: "/app/.state/state.json"
       SYNAPLAN_SERVER_ID: "opencloud-dev"
       GOPATH: /tmp/go-cache/gopath
       GOCACHE: /tmp/go-cache/build

@@ -14,6 +14,7 @@ import (
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
 	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
+	typespb "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	grpcmetadata "google.golang.org/grpc/metadata"
@@ -49,36 +50,36 @@ func kindFolder(filename string) string {
 // that was written.
 // SaveToFolder writes into a folder the person chose, relative to their
 // personal space. An empty folder uses the Synaplan kind folders.
-func (r *Reader) SaveToFolder(ctx context.Context, folder, filename string, content []byte) (string, error) {
+func (r *Reader) SaveToFolder(ctx context.Context, folder, filename string, content []byte) (Written, error) {
 	return r.saveNamed(ctx, folder, filename, content)
 }
 
-func (r *Reader) Save(ctx context.Context, filename string, content []byte) (string, error) {
+func (r *Reader) Save(ctx context.Context, filename string, content []byte) (Written, error) {
 	return r.saveNamed(ctx, "", filename, content)
 }
 
-func (r *Reader) saveNamed(ctx context.Context, folderOverride, filename string, content []byte) (string, error) {
+func (r *Reader) saveNamed(ctx context.Context, folderOverride, filename string, content []byte) (Written, error) {
 	if r == nil || r.gws == nil {
-		return "", errors.New("cs3reader: not configured")
+		return Written{}, errors.New("cs3reader: not configured")
 	}
 	name := path.Base(strings.TrimSpace(filename))
 	if name == "" || name == "." || name == ".." {
-		return "", errors.New("cs3reader: invalid filename")
+		return Written{}, errors.New("cs3reader: invalid filename")
 	}
 
 	accessToken, ok := revactx.ContextGetToken(ctx)
 	if !ok || accessToken == "" {
-		return "", errors.New("cs3reader: no reva access token in context")
+		return Written{}, errors.New("cs3reader: no reva access token in context")
 	}
 	gwc, err := r.gws.Next()
 	if err != nil {
-		return "", fmt.Errorf("cs3reader: gateway client: %w", err)
+		return Written{}, fmt.Errorf("cs3reader: gateway client: %w", err)
 	}
 	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
 
 	root, err := personalRoot(gwCtx, gwc)
 	if err != nil {
-		return "", err
+		return Written{}, err
 	}
 
 	folder := synaplanRoot
@@ -89,22 +90,22 @@ func (r *Reader) saveNamed(ctx context.Context, folderOverride, filename string,
 		folder = cleaned
 	}
 	if err := ensureFolder(gwCtx, gwc, root, synaplanRoot); err != nil {
-		return "", err
+		return Written{}, err
 	}
 	if folder != synaplanRoot {
 		if err := ensureFolder(gwCtx, gwc, root, folder); err != nil {
-			return "", err
+			return Written{}, err
 		}
 	}
 
 	rel, err := freeName(gwCtx, gwc, root, folder, name)
 	if err != nil {
-		return "", err
+		return Written{}, err
 	}
 	if err := r.uploadSimple(ctx, gwc, gwCtx, accessToken, root, rel, content); err != nil {
-		return "", err
+		return Written{}, err
 	}
-	return rel, nil
+	return writtenAt(gwCtx, gwc, root, rel)
 }
 
 func cleanRelative(folder string) string {
@@ -202,8 +203,14 @@ func pathTaken(ctx context.Context, gwc gateway.GatewayAPIClient, root *provider
 }
 
 func (r *Reader) uploadSimple(ctx context.Context, gwc gateway.GatewayAPIClient, gwCtx context.Context, accessToken string, root *provider.ResourceId, rel string, content []byte) error {
+	// The length must travel with the initiate call, as ocdav sends it.
+	// Without it the storage treats the upload as an empty file, finishes
+	// it on the spot, and the PUT that follows finds no session.
+	opaque := &typespb.Opaque{}
+	utils.AppendPlainToOpaque(opaque, "Upload-Length", strconv.Itoa(len(content)))
 	up, err := gwc.InitiateFileUpload(gwCtx, &provider.InitiateFileUploadRequest{
-		Ref: &provider.Reference{ResourceId: root, Path: utils.MakeRelativePath(rel)},
+		Ref:    &provider.Reference{ResourceId: root, Path: utils.MakeRelativePath(rel)},
+		Opaque: opaque,
 	})
 	if err != nil {
 		return fmt.Errorf("cs3reader: initiate upload: %w", err)

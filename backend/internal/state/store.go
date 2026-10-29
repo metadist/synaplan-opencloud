@@ -34,6 +34,9 @@ type Folder struct {
 type User struct {
 	ReadScope  ReadScope `json:"readScope"`
 	CopyFolder string    `json:"copyFolder"`
+	// LinkID is the identity row Synaplan created at bind. An
+	// identity_revoked notification names that id, not the person.
+	LinkID int `json:"linkId,omitempty"`
 	// BackgroundKey is set only in memory after decrypt. It is not written
 	// as plaintext.
 	BackgroundKey string `json:"-"`
@@ -65,11 +68,22 @@ type OwnWrite struct {
 	At         int64  `json:"at"`
 }
 
+// Admin is what an OpenCloud administrator decides for everyone: the
+// language answers come in, whether a person's own interface language
+// wins, and whether personal memories may be used in the chat. Unset
+// values fall back to the service configuration.
+type Admin struct {
+	DefaultAnswerLanguage string `json:"defaultAnswerLanguage,omitempty"`
+	UseUserLanguage       *bool  `json:"useUserLanguage,omitempty"`
+	AllowMemories         *bool  `json:"allowMemories,omitempty"`
+}
+
 type disk struct {
 	Users          map[string]User `json:"users"`
 	Synced         []Synced        `json:"synced"`
 	Watches        []Watch         `json:"watches"`
 	Owns           []OwnWrite      `json:"owns"`
+	Admin          Admin           `json:"admin"`
 	InstanceID     string          `json:"instanceId,omitempty"`
 	InstanceSecret []byte          `json:"instanceSecret,omitempty"`
 }
@@ -134,10 +148,11 @@ func Open(path, key string) (*Store, error) {
 }
 
 // User returns a copy of the person's settings. The read scope defaults
-// to "watched" when nothing was stored.
+// to "watched" when nothing was stored, and folders is never nil so the
+// JSON answer is an array.
 func (s *Store) User(id string) User {
 	if s == nil {
-		return User{ReadScope: ReadScope{Mode: "watched"}}
+		return User{ReadScope: ReadScope{Mode: "watched", Folders: []Folder{}}}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -145,7 +160,25 @@ func (s *Store) User(id string) User {
 	if !ok || user.ReadScope.Mode == "" {
 		user.ReadScope.Mode = "watched"
 	}
+	if user.ReadScope.Folders == nil {
+		user.ReadScope.Folders = []Folder{}
+	}
 	return user
+}
+
+// UserByLinkID finds the person bound under a Synaplan identity row id.
+func (s *Store) UserByLinkID(linkID int) (string, bool) {
+	if s == nil || linkID <= 0 {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, user := range s.disk.Users {
+		if user.LinkID == linkID {
+			return id, true
+		}
+	}
+	return "", false
 }
 
 // PutUser stores the person's settings.
@@ -170,7 +203,8 @@ func (s *Store) PutUser(id string, user User) error {
 	return s.flush()
 }
 
-// ForgetUser drops the person, including their away-key.
+// ForgetUser drops the person: settings, away-key, the files this service
+// keeps in sync for them, and the watches it remembers for them.
 func (s *Store) ForgetUser(id string) error {
 	if s == nil {
 		return nil
@@ -178,6 +212,20 @@ func (s *Store) ForgetUser(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.disk.Users, id)
+	synced := s.disk.Synced[:0]
+	for _, row := range s.disk.Synced {
+		if row.UserID != id {
+			synced = append(synced, row)
+		}
+	}
+	s.disk.Synced = synced
+	watches := s.disk.Watches[:0]
+	for _, row := range s.disk.Watches {
+		if row.UserID != id {
+			watches = append(watches, row)
+		}
+	}
+	s.disk.Watches = watches
 	return s.flush()
 }
 
@@ -257,6 +305,23 @@ func (s *Store) Watches() []Watch {
 	return out
 }
 
+// ForgetWatch drops one remembered watch.
+func (s *Store) ForgetWatch(id int) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.disk.Watches[:0]
+	for _, row := range s.disk.Watches {
+		if row.ID != id {
+			next = append(next, row)
+		}
+	}
+	s.disk.Watches = next
+	return s.flush()
+}
+
 // RememberOwnWrite marks a file this service wrote, for ten minutes.
 func (s *Store) RememberOwnWrite(userID, resourceID string, now int64) {
 	if s == nil || resourceID == "" {
@@ -273,6 +338,27 @@ func (s *Store) RememberOwnWrite(userID, resourceID string, now int64) {
 	}
 	s.disk.Owns = append(next, OwnWrite{UserID: userID, ResourceID: resourceID, At: now})
 	_ = s.flush()
+}
+
+// Admin returns the administrator's choices as stored.
+func (s *Store) Admin() Admin {
+	if s == nil {
+		return Admin{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.disk.Admin
+}
+
+// PutAdmin stores the administrator's choices.
+func (s *Store) PutAdmin(admin Admin) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.disk.Admin = admin
+	return s.flush()
 }
 
 // Instance returns the stored platform instance, when registration

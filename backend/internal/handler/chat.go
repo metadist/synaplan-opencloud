@@ -15,6 +15,9 @@ type chatRequest struct {
 	Message    string `json:"message"`
 	Model      string `json:"model"`
 	GroupKey   string `json:"groupKey"`
+	// Language is the person's OpenCloud interface language. Whether it
+	// decides the answer language is the administrator's choice.
+	Language string `json:"language"`
 }
 
 // Chat asks Synaplan about a file, or answers a question from the
@@ -40,7 +43,8 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 		}
 		content = "The file says:\n\n" + excerpt + "\n\nQuestion: " + req.Message
 	}
-	answer, code, err := h.complete(r.Context(), req.Model, content, req.GroupKey)
+	system := h.systemPrompt(r.Context(), req.Language, req.Message)
+	answer, code, err := h.complete(r.Context(), req.Model, system, content, req.GroupKey)
 	if err != nil {
 		log.Printf("chat: %v", err)
 		status := http.StatusBadGateway
@@ -107,10 +111,27 @@ func (h *Handler) fileExcerpt(r *http.Request, resourceID string) (string, *chat
 	return clip(got, 20000), nil
 }
 
-func (h *Handler) complete(ctx context.Context, model, content, group string) (string, int, error) {
+// systemPrompt pins the answer language the administrator chose (or the
+// person's own) and adds what Synaplan remembers about the person when
+// memories are allowed. The same two rules as the Nextcloud app.
+func (h *Handler) systemPrompt(ctx context.Context, uiLanguage, question string) string {
+	parts := []string{
+		"You are Synaplan AI, a helpful assistant integrated into OpenCloud.",
+		"Unless the user explicitly asks for a different language, always answer in " + languageName(h.resolveLanguage(uiLanguage)) + ".",
+	}
+	if memories := h.memoryContext(ctx, question); memories != "" {
+		parts = append(parts, "Here is what you remember about the user. Use it when relevant, but do not mention that you are reading from memory:\n"+memories)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func (h *Handler) complete(ctx context.Context, model, system, content, group string) (string, int, error) {
 	payload := map[string]any{
-		"messages": []map[string]string{{"role": "user", "content": content}},
-		"stream":   false,
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": content},
+		},
+		"stream": false,
 	}
 	if model != "" {
 		payload["model"] = model

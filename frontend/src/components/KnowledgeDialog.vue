@@ -73,6 +73,24 @@
           <dd>{{ result.extractedTextLength }} {{ $gettext('characters') }}</dd>
         </template>
       </dl>
+      <p
+        v-if="result.keptUpToDate"
+        class="ext:mt-2 ext:text-xs"
+        data-testid="synaplan-knowledge-kept"
+      >
+        {{ $gettext('Changes to this file follow in Synaplan.') }}
+      </p>
+      <p
+        v-else-if="keepSyncedAsked"
+        class="ext:mt-2 ext:text-xs"
+        data-testid="synaplan-knowledge-not-kept"
+      >
+        {{
+          $gettext(
+            'Changes to this file will not follow: this login is not connected to Synaplan yet. Connect it on the Synaplan page, then make the file searchable again.'
+          )
+        }}
+      </p>
     </div>
 
     <div
@@ -122,6 +140,7 @@ import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 import { useKnowledgeGroups } from '../composables/useKnowledgeGroups'
+import { invalidateCloudStatus, markFor } from '../composables/cloudStatus'
 
 const props = defineProps<{
   modal: Modal
@@ -157,7 +176,8 @@ const knowledgeResponseSchema = z.object({
   vectorized: z.boolean(),
   chunksCreated: z.number(),
   extractedTextLength: z.number(),
-  synaplanFileId: z.number().optional()
+  synaplanFileId: z.number().optional(),
+  keptUpToDate: z.boolean().optional()
 })
 
 type KnowledgeResult = z.infer<typeof knowledgeResponseSchema>
@@ -167,6 +187,7 @@ type Phase = 'select' | 'loading' | 'done' | 'error'
 const phase = ref<Phase>('select')
 const selectedGroup = ref<string>('')
 const keepSynced = ref(true)
+const keepSyncedAsked = ref(false)
 const result = ref<KnowledgeResult | null>(null)
 const error = ref('')
 const removed = ref(false)
@@ -201,6 +222,12 @@ onMounted(async () => {
     // A submit that already started, or a newer status request, wins.
     if (seq !== statusSeq || phase.value === 'loading' || phase.value === 'done') return
     knowledgeStatus.value = data
+    // A file that is already searchable keeps its knowledge folder
+    // preselected; the folder view already knows it from the bird.
+    const known = markFor(props.resource.id)?.folder
+    if (data.inKnowledge && known && !selectedGroup.value) {
+      onGroupCreated(known)
+    }
   } catch (e) {
     console.warn('synaplan knowledge status: fetch failed', e)
   } finally {
@@ -262,11 +289,13 @@ async function onSubmit() {
       return res.data
     })
     result.value = data
+    keepSyncedAsked.value = keepSynced.value
     knowledgeStatus.value = {
       inKnowledge: true,
       stale: false,
       synaplanFileId: data.synaplanFileId ?? knowledgeStatus.value.synaplanFileId
     }
+    invalidateCloudStatus(props.resource.id)
     phase.value = 'done'
   } catch (e) {
     if (controller.signal.aborted) return
@@ -288,6 +317,7 @@ async function onRemove() {
     )
     knowledgeStatus.value = { inKnowledge: false, stale: false, synaplanFileId: 0 }
     removed.value = true
+    invalidateCloudStatus(props.resource.id)
     phase.value = 'select'
   } catch (e) {
     console.error('synaplan knowledge remove failed', e)

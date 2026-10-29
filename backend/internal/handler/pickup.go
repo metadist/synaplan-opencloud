@@ -9,8 +9,8 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
-	"time"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/state"
@@ -22,12 +22,17 @@ func (h *Handler) answerPickup(w http.ResponseWriter, ctx context.Context, id st
 }
 
 func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
-	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+id+"/claim", map[string]any{}, callOptions{
+	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/claim", map[string]any{}, callOptions{
 		skipUser: true,
 		extra:    h.instanceHeaders(),
 	})
-	if err != nil || status != http.StatusOK {
+	if err != nil || status >= http.StatusInternalServerError {
+		// Nothing was claimed. Let Synaplan's retry in.
 		log.Printf("claim pickup %s: status %d err %v", id, status, err)
+		h.releaseSeen("pickup", id)
+		return map[string]any{"status": "pending"}
+	}
+	if status != http.StatusOK {
 		return map[string]any{"status": "failed", "listed": 0, "sent": 0, "skipped": []any{}}
 	}
 	var claim struct {
@@ -40,12 +45,15 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID == "" {
 		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
 	}
-	user := h.store().User(claim.ExternalID)
-	if !scopeAllows(user.ReadScope, claim.Selector.ID, claim.Selector.Path) {
-		return h.finishPickup(ctx, id, "failed", 0, 0, []map[string]string{{"id": claim.Selector.ID, "reason": "not_allowed"}})
-	}
 	if h.cs3 == nil || h.settings.MachineAuthKey == "" || claim.Selector.ID == "" {
 		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
+	}
+	// The person's setting as it is now, not as it was when the read was
+	// queued. "Only what I watch" is checked against their current watches.
+	user := h.store().User(claim.ExternalID)
+	watched := h.activeWatchesFor(ctx, claim.ExternalID)
+	if !scopeAllows(user.ReadScope, watched, claim.Selector.ID, claim.Selector.Path) {
+		return h.finishPickup(ctx, id, "failed", 0, 0, []map[string]string{{"id": claim.Selector.ID, "reason": "not_allowed"}})
 	}
 	userCtx, err := h.cs3.Impersonate(ctx, claim.ExternalID)
 	if err != nil {
@@ -69,7 +77,7 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 			"folder": claim.Selector.Path, "size": child.Size, "mime": child.MimeType,
 		})
 	}
-	listStatus, listBody, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+id+"/listing", map[string]any{"items": items}, callOptions{
+	listStatus, listBody, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/listing", map[string]any{"items": items}, callOptions{
 		skipUser: true,
 		extra:    h.instanceHeaders(),
 	})
@@ -99,7 +107,15 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 	return h.finishPickup(ctx, id, "done", len(items), sent, skipped)
 }
 
-func scopeAllows(scope state.ReadScope, id, relPath string) bool {
+// scopeAllows is the app side of "What Synaplan may read". A signed
+// notification proves Synaplan asked, not that the person still allows
+// it, so the current setting decides. "Only what I watch" allows exactly
+// the folders the person has an active watch on; folders they named
+// count in "allowed" mode as well.
+func scopeAllows(scope state.ReadScope, watched []indexWatch, id, relPath string) bool {
+	if id == "" {
+		return false
+	}
 	switch scope.Mode {
 	case "all":
 		return true
@@ -112,13 +128,21 @@ func scopeAllows(scope state.ReadScope, id, relPath string) bool {
 				return true
 			}
 		}
-		return false
+		return watchedFolder(watched, id)
+	case "", "watched":
+		return watchedFolder(watched, id)
 	default:
-		// "watched" is enforced by Synaplan before it asks. A pickup that
-		// arrived is for a folder the person watches, or we would not list it
-		// when they named nothing.
-		return scope.Mode == "" || scope.Mode == "watched"
+		return false
 	}
+}
+
+func watchedFolder(watched []indexWatch, id string) bool {
+	for _, watch := range watched {
+		if watch.TargetKind == "folder" && watch.TargetID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) uploadPickupFile(ctx context.Context, pickupID string, child cs3reader.Child) error {
@@ -131,7 +155,7 @@ func (h *Handler) uploadPickupFile(ctx context.Context, pickupID string, child c
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("id", child.ID)
 	_ = mw.WriteField("version", child.Etag)
-	part, err := mw.CreateFormFile("file", child.Name)
+	part, err := filePart(mw, child.Name, child.MimeType)
 	if err != nil {
 		return err
 	}
@@ -141,7 +165,7 @@ func (h *Handler) uploadPickupFile(ctx context.Context, pickupID string, child c
 	if err := mw.Close(); err != nil {
 		return err
 	}
-	status, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+pickupID+"/files", nil, callOptions{
+	status, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(pickupID)+"/files", nil, callOptions{
 		skipUser:    true,
 		extra:       h.instanceHeaders(),
 		raw:         bytes.NewReader(buf.Bytes()),
@@ -164,7 +188,7 @@ func (h *Handler) finishPickup(ctx context.Context, id, statusText string, liste
 	result := map[string]any{
 		"status": statusText, "listed": listed, "sent": sent, "skipped": skipped,
 	}
-	_, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+id+"/result", result, callOptions{
+	_, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/result", result, callOptions{
 		skipUser: true,
 		extra:    h.instanceHeaders(),
 	})
@@ -172,41 +196,4 @@ func (h *Handler) finishPickup(ctx context.Context, id, statusText string, liste
 		log.Printf("pickup result %s: %v", id, err)
 	}
 	return result
-}
-
-// RunReconciler keeps watches and searchable files moving while nobody
-// has the folder open. It does nothing until this OpenCloud is registered
-// and machine auth is configured. OpenCloud does not deliver file events
-// to an extension, so this pass is the way changes are noticed.
-func (h *Handler) RunReconciler(ctx context.Context) {
-	if h == nil || !h.hasInstance() || h.settings.MachineAuthKey == "" {
-		log.Printf("reconciler: not started (instance or machine auth missing)")
-		return
-	}
-	h.reconcileOnce(ctx)
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			h.reconcileOnce(ctx)
-		}
-	}
-}
-
-func (h *Handler) reconcileOnce(ctx context.Context) {
-	h.syncSourceEvents(ctx)
-	h.syncWatches(ctx)
-}
-
-// WatchReconcileNow runs one pass for the signed-in person.
-func (h *Handler) WatchReconcileNow(w http.ResponseWriter, r *http.Request) {
-	if !h.hasInstance() {
-		writeJSON(w, http.StatusConflict, errorResponse{Error: "Ask your administrator to connect this OpenCloud to Synaplan.", Code: "not_connected"})
-		return
-	}
-	h.reconcileOnce(r.Context())
-	writeJSON(w, http.StatusOK, map[string]string{"sentence": "Synaplan checked your watched files."})
 }

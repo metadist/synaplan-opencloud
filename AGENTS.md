@@ -89,6 +89,10 @@ server's copy of the same app id.
 
 - Production build (`pnpm build`) is only for CI, the Docker image, and the
   bundled flow on `:9200` (`make frontend-build && make docker-up`).
+  OpenCloud 9 reads the extension manifest once at start, so after a
+  `make frontend-build` run `docker compose restart opencloud` and wait for
+  `status.php` before testing on `:9200` — otherwise the old bundle (or no
+  extension at all) is what you see.
 - `make ci-local` builds into `frontend/dist-ci/` for exactly this reason: the
   gate proves the bundle compiles without touching what OpenCloud serves.
 - Every user-facing string goes through `$gettext` (vue3-gettext); strings live
@@ -196,15 +200,19 @@ Rules:
 
 ## E2E with Playwright — how the journeys are built
 
-The four specs in `frontend/tests/e2e/` are the pattern: `synaplan.spec.ts`
-(in-app view, `/me`), and `summarize`, `translation`, `knowledge`, each with a
-context-menu visibility check plus a text-file and a PDF (Tika) journey.
+The specs in `frontend/tests/e2e/` are the pattern: `synaplan.spec.ts`
+(the Synaplan page: `/me`, connection, read scope, the administrator's
+choices read-only), `summarize`, `translation`, `knowledge` (add, keep up to
+date, the Synaplan tab) and `chat`, each with a context-menu visibility check
+plus a text-file and, where Tika matters, a PDF journey; `watch.spec.ts`
+starts a watch on a folder, finds it in the Synaplan tab and stops it there.
 Every journey crosses every seam — OpenCloud UI → proxy → Go service →
 Keycloak token exchange → Synaplan → (Tika, model) → back into the dialog —
 so a green run is the proof that the integration works, not that a component
 renders. Shipped flows without a journey yet (knowledge **update** and
-**remove**, save-to-space, the failure paths) are the first specs to add; a
-sprint that touches one of them adds its journey in the same PR.
+**remove**, save-to-space, From Synaplan, the inbound copy, the failure
+paths) are the first specs to add; a sprint that touches one of them adds
+its journey in the same PR.
 
 - **Fixtures by API, not by UI.** `getAccessToken` (Keycloak password grant,
   `scope=openid`), `getPersonalSpace`, `ensureFolder`, `uploadTextFile`,

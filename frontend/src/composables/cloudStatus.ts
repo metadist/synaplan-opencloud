@@ -35,22 +35,40 @@ const statusSchema = z.object({
 })
 
 type Item = { id: string; version: string }
+type Http = { post: (url: string, body: unknown, opts: unknown) => Promise<{ data: unknown }> }
+
+/** A settled state is trusted this long before the folder is asked again. */
+export const SETTLED_TTL_MS = 60_000
+/** A state that is still moving in Synaplan is asked again sooner. */
+export const IN_PROGRESS_TTL_MS = 10_000
+
+const IN_PROGRESS = new Set(['adding', 'updating'])
+
 const pending = new Map<string, Item>()
-const queuedVersion = new Map<string, string>()
+const fetchedAt = new Map<string, { version: string; at: number }>()
 let timer: ReturnType<typeof setTimeout> | undefined
-let client:
-  { post: (url: string, body: unknown, opts: unknown) => Promise<{ data: unknown }> } | undefined
+let client: Http | undefined
 
 export function markFor(id: string): CloudMark | undefined {
   return cloudMarks[id]
 }
 
-export function queueCloudStatus(
-  http: { post: (url: string, body: unknown, opts: unknown) => Promise<{ data: unknown }> },
-  item: Item
-) {
-  if (queuedVersion.get(item.id) === item.version && cloudMarks[item.id]) return
-  queuedVersion.set(item.id, item.version)
+/** Forget what is known about a file, so the next look asks Synaplan. */
+export function invalidateCloudStatus(id: string) {
+  fetchedAt.delete(id)
+  delete cloudMarks[id]
+}
+
+function isFresh(id: string, version: string, now: number): boolean {
+  const seen = fetchedAt.get(id)
+  if (!seen || seen.version !== version) return false
+  const mark = cloudMarks[id]
+  const ttl = mark && IN_PROGRESS.has(mark.state) ? IN_PROGRESS_TTL_MS : SETTLED_TTL_MS
+  return now - seen.at < ttl
+}
+
+export function queueCloudStatus(http: Http, item: Item, now = Date.now()) {
+  if (isFresh(item.id, item.version, now)) return
   client = http
   pending.set(item.id, item)
   if (timer) clearTimeout(timer)
@@ -61,13 +79,20 @@ export function queueCloudStatus(
   }, 40)
 }
 
-export async function loadCloudStatus(
-  http: { post: (url: string, body: unknown, opts: unknown) => Promise<{ data: unknown }> },
-  items: Item[]
-) {
+export async function loadCloudStatus(http: Http, items: Item[], now = Date.now()) {
   if (!items.length) return
-  const res = await http.post('/api/synaplan/cloud/status', { items }, { schema: statusSchema })
-  const data = statusSchema.parse(res.data)
+  for (const item of items) {
+    fetchedAt.set(item.id, { version: item.version, at: now })
+  }
+  let data: z.infer<typeof statusSchema>
+  try {
+    const res = await http.post('/api/synaplan/cloud/status', { items }, { schema: statusSchema })
+    data = statusSchema.parse(res.data)
+  } catch {
+    // Ask again on the next look instead of showing a stale bird.
+    for (const item of items) fetchedAt.delete(item.id)
+    return
+  }
   const watched = new Set(
     data.watches.map((watch) => watch.target_id).filter((id): id is string => !!id)
   )

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/state"
 )
 
@@ -24,7 +26,8 @@ func currentUserID(ctx context.Context) string {
 }
 
 func (h *Handler) hasInstance() bool {
-	return h != nil && h.instanceID != "" && h.instanceSecret != ""
+	id, secret := h.instance()
+	return id != "" && secret != ""
 }
 
 // CloudStatus is the bird state for the files in the folder the person
@@ -75,12 +78,12 @@ func (h *Handler) CloudStatus(w http.ResponseWriter, r *http.Request) {
 
 // CloudDetail is the sidebar for one Synaplan file.
 func (h *Handler) CloudDetail(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.URL.Query().Get("fileId"))
-	if id == "" || strings.Contains(id, "/") {
+	id, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("fileId")))
+	if err != nil || id <= 0 {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "fileId is required"})
 		return
 	}
-	status, body, err := h.synaplanCall(r.Context(), http.MethodGet, "/api/v1/cloud/files/"+id, nil)
+	status, body, err := h.synaplanCall(r.Context(), http.MethodGet, "/api/v1/cloud/files/"+strconv.Itoa(id), nil)
 	if err != nil {
 		log.Printf("cloud detail: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{
@@ -183,17 +186,61 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 			ID: created.ID, TargetKind: req.TargetKind, TargetID: req.TargetID, UserID: uid,
 		})
 	}
-	h.ensureBackgroundKey(r.Context(), uid)
-	writeRaw(w, http.StatusOK, raw)
+	// Without the key that works while the person is away, the watch
+	// exists in Synaplan but nothing would ever be uploaded. Say so.
+	var answer map[string]any
+	if err := json.Unmarshal(raw, &answer); err != nil || answer == nil {
+		answer = map[string]any{}
+	}
+	answer["uploads_enabled"] = h.ensureBackgroundKey(r.Context(), uid)
+	writeJSON(w, http.StatusOK, answer)
+}
+
+// WatchStop ends every watch the person has on one folder or file. The
+// authoritative list is Synaplan's; the local copy is only a cache.
+func (h *Handler) WatchStop(w http.ResponseWriter, r *http.Request) {
+	targetID := strings.TrimSpace(r.URL.Query().Get("targetId"))
+	if targetID == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetId is required"})
+		return
+	}
+	uid := currentUserID(r.Context())
+	ids := map[int]struct{}{}
+	for _, watch := range h.activeWatchesFor(r.Context(), uid) {
+		if watch.TargetID == targetID {
+			ids[watch.ID] = struct{}{}
+		}
+	}
+	for _, watch := range h.store().Watches() {
+		if watch.UserID == uid && watch.TargetID == targetID {
+			ids[watch.ID] = struct{}{}
+		}
+	}
+	stopped := 0
+	for id := range ids {
+		status, raw, err := h.synaplanCall(r.Context(), http.MethodDelete, "/api/v1/cloud/watches/"+strconv.Itoa(id), nil)
+		if err != nil {
+			log.Printf("watch stop %d: %v", id, err)
+			writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
+			return
+		}
+		if status >= 400 && status != http.StatusNotFound {
+			writeUpstream(w, status, raw)
+			return
+		}
+		_ = h.store().ForgetWatch(id)
+		stopped++
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"stopped": stopped})
 }
 
 // ListSynaplanFiles is the person's files in Synaplan, for From Synaplan.
 func (h *Handler) ListSynaplanFiles(w http.ResponseWriter, r *http.Request) {
-	page := r.URL.Query().Get("page")
-	if page == "" {
-		page = "1"
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 1
 	}
-	status, body, err := h.synaplanCall(r.Context(), http.MethodGet, "/api/v1/files?page="+page+"&limit=50", nil)
+	status, body, err := h.synaplanCall(r.Context(), http.MethodGet, "/api/v1/files?page="+strconv.Itoa(page)+"&limit=50", nil)
 	if err != nil {
 		log.Printf("list files: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
@@ -222,7 +269,11 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
 		return
 	}
-	status, body, err := h.synaplanDo(r.Context(), http.MethodGet, "/api/v1/files/"+strconv.Itoa(req.FileID)+"/download", nil, callOptions{limit: 100 << 20})
+	status, body, err := h.synaplanDo(r.Context(), http.MethodGet, "/api/v1/files/"+strconv.Itoa(req.FileID)+"/download", nil, callOptions{limit: maxCopyBytes})
+	if errors.Is(err, errTooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "This file is too large to copy here.", Code: "file_too_large"})
+		return
+	}
 	if err != nil || status != http.StatusOK {
 		log.Printf("from synaplan download: status %d err %v", status, err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"})
@@ -232,21 +283,24 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "file"
 	}
-	var saved string
+	var written cs3reader.Written
 	if req.FolderID != "" {
-		saved, err = h.cs3.SaveChild(r.Context(), req.FolderID, name, body)
+		written, err = h.cs3.SaveChild(r.Context(), req.FolderID, name, body)
 	} else {
-		saved, err = h.cs3.Save(r.Context(), name, body)
+		written, err = h.cs3.Save(r.Context(), name, body)
 	}
 	if err != nil {
 		log.Printf("from synaplan save: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "The file was not copied. It is still in Synaplan.", Code: "synaplan_error"})
 		return
 	}
-	h.store().RememberOwnWrite(currentUserID(r.Context()), req.FolderID, time.Now().Unix())
+	// The written file, not its folder: a watch on the folder keeps
+	// seeing other new files, only this one is left out.
+	h.store().RememberOwnWrite(currentUserID(r.Context()), written.ID, time.Now().Unix())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"path":     saved,
-		"sentence": "Copied " + name + " into your files. The file is still in Synaplan.",
+		"path":       written.Path,
+		"resourceId": written.ID,
+		"sentence":   "Copied " + name + " into your files. The file is still in Synaplan.",
 	})
 }
 
@@ -288,17 +342,26 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"})
 		return
 	}
-	if h.hasInstance() {
-		_, _, err := h.synaplanDo(r.Context(), http.MethodPut, "/api/v1/platform-links/read-scope", map[string]any{
-			"external_id": uid,
-			"mode":        req.Mode,
-			"folders":     req.Folders,
-		}, callOptions{extra: h.instanceHeaders()})
-		if err != nil {
-			log.Printf("report read scope: %v", err)
-		}
+	if !h.hasInstance() {
+		writeJSON(w, http.StatusOK, map[string]any{"saved": true, "reported": false})
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"saved": true})
+	status, _, err := h.synaplanDo(r.Context(), http.MethodPut, "/api/v1/platform-links/read-scope", map[string]any{
+		"external_id": uid,
+		"mode":        req.Mode,
+		"folders":     req.Folders,
+	}, callOptions{skipUser: true, extra: h.instanceHeaders()})
+	if err != nil || status >= 400 {
+		// The setting is kept here and enforced here. Synaplan does not know
+		// it yet, so it may still refuse a read, and the person is told.
+		log.Printf("report read scope: status %d err %v", status, err)
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "The setting was saved here, but Synaplan did not receive it. Save again in a minute.",
+			Code:  "synaplan_unreachable",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "reported": true})
 }
 
 // Connection says whether this OpenCloud login is bound to Synaplan.
@@ -331,6 +394,17 @@ func (h *Handler) Bind(w http.ResponseWriter, r *http.Request) {
 		writeUpstream(w, status, body)
 		return
 	}
+	var bound struct {
+		LinkID int `json:"link_id"`
+	}
+	_ = json.Unmarshal(body, &bound)
+	if bound.LinkID > 0 {
+		user := h.store().User(uid)
+		user.LinkID = bound.LinkID
+		if err := h.store().PutUser(uid, user); err != nil {
+			log.Printf("store link id: %v", err)
+		}
+	}
 	h.ensureBackgroundKey(r.Context(), uid)
 	writeJSON(w, http.StatusOK, map[string]any{"bound": true})
 }
@@ -350,31 +424,37 @@ func (h *Handler) bound(ctx context.Context) bool {
 	return parsed.Bound
 }
 
-func (h *Handler) ensureBackgroundKey(ctx context.Context, uid string) {
+// ensureBackgroundKey makes sure this service holds the key that works
+// while the person is away. It reports whether one is held afterwards.
+// Synaplan hands the plaintext out once; a later mint without it means
+// another instance of this service has it, and that is reported as false.
+func (h *Handler) ensureBackgroundKey(ctx context.Context, uid string) bool {
 	if uid == "" || !h.hasInstance() {
-		return
+		return false
 	}
 	if h.store().User(uid).BackgroundKey != "" {
-		return
+		return true
 	}
 	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/sso/background-key", map[string]string{
 		"external_id": uid,
 	}, callOptions{extra: h.instanceHeaders()})
 	if err != nil || status != http.StatusOK {
 		log.Printf("background key: status %d err %v", status, err)
-		return
+		return false
 	}
 	var parsed struct {
 		Key string `json:"key"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil || parsed.Key == "" {
-		return
+		return false
 	}
 	user := h.store().User(uid)
 	user.BackgroundKey = parsed.Key
 	if err := h.store().PutUser(uid, user); err != nil {
 		log.Printf("store background key: %v", err)
+		return false
 	}
+	return true
 }
 
 func writeRaw(w http.ResponseWriter, status int, body []byte) {

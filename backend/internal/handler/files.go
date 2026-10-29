@@ -62,13 +62,13 @@ func (h *Handler) SaveToSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saved, err := h.cs3.Save(r.Context(), name, []byte(text))
+	written, err := h.cs3.Save(r.Context(), name, []byte(text))
 	if err != nil {
 		log.Printf("save to space: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: " + err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, saveFileResponse{Path: saved})
+	writeJSON(w, http.StatusOK, saveFileResponse{Path: written.Path})
 }
 
 func cleanSavedName(raw string) (string, string) {

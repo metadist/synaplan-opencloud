@@ -13,6 +13,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -56,24 +57,47 @@ type Settings struct {
 	HoldInbound bool
 	// AllowSelfWrite lets a watch upload a file this service just wrote.
 	AllowSelfWrite bool
+	// SharedKey is true when every call rides on one API key. Shown to the
+	// administrator as "One shared account".
+	SharedKey bool
+	// OpenCloudURL is OpenCloud's own API, for the Graph role lookup.
+	// Insecure accepts its self-signed certificate (dev only).
+	OpenCloudURL string
+	Insecure     bool
+	// Starting points for the administrator's choices.
+	DefaultAnswerLanguage string
+	UseUserLanguage       bool
+	AllowMemories         bool
+}
+
+// instanceCredential is the platform instance this OpenCloud is
+// registered as. It is replaced as one value, because background
+// registration writes it while request handlers read it.
+type instanceCredential struct {
+	id     string
+	secret string
 }
 
 type Handler struct {
-	synaplanURL    string
-	synaplanAPI    *synaplanapi.ClientWithResponses
-	editor         synaplanapi.RequestEditorFn
-	httpClient     *http.Client
-	cs3            *cs3reader.Reader
-	assetProxy     *httputil.ReverseProxy
-	settings       Settings
-	instanceID     string
-	instanceSecret string
-	state          *state.Store
-	seen           *notify.Seen
-	seenMu         sync.Mutex
-	keysMu         sync.Mutex
-	keys           []string
-	keysAt         time.Time
+	synaplanURL string
+	synaplanAPI *synaplanapi.ClientWithResponses
+	editor      synaplanapi.RequestEditorFn
+	httpClient  *http.Client
+	cs3         *cs3reader.Reader
+	assetProxy  *httputil.ReverseProxy
+	settings    Settings
+	credential  atomic.Pointer[instanceCredential]
+	state       *state.Store
+	seen        *notify.Seen
+	seenMu      sync.Mutex
+	keysMu      sync.Mutex
+	keys        []string
+	keysLoaded  bool
+	keysAt      time.Time
+	indexMu     sync.Mutex
+	watchIndex  []indexWatch
+	indexAt     time.Time
+	memoryCache
 }
 
 // New creates a new Handler. The editor is the synaplanapi
@@ -113,25 +137,38 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		cs3.SetMachineAuth(settings.MachineAuthKey)
 	}
 	h := &Handler{
-		synaplanURL:    synaplanURL,
-		synaplanAPI:    apiClient,
-		editor:         editor,
-		httpClient:     &http.Client{},
-		cs3:            cs3,
-		assetProxy:     assetProxy,
-		settings:       settings,
-		instanceID:     settings.InstanceID,
-		instanceSecret: settings.InstanceSecret,
-		state:          store,
-		seen:           notify.NewSeen(),
+		synaplanURL: synaplanURL,
+		synaplanAPI: apiClient,
+		editor:      editor,
+		httpClient:  &http.Client{},
+		cs3:         cs3,
+		assetProxy:  assetProxy,
+		settings:    settings,
+		state:       store,
+		seen:        notify.NewSeen(),
 	}
-	if h.instanceID == "" {
-		if id, secret := store.Instance(); id != "" && secret != "" {
-			h.instanceID = id
-			h.instanceSecret = secret
-		}
+	if settings.InstanceID != "" && settings.InstanceSecret != "" {
+		h.setCredential(settings.InstanceID, settings.InstanceSecret)
+	} else if id, secret := store.Instance(); id != "" && secret != "" {
+		h.setCredential(id, secret)
 	}
 	return h, nil
+}
+
+func (h *Handler) setCredential(id, secret string) {
+	h.credential.Store(&instanceCredential{id: id, secret: secret})
+}
+
+// instance returns the registered credential, or empty strings.
+func (h *Handler) instance() (string, string) {
+	if h == nil {
+		return "", ""
+	}
+	cred := h.credential.Load()
+	if cred == nil {
+		return "", ""
+	}
+	return cred.id, cred.secret
 }
 
 // store is the process state. A handler built in a test has none, so

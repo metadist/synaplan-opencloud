@@ -45,6 +45,17 @@
     <p v-if="started" data-testid="synaplan-watch-started">
       {{ $gettext('Synaplan is watching this.') }}
     </p>
+    <p
+      v-if="started && uploadsEnabled === false"
+      class="ext:text-sm ext:text-role-error"
+      data-testid="synaplan-watch-no-uploads"
+    >
+      {{
+        $gettext(
+          'Nothing will be sent yet: this login is not connected to Synaplan. Connect it on the Synaplan page.'
+        )
+      }}
+    </p>
     <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-watch-error">
       {{ error }}
     </p>
@@ -70,6 +81,7 @@ import { useClientService, type Modal } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { sentenceFor } from '../failures'
+import { invalidateCloudStatus } from '../composables/cloudStatus'
 
 const props = defineProps<{
   modal: Modal
@@ -86,19 +98,25 @@ const tasks = ref<{ id: number; name: string }[]>([])
 const folderOptions = ref<string[]>([])
 const saving = ref(false)
 const started = ref(false)
+const uploadsEnabled = ref<boolean | null>(null)
 const error = ref('')
 
 const consequence = computed(() =>
   preset.value === 'task'
-    ? $gettext('Synaplan runs that task when something new arrives. You can stop it in Synaplan.')
+    ? $gettext(
+        'Synaplan runs that task when something new arrives. Stop it any time from the Synaplan tab of this item.'
+      )
     : $gettext(
-        'New files become searchable in the knowledge folder you chose. You can stop it in Synaplan.'
+        'New files become searchable in the knowledge folder you chose. Stop it any time from the Synaplan tab of this item.'
       )
 )
 
+// Synaplan's cloud watch options: knowledge folders carry group_key.
+const folderSchema = z.object({ group_key: z.string(), file_count: z.number().optional() })
 const optionsSchema = z.object({
   tasks: z.array(z.object({ id: z.number(), name: z.string() })).default([]),
-  folders: z.array(z.union([z.string(), z.object({ name: z.string() })])).default([])
+  folders: z.array(folderSchema).default([]),
+  unavailable: z.boolean().optional()
 })
 
 onMounted(async () => {
@@ -106,12 +124,19 @@ onMounted(async () => {
     const res = await httpAuthenticated.get('/api/synaplan/watches/options', {
       schema: optionsSchema
     })
+    if (res.data.unavailable) {
+      error.value = $gettext(
+        'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
+      )
+      return
+    }
     tasks.value = res.data.tasks
-    folderOptions.value = res.data.folders.map((folder: string | { name: string }) =>
-      typeof folder === 'string' ? folder : folder.name
+    folderOptions.value = res.data.folders.map(
+      (folder: z.infer<typeof folderSchema>) => folder.group_key
     )
   } catch (e) {
     error.value = sentenceFor(
+      $gettext,
       e,
       $gettext('Synaplan cannot be reached. Try again in a minute, or ask your administrator.')
     )
@@ -122,16 +147,23 @@ async function onStart() {
   saving.value = true
   error.value = ''
   try {
-    await httpAuthenticated.post('/api/synaplan/watches', {
-      targetKind: props.kind,
-      targetId: props.resource.id,
-      preset: preset.value,
-      groupKey: groupKey.value,
-      taskId: task.value?.id ?? 0
-    })
+    const res = await httpAuthenticated.post(
+      '/api/synaplan/watches',
+      {
+        targetKind: props.kind,
+        targetId: props.resource.id,
+        preset: preset.value,
+        groupKey: groupKey.value,
+        taskId: task.value?.id ?? 0
+      },
+      { schema: z.object({ uploads_enabled: z.boolean().optional() }).passthrough() }
+    )
+    uploadsEnabled.value = res.data.uploads_enabled ?? null
+    invalidateCloudStatus(props.resource.id)
     started.value = true
   } catch (e) {
     error.value = sentenceFor(
+      $gettext,
       e,
       $gettext('Synaplan could not finish this. Try again in a minute, or ask your administrator.')
     )

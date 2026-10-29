@@ -179,5 +179,14 @@ func (s *Seen) AlreadySeen(kind, id string, now int64) bool {
 	return false
 }
 
+// Forget releases an id so a retried notification is handled again.
+// Used when the work behind it failed before anything was done.
+func (s *Seen) Forget(kind, id string) {
+	if s == nil {
+		return
+	}
+	delete(s.ids, kind+"\x00"+id)
+}
+
 // ErrNoKeys is returned when instances/self listed no notify keys.
 var ErrNoKeys = errors.New("no notify keys")

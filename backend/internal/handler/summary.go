@@ -234,9 +234,11 @@ func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadPro
 	if err := mw.WriteField("source", "opencloud"); err != nil {
 		return fmt.Errorf("write source: %w", err)
 	}
+	// The same shape the Nextcloud app sends: the path inside the person's
+	// space with a leading slash, so Synaplan can say where a file came from.
 	original := file.Name
 	if file.Path != "" {
-		original = file.Path
+		original = "/" + strings.TrimPrefix(file.Path, "./")
 	}
 	if prov != nil && prov.OriginalName != "" {
 		original = prov.OriginalName

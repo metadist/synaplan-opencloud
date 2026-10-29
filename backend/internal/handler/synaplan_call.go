@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // callOptions tunes one outbound Synaplan request.
@@ -84,16 +86,37 @@ func (h *Handler) synaplanDo(ctx context.Context, method, rel string, payload an
 	if limit <= 0 {
 		limit = 8 << 20
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	// Read one byte past the limit: io.LimitReader stops silently, and a
+	// copy or a generated file must never be saved truncated.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return resp.StatusCode, nil, fmt.Errorf("read synaplan response: %w", err)
+	}
+	if int64(len(raw)) > limit {
+		return resp.StatusCode, nil, fmt.Errorf("%w: more than %d bytes", errTooLarge, limit)
 	}
 	return resp.StatusCode, raw, nil
 }
 
+// errTooLarge marks a Synaplan answer that exceeded the caller's limit.
+var errTooLarge = errors.New("synaplan response too large")
+
+// backgroundTimeout bounds one Synaplan or CS3 call made without a
+// person waiting: a claim, a listing, one upload.
+const backgroundTimeout = 2 * time.Minute
+
+// passTimeout bounds one whole pass of the reconciler.
+const passTimeout = 8 * time.Minute
+
+// bounded returns a child context with the background deadline.
+func bounded(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, backgroundTimeout)
+}
+
 func (h *Handler) instanceHeaders() http.Header {
+	id, secret := h.instance()
 	return http.Header{
-		"X-Instance-Id":     {h.instanceID},
-		"X-Instance-Secret": {h.instanceSecret},
+		"X-Instance-Id":     {id},
+		"X-Instance-Secret": {secret},
 	}
 }

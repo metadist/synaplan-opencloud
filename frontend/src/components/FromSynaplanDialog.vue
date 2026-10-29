@@ -85,6 +85,7 @@ onMounted(async () => {
     }))
   } catch (e) {
     error.value = sentenceFor(
+      $gettext,
       e,
       $gettext('Synaplan cannot be reached. Try again in a minute, or ask your administrator.')
     )
@@ -105,7 +106,11 @@ async function onCopy() {
     )
     saved.value = res.data.sentence
   } catch (e) {
-    error.value = sentenceFor(e, $gettext('The file was not copied. It is still in Synaplan.'))
+    error.value = sentenceFor(
+      $gettext,
+      e,
+      $gettext('The file was not copied. It is still in Synaplan.')
+    )
   } finally {
     saving.value = false
   }

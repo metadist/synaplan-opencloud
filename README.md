@@ -6,7 +6,7 @@
 
 OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/synaplan) AI features into OpenCloud. When both sides share a login provider, each person's OpenCloud login is exchanged for their own Synaplan account with [RFC 8693 token exchange](https://datatracker.ietf.org/doc/html/rfc8693). A shared API key is also supported; in that mode every person uses the same Synaplan account.
 
-From a file you can summarize, translate, chat about it, and make it searchable by AI (including update, remove, and keep it up to date). A result can be saved into your personal space. Synaplan can copy a file into that space, read a folder you allow, and watch a folder or a file. Files sent to Synaplan are labelled as coming from OpenCloud. Sign-in is the shared organisation login; a shared API key is still available and discouraged.
+From a file you can summarize, translate, chat about it, and make it searchable by AI (including update, remove, and keep it up to date). A result can be saved into your personal space. Synaplan can copy a file into that space, read a folder you allow, and watch a folder or a file. The **Synaplan tab** in the file sidebar shows what Synaplan knows about an item — searchable, changed, watched — and is where you remove or stop it; a bird on the row says the same at a glance. The **Synaplan page** (`/synaplan`) shows whether this login is connected, what Synaplan may read, and the administrator's choices for answer language and memories. Files sent to Synaplan are labelled as coming from OpenCloud. Sign-in is the shared organisation login; a shared API key is still available and discouraged.
 
 ![Screenshot](docs/screenshot.png)
 
@@ -84,7 +84,22 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 | `SYNAPLAN_ADMIN_API_KEY` | When set, and no instance id is stored yet, the service registers this OpenCloud on startup. |
 | `SYNAPLAN_DELIVERY_URL` | Address Synaplan calls. In dev: `http://host.docker.internal:9106/api/synaplan/inbound`. |
 | `SYNAPLAN_PUBLIC_URL` | Address a person opens in the browser, used in links back to a file. |
-| `SYNAPLAN_STATE_PATH` | File for read settings and away-keys. Empty keeps them in memory only. |
+| `SYNAPLAN_OPENCLOUD_URL` (or `OC_URL`) | OpenCloud's own address, for the Graph lookup that tells an administrator from a user. Without it only the roles in the request token count. |
+| `SYNAPLAN_SERVER_ID` | Name this OpenCloud announces to Synaplan. |
+| `SYNAPLAN_STATE_PATH` | File for read settings, away-keys and the administrator's choices. Empty keeps them in memory only, so a restart forgets them. |
+| `SYNAPLAN_STATE_KEY` | Encrypts the away-keys in the state file. Defaults to `OC_JWT_SECRET`. |
+
+### Administrator choices
+
+An OpenCloud administrator sets these on the Synaplan page (`/synaplan`); everyone else sees them read-only. The variables are the start values until an administrator saves.
+
+| Var | Purpose |
+|-----|---------|
+| `SYNAPLAN_DEFAULT_ANSWER_LANGUAGE` | Language of summaries and chat answers (`en`, `de`, `es`, `fr`, `tr`). Default `en`. |
+| `SYNAPLAN_USE_USER_LANGUAGE` | `true` answers in each person's OpenCloud interface language, falling back to the default. Default `true`. |
+| `SYNAPLAN_ALLOW_MEMORIES` | `true` lets chat use the person's Synaplan memories when that Synaplan has them. Default `true`. |
+
+The person's identity mode (OpenCloud login, organisation login, shared key) follows the authentication mode above and is shown on the same page.
 
 The backend downloads file contents from OpenCloud's storage data server, so that server must be reachable from the backend. On the OpenCloud side set `STORAGE_USERS_HTTP_ADDR` to a non-loopback address and `STORAGE_USERS_DATA_SERVER_URL` to a URL the backend can resolve (for example `http://opencloud:9158/data`).
 

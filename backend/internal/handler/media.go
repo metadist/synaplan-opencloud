@@ -2,10 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"path"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -54,11 +58,8 @@ func (h *Handler) SaveMedia(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body: " + err.Error()})
 		return
 	}
-	rel := req.URL
-	if i := strings.Index(rel, "/api/v1/"); i >= 0 {
-		rel = rel[i:]
-	}
-	if !strings.HasPrefix(rel, "/api/v1/files/") {
+	rel, ok := generatedFilePath(req.URL)
+	if !ok {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "That file cannot be saved."})
 		return
 	}
@@ -66,7 +67,11 @@ func (h *Handler) SaveMedia(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
 		return
 	}
-	status, body, err := h.synaplanDo(r.Context(), http.MethodGet, rel, nil, callOptions{limit: 100 << 20})
+	status, body, err := h.synaplanDo(r.Context(), http.MethodGet, rel, nil, callOptions{limit: maxCopyBytes})
+	if errors.Is(err, errTooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "This file is too large to save here.", Code: "file_too_large"})
+		return
+	}
 	if err != nil || status != http.StatusOK {
 		log.Printf("media download: status %d err %v", status, err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"})
@@ -76,14 +81,50 @@ func (h *Handler) SaveMedia(w http.ResponseWriter, r *http.Request) {
 	if name == "" || name == "." || name == ".." {
 		name = "synaplan.bin"
 	}
-	saved, err := h.cs3.Save(r.Context(), name, body)
+	written, err := h.cs3.Save(r.Context(), name, body)
 	if err != nil {
 		log.Printf("media save: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "The file was not saved. It is still in Synaplan.", Code: "synaplan_error"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"path":     saved,
-		"sentence": "Saved to " + saved + ". The file is still in Synaplan.",
+		"path":       written.Path,
+		"resourceId": written.ID,
+		"sentence":   "Saved to " + written.Path + ". The file is still in Synaplan.",
 	})
+}
+
+// uploadsSegment matches one path segment Synaplan uses under
+// /api/v1/files/uploads/: a number, or a stored file name without
+// separators. Anything else is not a generated file.
+var uploadsSegment = regexp.MustCompile(`^[A-Za-z0-9._-]{1,200}$`)
+
+// generatedFilePath turns the URL Synaplan returned for a generated file
+// into a path this service is willing to fetch. The path is rebuilt from
+// validated parts; nothing from the request is passed through as is.
+func generatedFilePath(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, "/api/v1/files/"); i >= 0 {
+		raw = raw[i:]
+	}
+	if cut := strings.IndexAny(raw, "?#"); cut >= 0 {
+		raw = raw[:cut]
+	}
+	parts := strings.Split(strings.TrimPrefix(raw, "/api/v1/files/"), "/")
+	switch {
+	case len(parts) == 2 && parts[1] == "download":
+		id, err := strconv.Atoi(parts[0])
+		if err != nil || id <= 0 {
+			return "", false
+		}
+		return "/api/v1/files/" + strconv.Itoa(id) + "/download", true
+	case len(parts) == 3 && parts[0] == "uploads":
+		owner, err := strconv.Atoi(parts[1])
+		if err != nil || owner <= 0 || !uploadsSegment.MatchString(parts[2]) {
+			return "", false
+		}
+		return "/api/v1/files/uploads/" + strconv.Itoa(owner) + "/" + url.PathEscape(parts[2]), true
+	default:
+		return "", false
+	}
 }

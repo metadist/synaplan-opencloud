@@ -66,7 +66,7 @@ const props = defineProps<{
   resource: { id: string; name?: string }
 }>()
 
-const { $gettext } = useGettext()
+const { $gettext, current } = useGettext()
 const { httpAuthenticated } = useClientService()
 const question = ref('')
 const phase = ref<'ask' | 'loading' | 'done' | 'error'>('ask')
@@ -84,13 +84,14 @@ async function onAsk() {
   try {
     const res = await httpAuthenticated.post(
       '/api/synaplan/chat',
-      { resourceId: props.resource.id, message: text },
+      { resourceId: props.resource.id, message: text, language: current },
       { schema, timeout: 0 }
     )
     answer.value = res.data.answer
     phase.value = 'done'
   } catch (e) {
     error.value = sentenceFor(
+      $gettext,
       e,
       $gettext('Synaplan could not finish this. Try again in a minute, or ask your administrator.')
     )

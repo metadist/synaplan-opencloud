@@ -47,4 +47,8 @@ func TestSeenReplay(t *testing.T) {
 	if seen.AlreadySeen("delivery", "9", 1000+11*60) {
 		t.Fatal("id was still remembered after ten minutes")
 	}
+	seen.Forget("delivery", "9")
+	if seen.AlreadySeen("delivery", "9", 1000+11*60) {
+		t.Fatal("a forgotten id was still treated as a replay")
+	}
 }
