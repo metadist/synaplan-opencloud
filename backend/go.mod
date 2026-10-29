@@ -14,7 +14,7 @@ replace github.com/pablodz/inotifywaitgo v0.0.9 => github.com/opencloud-eu/inoti
 
 require (
 	github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/opencloud-eu/opencloud v1.1.1-0.20260309132930-a8430384a1b7
 	github.com/opencloud-eu/reva/v2 v2.49.0
