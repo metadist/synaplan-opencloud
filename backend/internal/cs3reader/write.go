@@ -47,7 +47,17 @@ func kindFolder(filename string) string {
 // Synaplan/<Kind>/ when the extension is known. If that name is taken
 // it appends " (2)", " (3)", … and returns the space-relative path
 // that was written.
+// SaveToFolder writes into a folder the person chose, relative to their
+// personal space. An empty folder uses the Synaplan kind folders.
+func (r *Reader) SaveToFolder(ctx context.Context, folder, filename string, content []byte) (string, error) {
+	return r.saveNamed(ctx, folder, filename, content)
+}
+
 func (r *Reader) Save(ctx context.Context, filename string, content []byte) (string, error) {
+	return r.saveNamed(ctx, "", filename, content)
+}
+
+func (r *Reader) saveNamed(ctx context.Context, folderOverride, filename string, content []byte) (string, error) {
 	if r == nil || r.gws == nil {
 		return "", errors.New("cs3reader: not configured")
 	}
@@ -75,6 +85,9 @@ func (r *Reader) Save(ctx context.Context, filename string, content []byte) (str
 	if kind := kindFolder(name); kind != "" {
 		folder = synaplanRoot + "/" + kind
 	}
+	if cleaned := cleanRelative(folderOverride); cleaned != "" {
+		folder = cleaned
+	}
 	if err := ensureFolder(gwCtx, gwc, root, synaplanRoot); err != nil {
 		return "", err
 	}
@@ -92,6 +105,20 @@ func (r *Reader) Save(ctx context.Context, filename string, content []byte) (str
 		return "", err
 	}
 	return rel, nil
+}
+
+func cleanRelative(folder string) string {
+	folder = strings.Trim(strings.ReplaceAll(folder, "\\", "/"), "/")
+	if folder == "" {
+		return ""
+	}
+	parts := strings.Split(folder, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return ""
+		}
+	}
+	return folder
 }
 
 func personalRoot(ctx context.Context, gwc gateway.GatewayAPIClient) (*provider.ResourceId, error) {

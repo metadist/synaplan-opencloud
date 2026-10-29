@@ -170,7 +170,7 @@ Rules:
   backend-only refactor with no HTTP contract change may skip it. A selector,
   translation or route miss will not show up in Vitest.
 - Run E2E the way CI does: `CI=1` (one worker, one retry, trace on retry).
-  OpenCloud 8.1.0 crashes under parallel Playwright load
+  OpenCloud 8.1.0 crashed under parallel Playwright load. The dev stack is 9.0.0; keep one worker until that is shown to be safe on 9
   (`fatal error: concurrent map read and map write`) and the container has
   no restart policy — bring it back with `docker compose up -d` and wait for
   `status.php`.

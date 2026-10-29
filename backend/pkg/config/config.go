@@ -33,6 +33,19 @@ type Config struct {
 	OIDCExchangeSecret   string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience   string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
+	// Instance registration. Empty until an administrator registers this
+	// OpenCloud, or SYNAPLAN_ADMIN_API_KEY is set and the service registers
+	// itself on startup.
+	InstanceID     string `yaml:"instance_id" env:"SYNAPLAN_INSTANCE_ID" desc:"Platform instance id Synaplan assigned to this OpenCloud."`
+	InstanceSecret string `yaml:"instance_secret" env:"SYNAPLAN_INSTANCE_SECRET" desc:"Instance secret. Used for copies, folder reads and watches. Never logged."`
+	AdminAPIKey    string `yaml:"admin_api_key" env:"SYNAPLAN_ADMIN_API_KEY" desc:"Synaplan admin API key. When set, and no instance id is stored yet, the service registers this OpenCloud on startup. Never logged."`
+	DeliveryURL    string `yaml:"delivery_url" env:"SYNAPLAN_DELIVERY_URL" desc:"Address Synaplan calls to deliver a copy or ask for a folder read. Example: http://synaplan-backend:9106/api/synaplan/inbound."`
+	PublicURL      string `yaml:"public_url" env:"SYNAPLAN_PUBLIC_URL" desc:"Address a person opens in the browser, used in links back to a file."`
+	ServerID       string `yaml:"server_id" env:"SYNAPLAN_SERVER_ID" desc:"Stable id of this OpenCloud server, sent when the instance is registered."`
+	MachineAuthKey string `yaml:"machine_auth_api_key" env:"OC_MACHINE_AUTH_API_KEY;SYNAPLAN_MACHINE_AUTH_API_KEY" desc:"OpenCloud machine-auth key. Copies and watches use it to read and write a person's files without their browser session."`
+	StatePath      string `yaml:"state_path" env:"SYNAPLAN_STATE_PATH" desc:"File that stores read settings and the key used while a person is away. Empty keeps that state in memory only."`
+	StateKey       string `yaml:"state_key" env:"SYNAPLAN_STATE_KEY;OC_JWT_SECRET" desc:"Secret used to encrypt keys in the state file. Falls back to the OpenCloud JWT secret. Never logged."`
+
 	Context context.Context `yaml:"-"`
 }
 

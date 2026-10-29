@@ -18,13 +18,13 @@
     </p>
 
     <p v-if="removed" class="ext:text-sm" data-testid="synaplan-knowledge-removed">
-      {{ $gettext('Removed from the knowledge base. It is no longer searchable.') }}
+      {{ $gettext('Removed from the knowledge folder. It is no longer searchable.') }}
     </p>
 
     <div v-if="phase === 'select' || phase === 'error'">
       <oc-select
         :model-value="selectedGroup"
-        :label="$gettext('Knowledge group')"
+        :label="$gettext('Knowledge folder')"
         :options="groupOptions"
         :taggable="true"
         :clearable="false"
@@ -32,7 +32,7 @@
         :position-fixed="true"
         :create-option="createOption"
         :description-message="
-          $gettext('Pick an existing group or type a new name — Synaplan will create it.')
+          $gettext('Pick a knowledge folder or type a new name. Synaplan will create it.')
         "
         data-testid="synaplan-knowledge-group"
         @update:model-value="onGroupChange"
@@ -59,12 +59,12 @@
       <p class="ext:font-semibold ext:mb-2">
         {{
           wasUpdate
-            ? $gettext('Updated in the Synaplan knowledge base.')
-            : $gettext('Added to the Synaplan knowledge base.')
+            ? $gettext('Updated. This file is searchable by AI.')
+            : $gettext('This file is searchable by AI.')
         }}
       </p>
       <dl class="ext:grid ext:grid-cols-2 ext:gap-x-4 ext:gap-y-1 ext:text-xs">
-        <dt class="ext:text-role-on-surface-variant">{{ $gettext('Group') }}</dt>
+        <dt class="ext:text-role-on-surface-variant">{{ $gettext('Knowledge folder') }}</dt>
         <dd>{{ result.groupKey }}</dd>
         <dt class="ext:text-role-on-surface-variant">{{ $gettext('Chunks created') }}</dt>
         <dd>{{ result.chunksCreated }}</dd>
@@ -83,6 +83,13 @@
       {{ error }}
     </div>
 
+    <oc-checkbox
+      v-if="phase !== 'done'"
+      v-model="keepSynced"
+      :label="$gettext('Keep it up to date when the file changes.')"
+      data-testid="synaplan-knowledge-keep"
+    />
+
     <div class="ext:flex ext:justify-end ext:gap-2 ext:pt-2">
       <oc-button
         v-if="knowledgeStatus.inKnowledge && phase !== 'loading'"
@@ -90,7 +97,7 @@
         data-testid="synaplan-knowledge-remove"
         @click="onRemove"
       >
-        {{ $gettext('Remove from Knowledge') }}
+        {{ $gettext('Remove from the knowledge folder') }}
       </oc-button>
 
       <oc-button
@@ -159,6 +166,7 @@ type Phase = 'select' | 'loading' | 'done' | 'error'
 
 const phase = ref<Phase>('select')
 const selectedGroup = ref<string>('')
+const keepSynced = ref(true)
 const result = ref<KnowledgeResult | null>(null)
 const error = ref('')
 const removed = ref(false)
@@ -179,8 +187,8 @@ const submitLabel = computed(() => {
     return knowledgeStatus.value.inKnowledge ? $gettext('Updating…') : $gettext('Uploading…')
   }
   return knowledgeStatus.value.inKnowledge
-    ? $gettext('Update in Knowledge')
-    : $gettext('Add to Knowledge')
+    ? $gettext('Update in the knowledge folder')
+    : $gettext('Make searchable by AI')
 })
 
 onMounted(async () => {
@@ -235,9 +243,15 @@ async function onSubmit() {
 
   try {
     const data = await loadingService.addTask(async () => {
-      const body: { resourceId: string; groupKey: string; overwrite?: boolean } = {
+      const body: {
+        resourceId: string
+        groupKey: string
+        overwrite?: boolean
+        keepSynced?: boolean
+      } = {
         resourceId: props.resource.id,
-        groupKey: trimmed
+        groupKey: trimmed,
+        keepSynced: keepSynced.value
       }
       if (knowledgeStatus.value.inKnowledge) body.overwrite = true
       const res = await httpAuthenticated.post('/api/synaplan/knowledge', body, {

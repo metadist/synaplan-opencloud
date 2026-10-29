@@ -51,7 +51,7 @@ func TestTranslate_RejectsBadInput(t *testing.T) {
 }
 
 func TestTranslate_AcceptsAllSupportedLanguages(t *testing.T) {
-	for _, lang := range []string{"en", "de", "fr", "es", "it"} {
+	for _, lang := range []string{"en", "de", "fr", "es", "it", "tr"} {
 		t.Run(lang, func(t *testing.T) {
 			rr := httptest.NewRecorder()
 			body := `{"resourceId":"r1","targetLanguage":"` + lang + `"}`

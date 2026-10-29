@@ -1,6 +1,7 @@
 services:
   opencloud:
-    image: opencloudeu/opencloud-rolling:8.1.0@sha256:8fc64ca861739cc62095cd558814f2eba6a90acf5998d884e439b33a47875da8
+    image: opencloudeu/opencloud-rolling:9.0.0@sha256:bd57f039d0dd3df510fb25f178beefdf0b1f049097285feead607824460e6506
+    restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: /bin/sh
@@ -15,6 +16,9 @@ services:
       STORAGE_USERS_HTTP_ADDR: 0.0.0.0:9158
       STORAGE_USERS_DATA_SERVER_URL: http://opencloud:9158/data
       IDM_ADMIN_PASSWORD: admin
+      # Same value on synaplan-backend. Copies and watches write as the person
+      # without their browser session. Dev only — not a production secret.
+      OC_MACHINE_AUTH_API_KEY: synaplan-dev-machine
       PROXY_ENABLE_BASIC_AUTH: "true"
       PROXY_TLS: "false"
       PROXY_CSP_CONFIG_FILE_LOCATION: /etc/opencloud/csp.yaml
@@ -90,6 +94,11 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
+      OC_MACHINE_AUTH_API_KEY: synaplan-dev-machine
+      SYNAPLAN_DELIVERY_URL: "http://host.docker.internal:9106/api/synaplan/inbound"
+      SYNAPLAN_PUBLIC_URL: "https://host.docker.internal:9200"
+      SYNAPLAN_STATE_PATH: "/tmp/synaplan-state/state.json"
+      SYNAPLAN_SERVER_ID: "opencloud-dev"
       GOPATH: /tmp/go-cache/gopath
       GOCACHE: /tmp/go-cache/build
     extra_hosts:

@@ -42,6 +42,25 @@ var errClientInput = errors.New("client input rejected")
 // frontend can treat them uniformly.
 type errorResponse struct {
 	Error string `json:"error"`
+	Code  string `json:"code,omitempty"`
+}
+
+// publicFailure is the one sentence a person sees. The underlying
+// error is logged by the caller and never returned.
+func publicFailure(err error) errorResponse {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "file is empty"):
+		return errorResponse{Error: "This file is empty.", Code: "file_empty"}
+	case strings.Contains(msg, "unsupported mime"):
+		return errorResponse{Error: "Synaplan cannot read this kind of file.", Code: "unsupported_type"}
+	case strings.Contains(msg, "no text could be indexed"), strings.Contains(msg, "no extractable"):
+		return errorResponse{Error: "Synaplan found no text in this file. It may be a scan or protected by a password.", Code: "no_text"}
+	case strings.Contains(msg, "translation"):
+		return errorResponse{Error: "This Synaplan cannot translate a file. Ask your administrator.", Code: "translation_unavailable"}
+	default:
+		return errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"}
+	}
 }
 
 // supportedLengths bounds the /summary/generate `length` values our
@@ -82,10 +101,20 @@ func (h *Handler) runSummaryPipeline(
 	ctx, cancel := context.WithTimeout(r.Context(), summaryTimeout)
 	defer cancel()
 
+	if h.cs3 == nil {
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.",
+			Code:  "synaplan_unreachable",
+		})
+		return "", false
+	}
 	file, err := h.cs3.Open(ctx, resourceID)
 	if err != nil {
 		log.Printf("%s: cs3 open: %v", op, err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not read file: " + err.Error()})
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "This file is no longer there. Reload the folder and try again.",
+			Code:  "file_not_found",
+		})
 		return "", false
 	}
 	defer func() { _ = file.Body.Close() }()
@@ -97,7 +126,7 @@ func (h *Handler) runSummaryPipeline(
 		if errors.Is(err, errClientInput) {
 			status = http.StatusUnprocessableEntity
 		}
-		writeJSON(w, status, errorResponse{Error: op + " failed: " + err.Error()})
+		writeJSON(w, status, publicFailure(err))
 		return "", false
 	}
 	return result, true
@@ -198,6 +227,7 @@ type uploadProvenance struct {
 	SourceID     string
 	SourceEtag   string
 	Overwrite    bool
+	KeepSynced   bool
 }
 
 func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadProvenance) error {
@@ -230,6 +260,11 @@ func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadPro
 	if prov.Overwrite {
 		if err := mw.WriteField("overwrite", "1"); err != nil {
 			return fmt.Errorf("write overwrite: %w", err)
+		}
+	}
+	if prov.KeepSynced {
+		if err := mw.WriteField("keep_synced", "1"); err != nil {
+			return fmt.Errorf("write keep_synced: %w", err)
 		}
 	}
 	return nil

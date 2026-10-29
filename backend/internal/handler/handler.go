@@ -12,10 +12,14 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/notify"
+	"github.com/metadist/synaplan-opencloud/internal/state"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -35,20 +39,48 @@ import (
 // incoming request's context (cancelled when the client disconnects);
 // /translate sets a generous context.WithTimeout because LLM calls
 // can take minutes.
+// Settings is the cloud-file configuration the process was started with.
+type Settings struct {
+	InstanceID     string
+	InstanceSecret string
+	AdminAPIKey    string
+	DeliveryURL    string
+	PublicURL      string
+	ServerID       string
+	OIDCClientID   string
+	MachineAuthKey string
+	StatePath      string
+	StateKey       string
+	// HoldInbound accepts a verified notification and does not fetch it.
+	// Tests use it. It is never set from the UI.
+	HoldInbound bool
+	// AllowSelfWrite lets a watch upload a file this service just wrote.
+	AllowSelfWrite bool
+}
+
 type Handler struct {
-	synaplanURL string
-	synaplanAPI *synaplanapi.ClientWithResponses
-	editor      synaplanapi.RequestEditorFn
-	httpClient  *http.Client
-	cs3         *cs3reader.Reader
-	assetProxy  *httputil.ReverseProxy
+	synaplanURL    string
+	synaplanAPI    *synaplanapi.ClientWithResponses
+	editor         synaplanapi.RequestEditorFn
+	httpClient     *http.Client
+	cs3            *cs3reader.Reader
+	assetProxy     *httputil.ReverseProxy
+	settings       Settings
+	instanceID     string
+	instanceSecret string
+	state          *state.Store
+	seen           *notify.Seen
+	seenMu         sync.Mutex
+	keysMu         sync.Mutex
+	keys           []string
+	keysAt         time.Time
 }
 
 // New creates a new Handler. The editor is the synaplanapi
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, settings Settings) (*Handler, error) {
 	apiClient, err := synaplanapi.NewClientWithResponses(
 		synaplanURL,
 		synaplanapi.WithHTTPClient(&http.Client{}),
@@ -73,14 +105,46 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		},
 	}
 
-	return &Handler{
-		synaplanURL: synaplanURL,
-		synaplanAPI: apiClient,
-		editor:      editor,
-		httpClient:  &http.Client{},
-		cs3:         cs3,
-		assetProxy:  assetProxy,
-	}, nil
+	store, err := state.Open(settings.StatePath, settings.StateKey)
+	if err != nil {
+		return nil, fmt.Errorf("opening state: %w", err)
+	}
+	if cs3 != nil {
+		cs3.SetMachineAuth(settings.MachineAuthKey)
+	}
+	h := &Handler{
+		synaplanURL:    synaplanURL,
+		synaplanAPI:    apiClient,
+		editor:         editor,
+		httpClient:     &http.Client{},
+		cs3:            cs3,
+		assetProxy:     assetProxy,
+		settings:       settings,
+		instanceID:     settings.InstanceID,
+		instanceSecret: settings.InstanceSecret,
+		state:          store,
+		seen:           notify.NewSeen(),
+	}
+	if h.instanceID == "" {
+		if id, secret := store.Instance(); id != "" && secret != "" {
+			h.instanceID = id
+			h.instanceSecret = secret
+		}
+	}
+	return h, nil
+}
+
+// store is the process state. A handler built in a test has none, so
+// this returns an in-memory store instead of nil.
+func (h *Handler) store() *state.Store {
+	if h != nil && h.state != nil {
+		return h.state
+	}
+	opened, err := state.Open("", "")
+	if err != nil {
+		return nil
+	}
+	return opened
 }
 
 // writeJSON serialises v as JSON to w with the given HTTP status.

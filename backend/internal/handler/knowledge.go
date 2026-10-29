@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"strings"
 
+	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/state"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -23,6 +26,8 @@ type knowledgeRequest struct {
 	// Overwrite replaces the knowledge copy of this same OpenCloud
 	// file instead of adding a second one.
 	Overwrite bool `json:"overwrite"`
+	// KeepSynced asks Synaplan to follow later edits of this file.
+	KeepSynced bool `json:"keepSynced"`
 }
 
 type knowledgeResponse struct {
@@ -61,6 +66,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var uploaded *uploadedFile
+	var savedPath, savedEtag string
 	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
 			return "", fmt.Errorf("unsupported mime type %q: %w", file.MimeType, errClientInput)
@@ -69,6 +75,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 			SourceID:   req.ResourceID,
 			SourceEtag: file.Etag,
 			Overwrite:  req.Overwrite,
+			KeepSynced: req.KeepSynced,
 		})
 		if err != nil {
 			return "", fmt.Errorf("synaplan upload: %w", err)
@@ -77,10 +84,26 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 			return "", fmt.Errorf("no text could be indexed from this file: %w", errClientInput)
 		}
 		uploaded = u
+		savedPath = file.Path
+		savedEtag = file.Etag
 		return "", nil
 	})
 	if !ok {
 		return
+	}
+
+	if req.KeepSynced {
+		userID := ""
+		if user, ok := revactx.ContextGetUser(r.Context()); ok {
+			userID = user.GetId().GetOpaqueId()
+		}
+		_ = h.store().RememberSynced(state.Synced{
+			ResourceID: req.ResourceID,
+			Etag:       savedEtag,
+			Path:       savedPath,
+			UserID:     userID,
+			GroupKey:   groupKey,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, knowledgeResponse{

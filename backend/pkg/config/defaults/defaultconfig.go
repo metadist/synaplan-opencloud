@@ -34,7 +34,7 @@ func DefaultConfig() *config.Config {
 			Namespace: "eu.opencloud.synaplan",
 			CORS: config.CORS{
 				AllowedOrigins:   []string{"*"},
-				AllowedMethods:   []string{"GET", "POST"},
+				AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
 				AllowedHeaders:   []string{"Authorization", "Origin", "Content-Type", "Accept", "X-Requested-With", "X-Request-Id"},
 				AllowCredentials: true,
 			},
