@@ -27,8 +27,11 @@
       </h1>
 
       <p class="ext:text-sm ext:text-role-on-surface-variant">
-        Test the connection to Synaplan. With a shared login provider this OpenCloud account is
-        used. A shared API key uses one Synaplan account for everyone.
+        {{
+          $gettext(
+            'Test the connection to Synaplan. With a shared login provider this OpenCloud account is used. A shared API key uses one Synaplan account for everyone.'
+          )
+        }}
       </p>
 
       <p v-if="modelsConfigUrl" class="ext:text-sm">
@@ -39,7 +42,7 @@
           class="hover:ext:underline"
           data-testid="synaplan-models-link"
         >
-          Manage AI models →
+          {{ $gettext('Manage AI models') }} →
         </a>
       </p>
 
@@ -51,7 +54,7 @@
         data-testid="synaplan-test-btn"
         @click="testConnection"
       >
-        Test Connection
+        {{ $gettext('Test connection') }}
       </oc-button>
 
       <div
@@ -69,6 +72,10 @@
       <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-error">
         {{ error }}
       </p>
+
+      <account-card />
+      <admin-settings />
+      <ask-panel />
     </div>
   </div>
 </template>
@@ -79,6 +86,9 @@ import { useGettext } from 'vue3-gettext'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
+import AccountCard from '../components/AccountCard.vue'
+import AdminSettings from '../components/AdminSettings.vue'
+import AskPanel from '../components/AskPanel.vue'
 
 const props = defineProps<{
   synaplanUrl?: string
@@ -125,7 +135,9 @@ async function testConnection() {
     result.value = data
   } catch (e) {
     console.error('Connection test failed', e)
-    error.value = 'Connection test failed — check console for details'
+    error.value = $gettext(
+      'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
+    )
   } finally {
     loading.value = false
   }

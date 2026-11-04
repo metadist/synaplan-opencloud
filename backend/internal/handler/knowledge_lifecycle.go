@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 )
 
 type knowledgeLookupError struct {
@@ -131,6 +133,9 @@ func (h *Handler) RemoveFromKnowledge(w http.ResponseWriter, r *http.Request) {
 			Error: fmt.Sprintf("remove status %d: %s", code, truncate(string(body), 300)),
 		})
 		return
+	}
+	if user, ok := revactx.ContextGetUser(r.Context()); ok {
+		_ = h.store().ForgetSynced(user.GetId().GetOpaqueId(), resourceID)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"removed": true})
 }

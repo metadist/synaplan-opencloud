@@ -115,7 +115,8 @@ const LANGUAGES: LanguageOption[] = [
   { id: 'de', label: 'Deutsch' },
   { id: 'fr', label: 'Français' },
   { id: 'es', label: 'Español' },
-  { id: 'it', label: 'Italiano' }
+  { id: 'it', label: 'Italiano' },
+  { id: 'tr', label: 'Türkçe' }
 ]
 
 const selectedLanguage = ref<LanguageOption>(LANGUAGES[0])
