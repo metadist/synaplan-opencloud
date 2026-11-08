@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS builder
+FROM golang:1.27-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS builder
 
 WORKDIR /app
 COPY backend/go.mod backend/go.sum ./
@@ -15,7 +15,7 @@ RUN test -f internal/synaplanapi/client.gen.go || { \
 
 RUN CGO_ENABLED=0 go build -o /synaplan-opencloud ./cmd/synaplan
 
-FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 COPY --from=builder /synaplan-opencloud /usr/local/bin/synaplan-opencloud
 COPY frontend/dist/ /web/apps/synaplan/
 EXPOSE 9106
