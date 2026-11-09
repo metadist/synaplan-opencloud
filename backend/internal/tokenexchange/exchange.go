@@ -1,6 +1,7 @@
 package tokenexchange
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +15,7 @@ import (
 // It exchanges a user's OpenCloud access token for a Synaplan-scoped token
 // using a confidential client. Tokens are cached per-user until near expiry.
 type Exchanger struct {
-	tokenEndpoint string
+	tokenEndpoint func(context.Context) (string, error)
 	clientID      string
 	clientSecret  string
 	audience      string
@@ -35,8 +36,9 @@ type tokenResponse struct {
 	TokenType   string `json:"token_type"`
 }
 
-// New creates a new Exchanger.
-func New(tokenEndpoint, clientID, clientSecret, audience string) *Exchanger {
+// New creates a new Exchanger. tokenEndpoint names the identity provider's
+// token endpoint when it is first needed (see internal/idp).
+func New(tokenEndpoint func(context.Context) (string, error), clientID, clientSecret, audience string) *Exchanger {
 	return &Exchanger{
 		tokenEndpoint: tokenEndpoint,
 		clientID:      clientID,
@@ -68,7 +70,13 @@ func (e *Exchanger) Exchange(userID, subjectToken string) (string, error) {
 		"client_secret":      {e.clientSecret},
 	}
 
-	resp, err := e.httpClient.PostForm(e.tokenEndpoint, data)
+	ctx, cancel := context.WithTimeout(context.Background(), e.httpClient.Timeout)
+	defer cancel()
+	endpoint, err := e.tokenEndpoint(ctx)
+	if err != nil {
+		return "", fmt.Errorf("token endpoint: %w", err)
+	}
+	resp, err := e.httpClient.PostForm(endpoint, data)
 	if err != nil {
 		return "", fmt.Errorf("token exchange request failed: %w", err)
 	}

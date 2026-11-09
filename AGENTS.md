@@ -22,10 +22,10 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | Path | What lives there |
 | ---- | ---------------- |
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
-| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`) sharing the `Handler` struct in `handler.go`. |
+| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
-| `backend/internal/delegation/`, `notify/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications. |
+| `backend/internal/delegation/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications (golang-jwt); the identity provider's endpoints from its issuer (go-oidc discovery). |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
@@ -133,7 +133,7 @@ server's copy of the same app id.
   call to Synaplan carries one of two things: the token the exchange minted
   for Synaplan (`synaplanauth.NewRequestEditor`), or, while the person is
   away, a Synaplan token minted from their own offline token
-  (`forAbsentPerson(ctx, sub)`, `internal/delegation`). The shared API key
+  (`onBehalfOf(ctx, sub)`, `internal/delegation`). The shared API key
   of Mode B replaces both; Synaplan's open documents carry none
   (`anonymous(ctx)`). There is no service or machine credential. The
   generated client is the only HTTP path to Synaplan: its editors pick the

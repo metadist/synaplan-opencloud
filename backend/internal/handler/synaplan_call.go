@@ -9,7 +9,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
 
-type absentPersonKey struct{}
+type onBehalfOfKey struct{}
 
 type anonymousKey struct{}
 
@@ -19,11 +19,11 @@ func anonymous(ctx context.Context) context.Context {
 	return context.WithValue(ctx, anonymousKey{}, true)
 }
 
-// forAbsentPerson marks ctx for a call made for sub while they are away:
-// the generated client then carries a Synaplan token minted from their
-// offline token instead of the signed-in person's exchanged token.
-func forAbsentPerson(ctx context.Context, sub string) context.Context {
-	return context.WithValue(ctx, absentPersonKey{}, sub)
+// onBehalfOf marks ctx for a call made for sub while they are away: the
+// generated client then carries a Synaplan token minted from their offline
+// token instead of the signed-in person's exchanged token.
+func onBehalfOf(ctx context.Context, sub string) context.Context {
+	return context.WithValue(ctx, onBehalfOfKey{}, sub)
 }
 
 // authenticate is the generated client's credential editor. A call made
@@ -34,8 +34,8 @@ func (h *Handler) authenticate(ctx context.Context, req *http.Request) error {
 	if open, _ := ctx.Value(anonymousKey{}).(bool); open {
 		return nil
 	}
-	if sub, _ := ctx.Value(absentPersonKey{}).(string); sub != "" {
-		token, err := h.personBearer(ctx, sub)
+	if sub, _ := ctx.Value(onBehalfOfKey{}).(string); sub != "" {
+		token, err := h.delegatedBearer(ctx, sub)
 		if err != nil {
 			return err
 		}

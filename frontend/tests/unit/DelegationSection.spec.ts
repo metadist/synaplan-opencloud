@@ -11,15 +11,15 @@ const access = {
   resumeRedirect: vi.fn()
 }
 
-vi.mock('../../src/composables/useBackgroundAccess', () => ({
-  useBackgroundAccess: () => access
+vi.mock('../../src/composables/useDelegation', () => ({
+  useDelegation: () => access
 }))
 
 vi.mock('vue3-gettext', () => ({
   useGettext: () => ({ $gettext: (s: string) => s })
 }))
 
-import BackgroundAccess from '../../src/components/BackgroundAccess.vue'
+import DelegationSection from '../../src/components/DelegationSection.vue'
 
 const ocButton = defineComponent({
   emits: ['click'],
@@ -29,10 +29,10 @@ const ocButton = defineComponent({
 })
 
 function mountCard() {
-  return mount(BackgroundAccess, { global: { stubs: { 'oc-button': ocButton } } })
+  return mount(DelegationSection, { global: { stubs: { 'oc-button': ocButton } } })
 }
 
-describe('BackgroundAccess', () => {
+describe('DelegationSection', () => {
   beforeEach(() => {
     access.status.value = null
     access.load.mockReset().mockResolvedValue(undefined)
@@ -41,11 +41,11 @@ describe('BackgroundAccess', () => {
     access.resumeRedirect.mockReset().mockResolvedValue(false)
   })
 
-  it('shows nothing when background work is not available (shared key)', async () => {
+  it('shows nothing when working while away is not available (shared key)', async () => {
     access.status.value = { available: false, connected: false }
     const wrapper = mountCard()
     await flushPromises()
-    expect(wrapper.find('[data-testid="synaplan-background"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="synaplan-delegation"]').exists()).toBe(false)
   })
 
   it('offers Allow when not connected and connects on click', async () => {
@@ -53,7 +53,7 @@ describe('BackgroundAccess', () => {
     const wrapper = mountCard()
     await flushPromises()
     expect(access.load).toHaveBeenCalled()
-    await wrapper.get('[data-testid="synaplan-background-connect"]').trigger('click')
+    await wrapper.get('[data-testid="synaplan-delegation-connect"]').trigger('click')
     expect(access.connect).toHaveBeenCalled()
   })
 
@@ -61,7 +61,7 @@ describe('BackgroundAccess', () => {
     access.status.value = { available: true, connected: true }
     const wrapper = mountCard()
     await flushPromises()
-    await wrapper.get('[data-testid="synaplan-background-disconnect"]').trigger('click')
+    await wrapper.get('[data-testid="synaplan-delegation-disconnect"]').trigger('click')
     expect(access.disconnect).toHaveBeenCalled()
   })
 
@@ -70,8 +70,8 @@ describe('BackgroundAccess', () => {
     access.connect.mockRejectedValue(new Error('boom'))
     const wrapper = mountCard()
     await flushPromises()
-    await wrapper.get('[data-testid="synaplan-background-connect"]').trigger('click')
+    await wrapper.get('[data-testid="synaplan-delegation-connect"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="synaplan-background-error"]').text()).not.toBe('')
+    expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).not.toBe('')
   })
 })

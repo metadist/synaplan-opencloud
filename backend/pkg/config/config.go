@@ -28,16 +28,11 @@ type Config struct {
 	SynaplanAPIKey string `yaml:"synaplan_api_key" env:"SYNAPLAN_API_KEY" desc:"Shared Synaplan API key (sk_...). When set, the backend uses this for every outbound call and skips OIDC token exchange. Discouraged: all calls appear to Synaplan as a single user with no per-user identity."`
 
 	// OIDC token exchange configuration
-	OIDCTokenEndpoint    string `yaml:"oidc_token_endpoint" env:"SYNAPLAN_OIDC_TOKEN_ENDPOINT" desc:"Keycloak token endpoint for token exchange."`
+	OIDCIssuer           string `yaml:"oidc_issuer" env:"OC_OIDC_ISSUER;SYNAPLAN_OIDC_ISSUER" desc:"Issuer of the identity provider OpenCloud and Synaplan share. Its endpoints are read from its OpenID Connect discovery document; without it, people cannot allow work while they are away."`
+	OIDCTokenEndpoint    string `yaml:"oidc_token_endpoint" env:"SYNAPLAN_OIDC_TOKEN_ENDPOINT" desc:"Optional. Token endpoint as this service reaches it, when that differs from the one the issuer publishes (an internal address)."`
 	OIDCExchangeClientID string `yaml:"oidc_exchange_client_id" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID" desc:"Client ID for the token exchange confidential client."`
 	OIDCExchangeSecret   string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience   string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
-
-	// Working while a person is away: the person allows it once, their
-	// browser obtains a code for the exchange client, and this service keeps
-	// the resulting offline token in memory.
-	OIDCAuthorizeEndpoint  string `yaml:"oidc_authorize_endpoint" env:"SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT" desc:"Authorization endpoint the person's browser uses to allow work while they are away (authorization code with PKCE and offline_access for the exchange client). Empty turns it off."`
-	OIDCRevocationEndpoint string `yaml:"oidc_revocation_endpoint" env:"SYNAPLAN_OIDC_REVOCATION_ENDPOINT" desc:"Revocation endpoint (RFC 7009) that ends a person's offline token when they withdraw the permission. Empty turns working while away off."`
 
 	Context context.Context `yaml:"-"`
 }

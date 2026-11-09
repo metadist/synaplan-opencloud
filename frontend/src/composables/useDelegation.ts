@@ -24,7 +24,7 @@ const statusSchema = z.object({
   clientId: z.string().default(''),
   authorizeEndpoint: z.string().default('')
 })
-export type BackgroundAccessStatus = z.infer<typeof statusSchema>
+export type DelegationStatus = z.infer<typeof statusSchema>
 
 const answerSchema = z.object({
   code: z.string().nullable(),
@@ -34,7 +34,7 @@ const answerSchema = z.object({
 type Answer = z.infer<typeof answerSchema>
 const pendingSchema = z.object({ state: z.string(), verifier: z.string() })
 
-function parsed<T>(schema: z.ZodType<T>, raw: string): T | null {
+function parseStored<T>(schema: z.ZodType<T>, raw: string): T | null {
   try {
     const result = schema.safeParse(JSON.parse(raw))
     return result.success ? result.data : null
@@ -63,8 +63,8 @@ async function challengeFor(verifier: string): Promise<string> {
   return base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
 }
 
-export function useBackgroundAccess(): {
-  status: Ref<BackgroundAccessStatus | null>
+export function useDelegation(): {
+  status: Ref<DelegationStatus | null>
   busy: Ref<boolean>
   load: () => Promise<void>
   connect: () => Promise<void>
@@ -73,7 +73,7 @@ export function useBackgroundAccess(): {
 } {
   const { httpAuthenticated } = useClientService()
   const configStore = useConfigStore()
-  const status = ref<BackgroundAccessStatus | null>(null)
+  const status = ref<DelegationStatus | null>(null)
   const busy = ref(false)
 
   const redirectUri = () =>
@@ -87,7 +87,7 @@ export function useBackgroundAccess(): {
   async function authorizeUrl(prompt: 'none' | undefined) {
     const current = status.value
     if (!current?.authorizeEndpoint || !current.clientId) {
-      throw new Error('background access is not available')
+      throw new Error('working while away is not available')
     }
     const verifier = randomString()
     const state = randomString()
@@ -166,8 +166,8 @@ export function useBackgroundAccess(): {
     sessionStorage.removeItem(PENDING_KEY)
     sessionStorage.removeItem(RETURN_KEY)
     if (!raw || !pending) return false
-    const answer = parsed(answerSchema, raw)
-    const expected = parsed(pendingSchema, pending)
+    const answer = parseStored(answerSchema, raw)
+    const expected = parseStored(pendingSchema, pending)
     if (!answer?.code || !expected || answer.state !== expected.state) return false
     busy.value = true
     try {

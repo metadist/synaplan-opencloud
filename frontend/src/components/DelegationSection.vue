@@ -1,7 +1,7 @@
 <template>
-  <section v-if="status?.available" class="ext:space-y-3" data-testid="synaplan-background">
+  <section v-if="status?.available" class="ext:space-y-3" data-testid="synaplan-delegation">
     <h2 class="ext:text-lg ext:font-semibold">{{ $gettext('While you are away') }}</h2>
-    <p class="ext:text-sm" data-testid="synaplan-background-state">
+    <p class="ext:text-sm" data-testid="synaplan-delegation-state">
       {{
         status.connected
           ? $gettext('Synaplan may work for you while you are away.')
@@ -14,7 +14,7 @@
       color-role="primary"
       :disabled="busy"
       :show-spinner="busy"
-      data-testid="synaplan-background-connect"
+      data-testid="synaplan-delegation-connect"
       @click="run(connect)"
     >
       {{ $gettext('Allow') }}
@@ -24,12 +24,12 @@
       appearance="outline"
       :disabled="busy"
       :show-spinner="busy"
-      data-testid="synaplan-background-disconnect"
+      data-testid="synaplan-delegation-disconnect"
       @click="run(disconnect)"
     >
       {{ $gettext('Stop') }}
     </oc-button>
-    <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-background-error">
+    <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-delegation-error">
       {{ error }}
     </p>
   </section>
@@ -38,10 +38,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { useBackgroundAccess } from '../composables/useBackgroundAccess'
+import { useDelegation } from '../composables/useDelegation'
 
 const { $gettext } = useGettext()
-const { status, busy, load, connect, disconnect, resumeRedirect } = useBackgroundAccess()
+const { status, busy, load, connect, disconnect, resumeRedirect } = useDelegation()
 const error = ref('')
 
 async function run(action: () => Promise<unknown>) {

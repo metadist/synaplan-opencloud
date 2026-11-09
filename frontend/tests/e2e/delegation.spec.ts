@@ -22,6 +22,7 @@ test.beforeEach(async ({ browser }) => {
 })
 
 test.afterEach(async () => {
+  await stop(userPage).catch(() => {})
   await logout(userPage).catch(() => {})
 })
 
@@ -33,11 +34,16 @@ async function connected(request: APIRequestContext, token: string): Promise<boo
   return (await resp.json()).connected
 }
 
-async function allow(page: Page): Promise<void> {
+async function openSection(page: Page) {
   await page.goto('/synaplan')
-  const connect = page.locator('[data-testid="synaplan-background-connect"]')
-  const disconnect = page.locator('[data-testid="synaplan-background-disconnect"]')
+  const connect = page.locator('[data-testid="synaplan-delegation-connect"]')
+  const disconnect = page.locator('[data-testid="synaplan-delegation-disconnect"]')
   await expect(connect.or(disconnect)).toBeVisible({ timeout: 15_000 })
+  return { connect, disconnect }
+}
+
+async function allow(page: Page): Promise<void> {
+  const { connect, disconnect } = await openSection(page)
   if (await connect.isVisible()) {
     await connect.click()
   }
@@ -45,10 +51,7 @@ async function allow(page: Page): Promise<void> {
 }
 
 async function stop(page: Page): Promise<void> {
-  await page.goto('/synaplan')
-  const connect = page.locator('[data-testid="synaplan-background-connect"]')
-  const disconnect = page.locator('[data-testid="synaplan-background-disconnect"]')
-  await expect(connect.or(disconnect)).toBeVisible({ timeout: 15_000 })
+  const { connect, disconnect } = await openSection(page)
   if (await disconnect.isVisible()) {
     await disconnect.click()
   }
@@ -63,7 +66,7 @@ test('allow, stop and allow again to work while away', async ({ request }) => {
   expect(await connected(request, token)).toBe(false)
 
   await allow(userPage)
-  await expect(userPage.locator('[data-testid="synaplan-background-state"]')).toContainText(
+  await expect(userPage.locator('[data-testid="synaplan-delegation-state"]')).toContainText(
     'while you are away'
   )
   expect(await connected(request, token)).toBe(true)
@@ -73,5 +76,25 @@ test('allow, stop and allow again to work while away', async ({ request }) => {
 
   await allow(userPage)
   expect(await connected(request, token)).toBe(true)
-  await expect(userPage.locator('[data-testid="synaplan-background-error"]')).toHaveCount(0)
+  await expect(userPage.locator('[data-testid="synaplan-delegation-error"]')).toHaveCount(0)
+})
+
+test('a refused permission shows one readable sentence', async ({ request }) => {
+  test.setTimeout(60_000)
+  const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)
+  const { connect } = await openSection(userPage)
+  await userPage.route('**/api/synaplan/delegation', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({ status: 400, json: { error: 'The sign-in answer is incomplete.' } })
+      : route.fallback()
+  )
+
+  await connect.click()
+
+  await expect(userPage.locator('[data-testid="synaplan-delegation-error"]')).toHaveText(
+    'Synaplan could not be allowed to work for you. Try again.',
+    { timeout: 20_000 }
+  )
+  expect(await connected(request, token)).toBe(false)
+  await userPage.unroute('**/api/synaplan/delegation')
 })

@@ -1,22 +1,28 @@
 // Package notify checks the notifications Synaplan sends before this
-// service calls back: JSON Web Tokens in compact JWS form, typed
-// synaplan-notification+jwt, EdDSA (Ed25519) with a key from Synaplan's JWK
-// Set, issued by the Synaplan this service talks to. The bytes match the vectors in
-// Synaplan's cloud-apps contract (notify-vectors.json).
+// service acts on them: JSON Web Tokens typed synaplan-notification+jwt,
+// signed with EdDSA (Ed25519) by a key from Synaplan's JWK Set and issued
+// by the Synaplan this service talks to. Signature and registered claims
+// are checked by golang-jwt; the type, the bounded lifetime and the replay
+// list are this package's. The outcomes match the vectors in Synaplan's
+// cloud-apps contract (notify-vectors.json).
 package notify
 
 import (
 	"crypto/ed25519"
 	"encoding/base64"
-	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
 	// OK is a notification that passed every check.
 	OK = "ok"
-	// BadSignature means the signature, the key, or the token is unusable.
+	// BadSignature means the signature, the key, the type or the token is
+	// unusable.
 	BadSignature = "bad_signature"
 	// WrongInstance means the notification names another cloud.
 	WrongInstance = "wrong_instance"
@@ -29,116 +35,131 @@ const (
 
 	tokenType = "synaplan-notification+jwt"
 
-	prefix      = "ed25519:"
-	skewSeconds = 60
+	skew = 60 * time.Second
+	// maxLifetime bounds exp - iat, so a notification is replayable for at
+	// most this long and the replay list stays small.
+	maxLifetime = 10 * time.Minute
 )
 
-// Claims is what a notification says. Read it only after Verify said OK.
+// Claims is what a verified notification says.
 type Claims struct {
-	Issuer   string `json:"iss"`
-	Audience string `json:"aud"`
-	Subject  string `json:"sub"`
-	Type     string `json:"type"`
-	ID       string `json:"id"`
-	IssuedAt int64  `json:"iat"`
-	Expires  int64  `json:"exp"`
+	jwt.RegisteredClaims
+	Type string `json:"type"`
+	ID   string `json:"id"`
 }
 
-// Parse splits a token and decodes its claims without checking anything.
-func Parse(token string) (Claims, bool) {
-	parts := strings.Split(strings.TrimSpace(token), ".")
-	if len(parts) != 3 {
-		return Claims{}, false
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return Claims{}, false
-	}
-	var claims Claims
-	if json.Unmarshal(raw, &claims) != nil {
-		return Claims{}, false
-	}
-	return claims, true
-}
+var errWrongType = errors.New("not a synaplan notification")
 
 // Precheck is the part of Verify that needs no key: the token is well
-// formed, addressed to this instance and within its window. It returns OK or
-// the reason, so a caller can refuse a token before fetching keys.
-func Precheck(token, instanceID string, now int64) string {
-	claims, ok := Parse(token)
-	if !ok {
+// formed, addressed to audience and within a window of at most maxLifetime.
+// A caller refuses what fails here before fetching keys.
+func Precheck(token, audience string, now time.Time) string {
+	var claims Claims
+	if _, _, err := jwt.NewParser().ParseUnverified(token, &claims); err != nil {
 		return BadSignature
 	}
-	if claims.Audience != instanceID {
+	if !audienceIs(claims, audience) {
 		return WrongInstance
 	}
-	if claims.Expires == 0 || now >= claims.Expires || claims.IssuedAt > now+skewSeconds {
+	return window(claims, now)
+}
+
+// Verify checks a notification against keys and returns its claims with
+// OK, or the reason it was refused. An empty issuer trusts no one.
+func Verify(token, issuer, audience string, keys []ed25519.PublicKey, now time.Time) (Claims, string) {
+	if issuer == "" || len(keys) == 0 {
+		return Claims{}, BadSignature
+	}
+	set := jwt.VerificationKeySet{Keys: make([]jwt.VerificationKey, 0, len(keys))}
+	for _, key := range keys {
+		set.Keys = append(set.Keys, key)
+	}
+	var claims Claims
+	_, err := jwt.NewParser(
+		jwt.WithValidMethods([]string{jwt.SigningMethodEdDSA.Alg()}),
+		jwt.WithIssuer(issuer),
+		jwt.WithAudience(audience),
+		jwt.WithExpirationRequired(),
+		jwt.WithTimeFunc(func() time.Time { return now }),
+	).ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {
+		if t.Header["typ"] != tokenType {
+			return nil, errWrongType
+		}
+		return set, nil
+	})
+	switch {
+	case err == nil:
+		return claims, window(claims, now)
+	case errors.Is(err, jwt.ErrTokenInvalidIssuer):
+		return Claims{}, WrongIssuer
+	case errors.Is(err, jwt.ErrTokenInvalidAudience):
+		return Claims{}, WrongInstance
+	case errors.Is(err, jwt.ErrTokenExpired), errors.Is(err, jwt.ErrTokenNotValidYet), errors.Is(err, jwt.ErrTokenRequiredClaimMissing):
+		return Claims{}, Stale
+	default:
+		return Claims{}, BadSignature
+	}
+}
+
+// window checks what the parser leaves open: an expiry, an issue time not
+// ahead of now by more than skew, and a lifetime of at most maxLifetime.
+// The expiry itself is exclusive, as in RFC 7519.
+func window(claims Claims, now time.Time) string {
+	if claims.ExpiresAt == nil || claims.IssuedAt == nil {
+		return Stale
+	}
+	exp, iat := claims.ExpiresAt.Time, claims.IssuedAt.Time
+	if !now.Before(exp) || iat.After(now.Add(skew)) || exp.Sub(iat) > maxLifetime {
 		return Stale
 	}
 	return OK
 }
 
-// Verify checks the type, the EdDSA signature against keys
-// (ed25519:<base64url>), the issuer, and then everything Precheck checks.
-func Verify(token, issuer, instanceID string, keys []string, now int64) string {
-	parts := strings.Split(strings.TrimSpace(token), ".")
-	if len(parts) != 3 {
-		return BadSignature
-	}
-	header, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return BadSignature
-	}
-	var h struct {
-		Alg string `json:"alg"`
-		Typ string `json:"typ"`
-	}
-	if json.Unmarshal(header, &h) != nil || h.Alg != "EdDSA" || h.Typ != tokenType {
-		return BadSignature
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil || len(sig) != ed25519.SignatureSize {
-		return BadSignature
-	}
-	signed := []byte(parts[0] + "." + parts[1])
-	for _, key := range keys {
-		pub, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(key, prefix))
-		if err == nil && len(pub) == ed25519.PublicKeySize && ed25519.Verify(pub, signed, sig) {
-			if claims, _ := Parse(token); issuer == "" || claims.Issuer != issuer {
-				return WrongIssuer
-			}
-			return Precheck(token, instanceID, now)
+func audienceIs(claims Claims, audience string) bool {
+	for _, aud := range claims.Audience {
+		if aud == audience {
+			return true
 		}
 	}
-	return BadSignature
+	return false
 }
 
-// Seen remembers notification ids for ten minutes.
+// PublicKey decodes an Ed25519 public key given as base64url, the x of an
+// OKP JSON Web Key, optionally prefixed "ed25519:" as in the contract
+// vectors.
+func PublicKey(encoded string) (ed25519.PublicKey, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(encoded, "ed25519:"))
+	if err != nil {
+		return nil, fmt.Errorf("decoding key: %w", err)
+	}
+	if len(raw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("key has %d bytes, want %d", len(raw), ed25519.PublicKeySize)
+	}
+	return ed25519.PublicKey(raw), nil
+}
+
+// Seen remembers accepted notification ids until their tokens expire.
 type Seen struct {
-	ids map[string]int64
+	ids map[string]time.Time
 }
 
 // NewSeen returns an empty replay list.
 func NewSeen() *Seen {
-	return &Seen{ids: map[string]int64{}}
+	return &Seen{ids: map[string]time.Time{}}
 }
 
-// AlreadySeen reports whether type+id was accepted in the last ten minutes
-// and records it when it was not. now is unix seconds.
-func (s *Seen) AlreadySeen(kind, id string, now int64) bool {
-	if s == nil {
-		return false
-	}
-	key := kind + "\x00" + id
-	cutoff := now - int64((10 * time.Minute).Seconds())
-	for k, at := range s.ids {
-		if at < cutoff {
-			delete(s.ids, k)
+// AlreadySeen reports whether type+id was accepted before and its token has
+// not expired, and records it until expires when it was not.
+func (s *Seen) AlreadySeen(kind, id string, now, expires time.Time) bool {
+	for key, until := range s.ids {
+		if !now.Before(until) {
+			delete(s.ids, key)
 		}
 	}
-	if at, ok := s.ids[key]; ok && at >= cutoff {
+	key := kind + "\x00" + id
+	if _, ok := s.ids[key]; ok {
 		return true
 	}
-	s.ids[key] = now
+	s.ids[key] = expires
 	return false
 }

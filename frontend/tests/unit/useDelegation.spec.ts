@@ -9,7 +9,7 @@ vi.mock('@opencloud-eu/web-pkg', () => ({
   useConfigStore: () => ({ serverUrl: 'https://cloud.example.com/' })
 }))
 
-import { useBackgroundAccess } from '../../src/composables/useBackgroundAccess'
+import { useDelegation } from '../../src/composables/useDelegation'
 
 const available = {
   available: true,
@@ -36,7 +36,7 @@ function answerFrameWith(answer: (url: URL) => Record<string, string | null>) {
   observer.observe(document.body, { childList: true })
 }
 
-describe('useBackgroundAccess', () => {
+describe('useDelegation', () => {
   const assign = vi.fn()
 
   beforeEach(() => {
@@ -62,7 +62,7 @@ describe('useBackgroundAccess', () => {
       asked = url
       return { code: 'the-code', state: url.searchParams.get('state'), error: null }
     })
-    const access = useBackgroundAccess()
+    const access = useDelegation()
     await access.connect()
 
     expect(asked?.searchParams.get('prompt')).toBe('none')
@@ -85,7 +85,7 @@ describe('useBackgroundAccess', () => {
       state: url.searchParams.get('state'),
       error: 'consent_required'
     }))
-    const access = useBackgroundAccess()
+    const access = useDelegation()
     await access.connect()
 
     expect(post).not.toHaveBeenCalled()
@@ -96,7 +96,7 @@ describe('useBackgroundAccess', () => {
       JSON.stringify({ code: 'late-code', state: target.searchParams.get('state'), error: null })
     )
 
-    expect(await useBackgroundAccess().resumeRedirect()).toBe(true)
+    expect(await useDelegation().resumeRedirect()).toBe(true)
     expect(post).toHaveBeenCalledWith(
       '/api/synaplan/delegation',
       expect.objectContaining({ code: 'late-code' }),
@@ -113,19 +113,19 @@ describe('useBackgroundAccess', () => {
       'synaplan-connect-answer',
       JSON.stringify({ code: 'c', state: 'b', error: null })
     )
-    expect(await useBackgroundAccess().resumeRedirect()).toBe(false)
+    expect(await useDelegation().resumeRedirect()).toBe(false)
     expect(post).not.toHaveBeenCalled()
   })
 
   it('ignores a stored answer that is not one', async () => {
     sessionStorage.setItem('synaplan-connect-pending', '{"state":"a"}')
     sessionStorage.setItem('synaplan-connect-answer', 'not json')
-    expect(await useBackgroundAccess().resumeRedirect()).toBe(false)
+    expect(await useDelegation().resumeRedirect()).toBe(false)
     expect(post).not.toHaveBeenCalled()
   })
 
-  it('stops background work on request', async () => {
-    const access = useBackgroundAccess()
+  it('withdraws the permission on request', async () => {
+    const access = useDelegation()
     await access.disconnect()
     expect(del).toHaveBeenCalledWith('/api/synaplan/delegation', expect.anything())
     expect(access.status.value?.connected).toBe(false)

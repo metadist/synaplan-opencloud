@@ -24,7 +24,7 @@ func TestTheOpenCloudTokenNeverReachesSynaplan(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+synaplanauth.OIDCTokenFromContext(ctx))
 		return nil
 	}
-	h, err := New(forwarding, upstream.URL, nil, nil, "synaplan-app")
+	h, err := New(forwarding, upstream.URL, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,14 +40,13 @@ func TestTheOpenCloudTokenNeverReachesSynaplan(t *testing.T) {
 
 func TestEachCallCarriesTheRightCredential(t *testing.T) {
 	idp := fakeIdentityProvider(t, "ada")
-	defer idp.Close()
 	cases := map[string]struct {
 		ctx  context.Context
 		want string
 	}{
 		"the signed-in person":       {context.Background(), "Bearer exchanged"},
-		"a person who is away":       {forAbsentPerson(context.Background(), "ada"), "Bearer for-synaplan-app"},
-		"a person who never allowed": {forAbsentPerson(context.Background(), "eve"), ""},
+		"a person who is away":       {onBehalfOf(context.Background(), "ada"), "Bearer for-synaplan-app"},
+		"a person who never allowed": {onBehalfOf(context.Background(), "eve"), ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -60,7 +59,7 @@ func TestEachCallCarriesTheRightCredential(t *testing.T) {
 				req.Header.Set("Authorization", "Bearer exchanged")
 				return nil
 			}
-			h, err := New(exchanged, upstream.URL, nil, connectedDelegation(t, idp.URL, "ada"), "synaplan-app")
+			h, err := New(exchanged, upstream.URL, nil, delegated(t, idp, "ada"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +88,7 @@ func TestOpenDocumentsCarryNoCredential(t *testing.T) {
 	h, err := New(func(_ context.Context, req *http.Request) error {
 		req.Header.Set("X-API-Key", "sk_shared")
 		return nil
-	}, upstream.URL, nil, nil, "synaplan-app")
+	}, upstream.URL, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

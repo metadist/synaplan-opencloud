@@ -4,12 +4,18 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 
+	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
+	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
+	"github.com/metadist/synaplan-opencloud/internal/idp"
+	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
 
 func tokenFor(sub string) string {
@@ -35,6 +41,17 @@ func fakeIdentityProvider(t *testing.T, sub string) *identityProvider {
 	t.Helper()
 	p := &identityProvider{}
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"issuer":                 p.URL,
+				"authorization_endpoint": p.URL + "/auth",
+				"token_endpoint":         p.URL + "/token",
+				"revocation_endpoint":    p.URL + "/revoke",
+				"jwks_uri":               p.URL + "/certs",
+			})
+			return
+		}
 		if err := r.ParseForm(); err != nil {
 			t.Error(err)
 			return
@@ -51,26 +68,48 @@ func fakeIdentityProvider(t *testing.T, sub string) *identityProvider {
 		}
 		_ = json.NewEncoder(w).Encode(answer)
 	}))
+	t.Cleanup(p.Close)
 	return p
 }
 
-func newDelegation(idpURL string) *delegation.Delegation {
-	return delegation.New(delegation.Config{
-		AuthorizeEndpoint:  "https://idp/auth",
-		TokenEndpoint:      idpURL,
-		RevocationEndpoint: idpURL + "/revoke",
-		ClientID:           "synaplan-opencloud",
-		ClientSecret:       "secret",
-	}, delegation.NewMemoryStore())
+// exchanger stands in for the identity provider's token exchange: it knows
+// the reva users by id and answers with a token for their subject, and
+// refuses any other bearer.
+type exchanger map[string]string
+
+func (e exchanger) Exchange(userID, bearer string) (string, error) {
+	sub, ok := e[userID]
+	if !ok || bearer != tokenFor(sub) {
+		return "", errors.New("invalid token")
+	}
+	return tokenFor(sub), nil
 }
 
-// connectedDelegation is a Delegation in which sub has allowed work while
-// they are away.
-func connectedDelegation(t *testing.T, idpURL, sub string) *delegation.Delegation {
+func newDelegation(p *identityProvider) *delegation.Delegation {
+	return delegation.New(delegation.Config{
+		Provider:     idp.New(p.URL, "", p.Client()),
+		ClientID:     "synaplan-opencloud",
+		ClientSecret: "secret",
+		HTTPClient:   p.Client(),
+	})
+}
+
+// delegated is what New needs for people "ada" (reva user u-ada) and "eve"
+// (u-eve), with sub connected if it is not empty.
+func delegated(t *testing.T, p *identityProvider, sub string) *Delegated {
 	t.Helper()
-	d := newDelegation(idpURL)
-	if err := d.Connect(context.Background(), "code", "verifier", "https://cloud/callback", sub); err != nil {
-		t.Fatal(err)
+	d := newDelegation(p)
+	if sub != "" {
+		if err := d.Connect(context.Background(), "code", "verifier", "https://cloud/callback", sub); err != nil {
+			t.Fatal(err)
+		}
 	}
-	return d
+	return &Delegated{Tokens: d, Exchanger: exchanger{"u-ada": "ada", "u-eve": "eve"}, Audience: "synaplan-app"}
+}
+
+// signedIn is a request context as OpenCloud's proxy and the middleware
+// leave it: the verified reva user and the bearer they sent.
+func signedIn(userID, bearer string) context.Context {
+	ctx := revactx.ContextSetUser(context.Background(), &userpb.User{Id: &userpb.UserId{OpaqueId: userID}})
+	return synaplanauth.ContextWithOIDCToken(ctx, bearer)
 }

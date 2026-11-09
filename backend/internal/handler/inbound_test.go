@@ -4,15 +4,15 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/metadist/synaplan-opencloud/internal/delegation"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const synaplanIssuer = "https://synaplan.example"
@@ -48,14 +48,17 @@ func newSignedSynaplan(t *testing.T) *signedSynaplan {
 func (s *signedSynaplan) notification(t *testing.T, claims map[string]any) string {
 	t.Helper()
 	now := time.Now().Unix()
-	full := map[string]any{"iss": synaplanIssuer, "aud": oidcCloudID, "iat": now, "exp": now + 300}
+	full := jwt.MapClaims{"iss": synaplanIssuer, "aud": notificationAudience, "iat": now, "exp": now + 300}
 	for k, v := range claims {
 		full[k] = v
 	}
-	header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "synaplan-notification+jwt"})
-	payload, _ := json.Marshal(full)
-	signed := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
-	return signed + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(s.key, []byte(signed)))
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, full)
+	token.Header["typ"] = "synaplan-notification+jwt"
+	signed, err := token.SignedString(s.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
 }
 
 func inbound(h *Handler, token string) *httptest.ResponseRecorder {
@@ -68,8 +71,7 @@ func TestARevokedIdentityEndsWorkWhileAway(t *testing.T) {
 	synaplan := newSignedSynaplan(t)
 	defer synaplan.Close()
 	idp := fakeIdentityProvider(t, "ada")
-	defer idp.Close()
-	h, err := New(nil, synaplan.URL, nil, connectedDelegation(t, idp.URL, "ada"), "synaplan-app")
+	h, err := New(nil, synaplan.URL, nil, delegated(t, idp, "ada"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +97,6 @@ func TestInboundRefusesWhatDoesNotVerify(t *testing.T) {
 	other := newSignedSynaplan(t)
 	defer other.Close()
 	idp := fakeIdentityProvider(t, "ada")
-	defer idp.Close()
 	cases := map[string]struct {
 		token string
 		want  string
@@ -108,7 +109,7 @@ func TestInboundRefusesWhatDoesNotVerify(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			h, err := New(nil, synaplan.URL, nil, connectedDelegation(t, idp.URL, "ada"), "synaplan-app")
+			h, err := New(nil, synaplan.URL, nil, delegated(t, idp, "ada"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -124,8 +125,38 @@ func TestInboundRefusesWhatDoesNotVerify(t *testing.T) {
 }
 
 func TestInboundIsOffWithoutOrganisationLogin(t *testing.T) {
-	h := &Handler{delegation: delegation.New(delegation.Config{}, delegation.NewMemoryStore())}
+	h, err := New(nil, "http://synaplan.invalid", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if rec := inbound(h, "anything"); rec.Code != http.StatusNotFound {
 		t.Fatalf("status %d, want 404", rec.Code)
+	}
+}
+
+// Inbound is open to anyone. Requests that pass the checks needing no key
+// must not each turn into a request to Synaplan while it is failing.
+func TestAFailingKeyFetchIsNotRepeatedForEveryRequest(t *testing.T) {
+	var fetches atomic.Int32
+	synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetches.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer synaplan.Close()
+	signer := newSignedSynaplan(t)
+	defer signer.Close()
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range 5 {
+		token := signer.notification(t, map[string]any{"type": "identity_revoked", "id": fmt.Sprint(i), "sub": "ada"})
+		if rec := inbound(h, token); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status %d, want 401 while keys are unknown", rec.Code)
+		}
+	}
+	if got := fetches.Load(); got != 1 {
+		t.Fatalf("Synaplan was asked %d times, want once", got)
 	}
 }
