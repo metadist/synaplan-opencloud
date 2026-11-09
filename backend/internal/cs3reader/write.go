@@ -14,6 +14,7 @@ import (
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
 	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
+	typespb "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	grpcmetadata "google.golang.org/grpc/metadata"
@@ -175,8 +176,13 @@ func pathTaken(ctx context.Context, gwc gateway.GatewayAPIClient, root *provider
 }
 
 func (r *Reader) uploadSimple(ctx context.Context, gwc gateway.GatewayAPIClient, gwCtx context.Context, accessToken string, root *provider.ResourceId, rel string, content []byte) error {
+	// Without the length on the initiate call the storage finishes the
+	// upload as an empty file at once, and the PUT finds no session.
+	opaque := &typespb.Opaque{}
+	utils.AppendPlainToOpaque(opaque, "Upload-Length", strconv.Itoa(len(content)))
 	up, err := gwc.InitiateFileUpload(gwCtx, &provider.InitiateFileUploadRequest{
-		Ref: &provider.Reference{ResourceId: root, Path: utils.MakeRelativePath(rel)},
+		Ref:    &provider.Reference{ResourceId: root, Path: utils.MakeRelativePath(rel)},
+		Opaque: opaque,
 	})
 	if err != nil {
 		return fmt.Errorf("cs3reader: initiate upload: %w", err)

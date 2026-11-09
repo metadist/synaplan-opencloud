@@ -203,7 +203,7 @@ Every journey crosses every seam — OpenCloud UI → proxy → Go service →
 Keycloak token exchange → Synaplan → (Tika, model) → back into the dialog —
 so a green run is the proof that the integration works, not that a component
 renders. Shipped flows without a journey yet (knowledge **update** and
-**remove**, save-to-space, the failure paths) are the first specs to add; a
+**remove**, the failure paths) are the first specs to add; a
 sprint that touches one of them adds its journey in the same PR.
 
 - **Fixtures by API, not by UI.** `getAccessToken` (Keycloak password grant,
