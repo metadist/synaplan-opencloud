@@ -87,8 +87,12 @@ in this repo — assume the user keeps both running. OpenCloud on `:9200` serves
 whatever is in `frontend/dist`, so a stale build there competes with the dev
 server's copy of the same app id.
 
-- Production build (`pnpm build`) is only for CI, the Docker image, and the
-  bundled flow on `:9200` (`make frontend-build && make docker-up`).
+- Production build (`pnpm build`) is only for CI and the Docker image. The
+  bundled flow on `:9200` uses `make frontend-build-dev`: a development build
+  keeps the entry file names fixed. OpenCloud reads the extension manifest
+  only at start, and a production build fingerprints the entry named in it,
+  so after `make frontend-build` OpenCloud needs `docker compose restart
+  opencloud`; after `make frontend-build-dev` it serves the rebuild as is.
 - `make ci-local` builds into `frontend/dist-ci/` for exactly this reason: the
   gate proves the bundle compiles without touching what OpenCloud serves.
 - Every user-facing string goes through `$gettext` (vue3-gettext); strings live
@@ -156,7 +160,7 @@ full cycle.
 | Local step | CI job it mirrors |
 | ---------- | ----------------- |
 | `make ci-local` | **Frontend** (`pnpm install --frozen-lockfile`, `lint`, `format:check`, `check:types`, `test:unit`, `build`) and **Backend** (`go generate`, `go test ./...`, `golangci-lint run`) |
-| `make frontend-build && CI=1 make frontend-test-e2e` (bundled `:9200` — the build refreshes `frontend/dist`, which OpenCloud serves; `ci-local` does not touch it) or `CI=1 make frontend-test-e2e-dev` (web dev server `:9201`, no build) | **E2E** (Playwright against the Synaplan test stack and the built image) |
+| `make frontend-build-dev && CI=1 make frontend-test-e2e` (bundled `:9200` — the build refreshes `frontend/dist`, which OpenCloud serves; `ci-local` does not touch it) or `CI=1 make frontend-test-e2e-dev` (web dev server `:9201`, no build) | **E2E** (Playwright against the Synaplan test stack and the built image) |
 | `make frontend-build && docker build .` (after `ci-local` generated the client) | **Docker Build** — when the `Dockerfile`, a compose file, or the build inputs changed |
 | `make docs` | **Docs** — when `config.go` tags, the README or `.github/docs/` changed |
 
@@ -170,9 +174,10 @@ Rules:
   backend-only refactor with no HTTP contract change may skip it. A selector,
   translation or route miss will not show up in Vitest.
 - Run E2E the way CI does: `CI=1` (one worker, one retry, trace on retry).
-  OpenCloud 8.1.0 crashes under parallel Playwright load
-  (`fatal error: concurrent map read and map write`) and the container has
-  no restart policy — bring it back with `docker compose up -d` and wait for
+  OpenCloud 8.1.0 crashed under parallel Playwright load
+  (`fatal error: concurrent map read and map write`); 9.0.0 has not been
+  tried with more workers yet. The container has no restart policy — bring
+  it back with `docker compose up -d` and wait for
   `status.php`.
 - Locally the suite runs against **real AI providers** (the keys in
   Synaplan's `.env`); in CI it runs against Synaplan's test stack with the
