@@ -37,14 +37,28 @@ func (h *Handler) runPickup(ctx context.Context, sub, id string) map[string]any 
 	var claim struct {
 		ExternalID string `json:"external_id"`
 		Selector   struct {
-			FolderID string `json:"folder_id"`
+			FolderID   string `json:"folder_id"`
+			FolderPath string `json:"folder_path"`
 		} `json:"selector"`
 	}
-	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID != sub || claim.Selector.FolderID == "" {
+	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID != sub {
 		return h.finishPickup(ctx, sub, id, "failed", 0, 0, nil)
 	}
-	folderID := claim.Selector.FolderID
 	files := h.awayFiles(sub)
+	// A task's folder step names a path in the person's space; only the
+	// cloud can turn it into an id, and it does so as the person.
+	folderID := claim.Selector.FolderID
+	if folderID == "" && claim.Selector.FolderPath != "" {
+		found, err := files.Lookup(ctx, claim.Selector.FolderPath)
+		if err != nil {
+			log.Printf("pickup lookup: %v", err)
+			return h.finishPickup(ctx, sub, id, "failed", 0, 0, []map[string]string{{"id": claim.Selector.FolderPath, "reason": "not_found"}})
+		}
+		folderID = found
+	}
+	if folderID == "" {
+		return h.finishPickup(ctx, sub, id, "failed", 0, 0, nil)
+	}
 	// The folder's real path comes from OpenCloud, never from the request:
 	// a signature proves Synaplan asked, not that the id lives where the
 	// selector says it does.

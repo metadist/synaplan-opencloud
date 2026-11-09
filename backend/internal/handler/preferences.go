@@ -58,11 +58,12 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"saved": true, "reported": false})
 		return
 	}
+	h.linked(r.Context(), uid)
 	status, _, err := h.synaplanDo(r.Context(), http.MethodPut, "/api/v1/platform-links/read-scope", map[string]any{
 		"external_id": uid,
 		"mode":        req.Mode,
 		"folders":     folders,
-	}, callOptions{skipUser: true, extra: h.instanceHeaders()})
+	}, callOptions{})
 	if err != nil || status >= 400 {
 		// The setting is kept here and enforced here. Synaplan does not know
 		// it yet, so it may still refuse a read, and the person is told.

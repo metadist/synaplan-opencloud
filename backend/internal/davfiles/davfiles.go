@@ -266,6 +266,26 @@ func (c *Client) SaveToFolder(ctx context.Context, folder, filename string, cont
 	return written, nil
 }
 
+// Lookup returns the resource id of a path relative to the personal space.
+func (c *Client) Lookup(ctx context.Context, rel string) (string, error) {
+	root, err := c.personalSpace(ctx)
+	if err != nil {
+		return "", err
+	}
+	target := c.space(root)
+	for _, part := range strings.Split(strings.Trim(rel, "/"), "/") {
+		if part == "" || part == "." || part == ".." {
+			continue
+		}
+		target += "/" + url.PathEscape(part)
+	}
+	entries, err := c.propfind(ctx, target, "0")
+	if err != nil {
+		return "", err
+	}
+	return entries[0].id, nil
+}
+
 // Save writes into Synaplan/<Kind>/ in the personal space.
 func (c *Client) Save(ctx context.Context, filename string, content []byte) (cs3reader.Written, error) {
 	return c.SaveToFolder(ctx, "", filename, content)

@@ -33,7 +33,7 @@ func currentUserID(ctx context.Context) string {
 }
 
 // awayFiles reaches the person's files while they are away, as them.
-func (h *Handler) awayFiles(sub string) personFiles {
+func (h *Handler) awayFiles(sub string) *davfiles.Client {
 	return davfiles.New(h.settings.OpenCloudURL, h.openCloudClient(), func(ctx context.Context) (string, error) {
 		return h.delegation.Token(ctx, sub, h.settings.OpenCloudAudience)
 	})

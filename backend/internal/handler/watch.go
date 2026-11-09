@@ -98,7 +98,7 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 			ID: created.ID, TargetKind: req.TargetKind, TargetID: req.TargetID, UserID: uid,
 		})
 	}
-	// Without the key that works while the person is away, the watch
+	// Without the person's consent to work while they are away, the watch
 	// exists in Synaplan but nothing would ever be uploaded. Say so.
 	var answer map[string]any
 	if err := json.Unmarshal(raw, &answer); err != nil || answer == nil {

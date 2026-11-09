@@ -54,3 +54,105 @@ export async function wipeKnowledgeGroup(
     }
   }
 }
+
+/** Upload a text file to the person's Synaplan files; returns its id. */
+export async function uploadToSynaplan(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  name: string,
+  content: string
+): Promise<number> {
+  const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/upload`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      'files[]': { name, mimeType: 'text/plain', buffer: Buffer.from(content) },
+      process_level: 'extract'
+    }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan upload failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as { files?: { id: number }[] }
+  const id = body.files?.[0]?.id
+  if (!id) throw new Error('synaplan upload returned no file id')
+  return id
+}
+
+/** The person's link to the OpenCloud at host, as Synaplan lists it. */
+export async function linkToCloud(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  host: string
+): Promise<number> {
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/me/platform-links`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan links failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as {
+    links?: { id: number; client: string; host: string; status: string }[]
+  }
+  const link = body.links?.find(
+    (l) => l.client === 'opencloud' && l.host === host && l.status === 'active'
+  )
+  if (!link) throw new Error(`no active link to ${host}`)
+  return link.id
+}
+
+/** Ask Synaplan to copy one of its files into the linked cloud. */
+export async function sendToCloud(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  fileId: number,
+  linkId: number
+): Promise<{ status: number; reference: string | null; state: string }> {
+  const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/${fileId}/send`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { destination: 'platform', identity_id: linkId }
+  })
+  const body = (await resp.json()) as { reference?: string | null; context?: { state?: string } }
+  return { status: resp.status(), reference: body.reference ?? null, state: body.context?.state ?? '' }
+}
+
+/** Delete a file from the person's Synaplan files; ignores failures. */
+export async function deleteSynaplanFileQuiet(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  fileId: number
+): Promise<void> {
+  await request
+    .delete(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    .catch(() => {})
+}
+
+export interface SynaplanGroupFile {
+  id: number
+  filename: string
+  source: string | null
+  file_size: number
+  text_preview?: string | null
+}
+
+/** The files in one of the person's knowledge groups. */
+export async function filesInGroup(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  groupKey: string
+): Promise<SynaplanGroupFile[]> {
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/files`, {
+    params: { group_key: groupKey },
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan files list failed: ${resp.status()} ${await resp.text()}`)
+  }
+  return ((await resp.json()) as { files?: SynaplanGroupFile[] }).files ?? []
+}
