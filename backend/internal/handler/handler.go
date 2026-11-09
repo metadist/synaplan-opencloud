@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
 	"github.com/metadist/synaplan-opencloud/internal/state"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
@@ -48,9 +49,15 @@ type Settings struct {
 	PublicURL      string
 	ServerID       string
 	OIDCClientID   string
-	MachineAuthKey string
-	StatePath      string
-	StateKey       string
+	// OIDCAuthorizeEndpoint is where the browser asks the identity provider
+	// for a code for OIDCClientID, to connect background work.
+	OIDCAuthorizeEndpoint string
+	// SynaplanAudience and OpenCloudAudience are the clients a person's
+	// token is exchanged for when this service acts for them while away.
+	SynaplanAudience  string
+	OpenCloudAudience string
+	StatePath         string
+	StateKey          string
 	// HoldInbound accepts a verified notification and does not fetch it.
 	// Tests use it. It is never set from the UI.
 	HoldInbound bool
@@ -87,6 +94,7 @@ type Handler struct {
 	settings    Settings
 	credential  atomic.Pointer[instanceCredential]
 	state       *state.Store
+	delegation  *delegation.Delegation
 	seen        *notify.Seen
 	seenMu      sync.Mutex
 	keysMu      sync.Mutex
@@ -103,7 +111,7 @@ type Handler struct {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, settings Settings) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *delegation.Delegation, settings Settings) (*Handler, error) {
 	apiClient, err := synaplanapi.NewClientWithResponses(
 		synaplanURL,
 		synaplanapi.WithHTTPClient(&http.Client{}),
@@ -132,9 +140,6 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 	if err != nil {
 		return nil, fmt.Errorf("opening state: %w", err)
 	}
-	if cs3 != nil {
-		cs3.SetMachineAuth(settings.MachineAuthKey)
-	}
 	h := &Handler{
 		synaplanURL: synaplanURL,
 		synaplanAPI: apiClient,
@@ -144,6 +149,7 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		assetProxy:  assetProxy,
 		settings:    settings,
 		state:       store,
+		delegation:  delegated,
 		seen:        notify.NewSeen(),
 	}
 	if settings.InstanceID != "" && settings.InstanceSecret != "" {

@@ -1,21 +1,10 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 )
-
-func currentUserID(ctx context.Context) string {
-	user, ok := revactx.ContextGetUser(ctx)
-	if !ok || user.GetId() == nil {
-		return ""
-	}
-	return user.GetId().GetOpaqueId()
-}
 
 func (h *Handler) hasInstance() bool {
 	id, secret := h.instance()

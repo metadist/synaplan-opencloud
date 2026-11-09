@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
-	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
@@ -16,51 +15,6 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
-
-// SetMachineAuth stores the key used to act as a person when no browser
-// session is present. An empty key disables that path.
-func (r *Reader) SetMachineAuth(key string) {
-	if r == nil {
-		return
-	}
-	r.machineKey = key
-}
-
-// Impersonate returns a context that can read and write as opaqueID.
-// The machine-auth key must already be set.
-func (r *Reader) Impersonate(ctx context.Context, opaqueID string) (context.Context, error) {
-	if r == nil || r.gws == nil {
-		return nil, fmt.Errorf("cs3reader: not configured")
-	}
-	if r.machineKey == "" {
-		return nil, fmt.Errorf("cs3reader: machine auth is not configured")
-	}
-	if opaqueID == "" {
-		return nil, fmt.Errorf("cs3reader: missing user id")
-	}
-	gwc, err := r.gws.Next()
-	if err != nil {
-		return nil, fmt.Errorf("cs3reader: gateway client: %w", err)
-	}
-	authRes, err := gwc.Authenticate(ctx, &gateway.AuthenticateRequest{
-		Type:         "machine",
-		ClientId:     "userid:" + opaqueID,
-		ClientSecret: r.machineKey,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cs3reader: machine auth: %w", err)
-	}
-	if authRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
-		return nil, fmt.Errorf("cs3reader: machine auth: %s", authRes.GetStatus().GetMessage())
-	}
-	user := authRes.GetUser()
-	if user == nil || user.GetId().GetOpaqueId() == "" {
-		user = &userpb.User{Id: &userpb.UserId{OpaqueId: opaqueID}}
-	}
-	ctx = revactx.ContextSetUser(ctx, user)
-	ctx = revactx.ContextSetToken(ctx, authRes.GetToken())
-	return ctx, nil
-}
 
 // Child is one entry in a folder listing.
 type Child struct {

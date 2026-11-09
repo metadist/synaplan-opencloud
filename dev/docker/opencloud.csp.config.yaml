@@ -9,9 +9,10 @@ directives:
   font-src:
     - "'self'"
   frame-ancestors:
-    - "'none'"
+    - "'self'"
   frame-src:
     - "'self'"
+    - "https://host.docker.internal:*"
   img-src:
     - "'self'"
     - "data:"

@@ -37,10 +37,6 @@ type User struct {
 	// LinkID is the identity row Synaplan created at bind. An
 	// identity_revoked notification names that id, not the person.
 	LinkID int `json:"linkId,omitempty"`
-	// BackgroundKey is set only in memory after decrypt. It is not written
-	// as plaintext.
-	BackgroundKey string `json:"-"`
-	KeyCipher     []byte `json:"keyCipher,omitempty"`
 }
 
 // Synced is a searchable file this OpenCloud is keeping up to date.
@@ -135,15 +131,6 @@ func Open(path, key string) (*Store, error) {
 	if s.disk.Users == nil {
 		s.disk.Users = map[string]User{}
 	}
-	for id, user := range s.disk.Users {
-		if len(user.KeyCipher) > 0 && s.aead != nil {
-			plain, err := s.decrypt(user.KeyCipher)
-			if err == nil {
-				user.BackgroundKey = string(plain)
-				s.disk.Users[id] = user
-			}
-		}
-	}
 	return s, nil
 }
 
@@ -188,17 +175,6 @@ func (s *Store) PutUser(id string, user User) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if user.BackgroundKey != "" && s.aead != nil {
-		sealed, err := s.encrypt([]byte(user.BackgroundKey))
-		if err != nil {
-			return err
-		}
-		user.KeyCipher = sealed
-	}
-	if user.BackgroundKey != "" && s.aead == nil {
-		// Keep the key in memory. Do not write it.
-		user.KeyCipher = nil
-	}
 	s.disk.Users[id] = user
 	return s.flush()
 }
@@ -434,17 +410,7 @@ func (s *Store) flush() error {
 	if s.path == "" {
 		return nil
 	}
-	// Never persist a plaintext key. KeyCipher is the encrypted form.
-	safe := s.disk
-	safe.Users = map[string]User{}
-	for id, user := range s.disk.Users {
-		stored := user
-		if s.aead == nil {
-			stored.KeyCipher = nil
-		}
-		safe.Users[id] = stored
-	}
-	raw, err := json.Marshal(safe)
+	raw, err := json.Marshal(s.disk)
 	if err != nil {
 		return err
 	}

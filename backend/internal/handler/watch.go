@@ -104,7 +104,7 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(raw, &answer); err != nil || answer == nil {
 		answer = map[string]any{}
 	}
-	answer["uploads_enabled"] = h.ensureBackgroundKey(r.Context(), uid)
+	answer["uploads_enabled"] = h.canActAway(uid)
 	writeJSON(w, http.StatusOK, answer)
 }
 

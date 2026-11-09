@@ -82,13 +82,7 @@ func (r *Reader) saveNamed(ctx context.Context, folderOverride, filename string,
 		return Written{}, err
 	}
 
-	folder := synaplanRoot
-	if kind := kindFolder(name); kind != "" {
-		folder = synaplanRoot + "/" + kind
-	}
-	if cleaned := cleanRelative(folderOverride); cleaned != "" {
-		folder = cleaned
-	}
+	folder := TargetFolder(folderOverride, name)
 	if err := ensureFolder(gwCtx, gwc, root, synaplanRoot); err != nil {
 		return Written{}, err
 	}
@@ -106,6 +100,19 @@ func (r *Reader) saveNamed(ctx context.Context, folderOverride, filename string,
 		return Written{}, err
 	}
 	return writtenAt(gwCtx, gwc, root, rel)
+}
+
+// TargetFolder is the personal-space folder a file named name is saved
+// into: the person's choice when it is a clean relative path, otherwise
+// Synaplan/<Kind>.
+func TargetFolder(folderOverride, name string) string {
+	if cleaned := cleanRelative(folderOverride); cleaned != "" {
+		return cleaned
+	}
+	if kind := kindFolder(name); kind != "" {
+		return synaplanRoot + "/" + kind
+	}
+	return synaplanRoot
 }
 
 func cleanRelative(folder string) string {

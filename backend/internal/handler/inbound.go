@@ -64,13 +64,21 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, map[string]string{"state": "pending"})
 		return
 	}
+	sub, _ := body["external_id"].(string)
+	if (kind == "delivery" || kind == "pickup") && !h.canActAway(sub) {
+		// Nobody can claim it without the person's own token. Let the
+		// retry in, once they connected.
+		h.releaseSeen(kind, id)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "not_connected"})
+		return
+	}
 	ctx, cancel := bounded(r.Context())
 	defer cancel()
 	switch kind {
 	case "delivery":
-		h.deliverCopy(w, ctx, id)
+		h.deliverCopy(w, ctx, sub, id)
 	case "pickup":
-		h.answerPickup(w, ctx, id)
+		h.answerPickup(w, ctx, sub, id)
 	case "identity_revoked":
 		h.revokeIdentity(id)
 		w.WriteHeader(http.StatusNoContent)
@@ -117,6 +125,7 @@ func (h *Handler) revokeIdentity(id string) {
 	if !ok {
 		return
 	}
+	h.delegation.Disconnect(uid)
 	if err := h.store().ForgetUser(uid); err != nil {
 		log.Printf("identity revoked: forget %s: %v", uid, err)
 	}
@@ -136,10 +145,7 @@ func (h *Handler) notifyKeys(ctx context.Context) []string {
 	if time.Since(h.keysAt) < 10*time.Minute && h.keysLoaded {
 		return h.keys
 	}
-	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/api/v1/platform-links/instances/self", nil, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/api/v1/platform-links/instances/self", nil, callOptions{cloud: true})
 	if err != nil || status != http.StatusOK {
 		log.Printf("notify keys: status %d err %v", status, err)
 		return h.keys
@@ -164,11 +170,8 @@ func (h *Handler) notifyKeys(ctx context.Context) []string {
 	return h.keys
 }
 
-func (h *Handler) deliverCopy(w http.ResponseWriter, ctx context.Context, id string) {
-	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/deliveries/"+url.PathEscape(id)+"/claim", map[string]any{}, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+func (h *Handler) deliverCopy(w http.ResponseWriter, ctx context.Context, sub, id string) {
+	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/deliveries/"+url.PathEscape(id)+"/claim", map[string]any{}, callOptions{as: sub})
 	if err != nil || status >= http.StatusInternalServerError {
 		// Nothing was claimed. Let the retry in.
 		log.Printf("claim delivery %s: status %d err %v", id, status, err)
@@ -190,29 +193,21 @@ func (h *Handler) deliverCopy(w http.ResponseWriter, ctx context.Context, id str
 			Ref  string `json:"ref"`
 		} `json:"target"`
 	}
-	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID == "" || !strings.HasPrefix(claim.DownloadPath, "/api/v1/platform-links/deliveries/") {
-		h.reportDelivery(ctx, id, map[string]string{"status": "failed", "error_code": "unreachable"})
+	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID != sub || !strings.HasPrefix(claim.DownloadPath, "/api/v1/platform-links/deliveries/") {
+		h.reportDelivery(ctx, sub, id, map[string]string{"status": "failed", "error_code": "unreachable"})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "failed", "error_code": "unreachable"})
 		return
 	}
 	result := h.writeClaim(ctx, claim.ExternalID, claim.Name, claim.DownloadPath, claim.Target.Kind, claim.Target.Ref)
-	h.reportDelivery(ctx, id, result)
+	h.reportDelivery(ctx, sub, id, result)
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) writeClaim(ctx context.Context, uid, name, downloadPath, kind, ref string) map[string]string {
-	if h.cs3 == nil || h.settings.MachineAuthKey == "" {
-		return map[string]string{"status": "failed", "error_code": "unreachable"}
-	}
-	userCtx, err := h.cs3.Impersonate(ctx, uid)
-	if err != nil {
-		log.Printf("impersonate %s: %v", uid, err)
-		return map[string]string{"status": "failed", "error_code": "not_found"}
-	}
-	status, body, err := h.synaplanDo(userCtx, http.MethodGet, downloadPath, nil, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-		limit:    maxCopyBytes,
+	files := h.awayFiles(uid)
+	status, body, err := h.synaplanDo(ctx, http.MethodGet, downloadPath, nil, callOptions{
+		as:    uid,
+		limit: maxCopyBytes,
 	})
 	if err != nil || status != http.StatusOK {
 		log.Printf("download delivery: status %d err %v", status, err)
@@ -228,11 +223,11 @@ func (h *Handler) writeClaim(ctx context.Context, uid, name, downloadPath, kind,
 	var written cs3reader.Written
 	switch {
 	case user.CopyFolder != "":
-		written, err = h.cs3.SaveToFolder(userCtx, user.CopyFolder, name, body)
+		written, err = files.SaveToFolder(ctx, user.CopyFolder, name, body)
 	case (kind == "folder_id" || kind == "next_to") && ref != "":
-		written, err = h.cs3.SaveChild(userCtx, ref, name, body)
+		written, err = files.SaveChild(ctx, ref, name, body)
 	default:
-		written, err = h.cs3.Save(userCtx, name, body)
+		written, err = files.Save(ctx, name, body)
 	}
 	if err != nil {
 		log.Printf("write delivery: %v", err)
@@ -256,11 +251,8 @@ func (h *Handler) openURL(resourceID string) string {
 	return base + "/f/" + resourceID
 }
 
-func (h *Handler) reportDelivery(ctx context.Context, id string, result map[string]string) {
-	_, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/deliveries/"+url.PathEscape(id)+"/result", result, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+func (h *Handler) reportDelivery(ctx context.Context, sub, id string, result map[string]string) {
+	_, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/deliveries/"+url.PathEscape(id)+"/result", result, callOptions{as: sub})
 	if err != nil {
 		log.Printf("report delivery %s: %v", id, err)
 	}

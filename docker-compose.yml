@@ -16,9 +16,6 @@ services:
       STORAGE_USERS_HTTP_ADDR: 0.0.0.0:9158
       STORAGE_USERS_DATA_SERVER_URL: http://opencloud:9158/data
       IDM_ADMIN_PASSWORD: admin
-      # Same value on synaplan-backend. Copies and watches write as the person
-      # without their browser session. Dev only — not a production secret.
-      OC_MACHINE_AUTH_API_KEY: synaplan-dev-machine
       PROXY_ENABLE_BASIC_AUTH: "true"
       PROXY_TLS: "false"
       PROXY_CSP_CONFIG_FILE_LOCATION: /etc/opencloud/csp.yaml
@@ -94,7 +91,8 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
-      OC_MACHINE_AUTH_API_KEY: synaplan-dev-machine
+      SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT: "https://host.docker.internal:8443/realms/synaplan/protocol/openid-connect/auth"
+      SYNAPLAN_OPENCLOUD_CLIENT_ID: "opencloud"
       # The instance credential says which cloud this is; the person's own
       # identity always comes from the OIDC token exchange. Leave both empty:
       # an OpenCloud administrator registers from the Synaplan page, and

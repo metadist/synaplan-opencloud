@@ -47,6 +47,8 @@ func DefaultConfig() *config.Config {
 		OIDCExchangeClientID:  "synaplan-opencloud",
 		OIDCExchangeSecret:    "synaplan-opencloud-secret",
 		OIDCTargetAudience:    "synaplan-app",
+		OIDCAuthorizeEndpoint: "https://host.docker.internal:8443/realms/synaplan/protocol/openid-connect/auth",
+		OpenCloudClientID:     "opencloud",
 		DefaultAnswerLanguage: "en",
 		UseUserLanguage:       true,
 		AllowMemories:         true,

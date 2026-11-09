@@ -19,6 +19,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
@@ -75,21 +76,32 @@ func Server(cfg *config.Config) *cobra.Command {
 				editor = synaplanauth.NewRequestEditor(exchanger)
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3, handler.Settings{
-				InstanceID:     cfg.InstanceID,
-				InstanceSecret: cfg.InstanceSecret,
-				DeliveryURL:    cfg.DeliveryURL,
-				PublicURL:      cfg.PublicURL,
-				ServerID:       cfg.ServerID,
-				OIDCClientID:   cfg.OIDCExchangeClientID,
-				MachineAuthKey: cfg.MachineAuthKey,
-				StatePath:      cfg.StatePath,
-				StateKey:       cfg.StateKey,
-				HoldInbound:    os.Getenv("SYNAPLAN_DEV_HOLD_INBOUND") == "1",
-				AllowSelfWrite: os.Getenv("SYNAPLAN_DEV_ALLOW_SELF_WRITE") == "1",
-				SharedKey:      cfg.SynaplanAPIKey != "",
-				OpenCloudURL:   cfg.OpenCloudURL,
-				Insecure:       cfg.Insecure,
+			var delegated *delegation.Delegation
+			if cfg.SynaplanAPIKey == "" {
+				delegated = delegation.New(delegation.Config{
+					TokenEndpoint: cfg.OIDCTokenEndpoint,
+					ClientID:      cfg.OIDCExchangeClientID,
+					ClientSecret:  cfg.OIDCExchangeSecret,
+				}, delegation.NewMemoryStore())
+			}
+
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, handler.Settings{
+				InstanceID:            cfg.InstanceID,
+				InstanceSecret:        cfg.InstanceSecret,
+				DeliveryURL:           cfg.DeliveryURL,
+				PublicURL:             cfg.PublicURL,
+				ServerID:              cfg.ServerID,
+				OIDCClientID:          cfg.OIDCExchangeClientID,
+				OIDCAuthorizeEndpoint: cfg.OIDCAuthorizeEndpoint,
+				SynaplanAudience:      cfg.OIDCTargetAudience,
+				OpenCloudAudience:     cfg.OpenCloudClientID,
+				StatePath:             cfg.StatePath,
+				StateKey:              cfg.StateKey,
+				HoldInbound:           os.Getenv("SYNAPLAN_DEV_HOLD_INBOUND") == "1",
+				AllowSelfWrite:        os.Getenv("SYNAPLAN_DEV_ALLOW_SELF_WRITE") == "1",
+				SharedKey:             cfg.SynaplanAPIKey != "",
+				OpenCloudURL:          cfg.OpenCloudURL,
+				Insecure:              cfg.Insecure,
 
 				DefaultAnswerLanguage: cfg.DefaultAnswerLanguage,
 				UseUserLanguage:       cfg.UseUserLanguage,
@@ -133,6 +145,9 @@ func Server(cfg *config.Config) *cobra.Command {
 			mux.Group(func(r chi.Router) {
 				r.Use(synaplanauth.Middleware)
 				r.Get("/api/synaplan/me", h.Me)
+				r.Get("/api/synaplan/delegation", h.DelegationStatus)
+				r.Post("/api/synaplan/delegation", h.DelegationConnect)
+				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
 				r.Post("/api/synaplan/translate", h.Translate)
 				r.Post("/api/synaplan/summarize", h.Summarize)
 				r.Post("/api/synaplan/knowledge", h.AddToKnowledge)

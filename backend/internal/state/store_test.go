@@ -27,7 +27,6 @@ func TestKeysSurviveAReloadEncrypted(t *testing.T) {
 		t.Fatal(err)
 	}
 	user := store.User("ada")
-	user.BackgroundKey = "sk_plain"
 	user.LinkID = 7
 	if err := store.PutUser("ada", user); err != nil {
 		t.Fatal(err)
@@ -39,9 +38,6 @@ func TestKeysSurviveAReloadEncrypted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.User("ada").BackgroundKey != "sk_plain" {
-		t.Fatal("background key did not survive a reload")
-	}
 	if id, ok := again.UserByLinkID(7); !ok || id != "ada" {
 		t.Fatalf("link id lookup = %q, %v", id, ok)
 	}
@@ -52,8 +48,8 @@ func TestKeysSurviveAReloadEncrypted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wrongKey.User("ada").BackgroundKey != "" {
-		t.Fatal("a wrong state key decrypted the background key")
+	if _, secret := wrongKey.Instance(); secret != "" {
+		t.Fatal("a wrong state key decrypted the instance secret")
 	}
 }
 

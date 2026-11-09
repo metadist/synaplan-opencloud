@@ -16,16 +16,13 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/state"
 )
 
-func (h *Handler) answerPickup(w http.ResponseWriter, ctx context.Context, id string) {
-	result := h.runPickup(ctx, id)
+func (h *Handler) answerPickup(w http.ResponseWriter, ctx context.Context, sub, id string) {
+	result := h.runPickup(ctx, sub, id)
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
-	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/claim", map[string]any{}, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+func (h *Handler) runPickup(ctx context.Context, sub, id string) map[string]any {
+	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/claim", map[string]any{}, callOptions{as: sub})
 	if err != nil || status >= http.StatusInternalServerError {
 		// Nothing was claimed. Let Synaplan's retry in.
 		log.Printf("claim pickup %s: status %d err %v", id, status, err)
@@ -43,25 +40,18 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 			FolderID string `json:"folder_id"`
 		} `json:"selector"`
 	}
-	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID == "" {
-		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
+	if err := json.Unmarshal(body, &claim); err != nil || claim.ExternalID != sub || claim.Selector.FolderID == "" {
+		return h.finishPickup(ctx, sub, id, "failed", 0, 0, nil)
 	}
 	folderID := claim.Selector.FolderID
-	if h.cs3 == nil || h.settings.MachineAuthKey == "" || folderID == "" {
-		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
-	}
-	userCtx, err := h.cs3.Impersonate(ctx, claim.ExternalID)
-	if err != nil {
-		log.Printf("pickup impersonate: %v", err)
-		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
-	}
+	files := h.awayFiles(sub)
 	// The folder's real path comes from OpenCloud, never from the request:
 	// a signature proves Synaplan asked, not that the id lives where the
 	// selector says it does.
-	meta, err := h.cs3.StatAny(userCtx, folderID)
+	meta, err := files.StatAny(ctx, folderID)
 	if err != nil {
 		log.Printf("pickup stat: %v", err)
-		return h.finishPickup(ctx, id, "failed", 0, 0, []map[string]string{{"id": folderID, "reason": "not_found"}})
+		return h.finishPickup(ctx, sub, id, "failed", 0, 0, []map[string]string{{"id": folderID, "reason": "not_found"}})
 	}
 	folderPath := canonicalPath(meta.Path)
 	// The person's setting as it is now, not as it was when the read was
@@ -69,12 +59,12 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 	user := h.store().User(claim.ExternalID)
 	watched := h.activeWatchesFor(ctx, claim.ExternalID)
 	if !scopeAllows(user.ReadScope, watched, folderID, folderPath) {
-		return h.finishPickup(ctx, id, "failed", 0, 0, []map[string]string{{"id": folderID, "reason": "not_allowed"}})
+		return h.finishPickup(ctx, sub, id, "failed", 0, 0, []map[string]string{{"id": folderID, "reason": "not_allowed"}})
 	}
-	children, err := h.cs3.List(userCtx, folderID)
+	children, err := files.List(ctx, folderID)
 	if err != nil {
 		log.Printf("pickup list: %v", err)
-		return h.finishPickup(ctx, id, "failed", 0, 0, nil)
+		return h.finishPickup(ctx, sub, id, "failed", 0, 0, nil)
 	}
 	items := make([]map[string]any, 0, len(children))
 	byID := map[string]cs3reader.Child{}
@@ -88,13 +78,10 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 			"folder": folderPath, "size": child.Size, "mime": child.MimeType,
 		})
 	}
-	listStatus, listBody, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/listing", map[string]any{"items": items}, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+	listStatus, listBody, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/listing", map[string]any{"items": items}, callOptions{as: sub})
 	if err != nil || listStatus != http.StatusOK {
 		log.Printf("pickup listing: status %d err %v", listStatus, err)
-		return h.finishPickup(ctx, id, "failed", len(items), 0, nil)
+		return h.finishPickup(ctx, sub, id, "failed", len(items), 0, nil)
 	}
 	var decision struct {
 		Upload []string `json:"upload"`
@@ -108,14 +95,14 @@ func (h *Handler) runPickup(ctx context.Context, id string) map[string]any {
 			skipped = append(skipped, map[string]string{"id": fileID, "reason": "not_found"})
 			continue
 		}
-		if err := h.uploadPickupFile(userCtx, id, child); err != nil {
+		if err := h.uploadPickupFile(ctx, files, sub, id, child); err != nil {
 			log.Printf("pickup upload %s: %v", child.Name, err)
 			skipped = append(skipped, map[string]string{"id": fileID, "reason": "unreachable"})
 			continue
 		}
 		sent++
 	}
-	return h.finishPickup(ctx, id, "done", len(items), sent, skipped)
+	return h.finishPickup(ctx, sub, id, "done", len(items), sent, skipped)
 }
 
 // scopeAllows is the app side of "What Synaplan may read". A signed
@@ -156,8 +143,8 @@ func watchedFolder(watched []indexWatch, id string) bool {
 	return false
 }
 
-func (h *Handler) uploadPickupFile(ctx context.Context, pickupID string, child cs3reader.Child) error {
-	file, err := h.cs3.Open(ctx, child.ID)
+func (h *Handler) uploadPickupFile(ctx context.Context, files personFiles, sub, pickupID string, child cs3reader.Child) error {
+	file, err := files.Open(ctx, child.ID)
 	if err != nil {
 		return err
 	}
@@ -177,8 +164,7 @@ func (h *Handler) uploadPickupFile(ctx context.Context, pickupID string, child c
 		return err
 	}
 	status, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(pickupID)+"/files", nil, callOptions{
-		skipUser:    true,
-		extra:       h.instanceHeaders(),
+		as:          sub,
 		raw:         bytes.NewReader(buf.Bytes()),
 		contentType: mw.FormDataContentType(),
 		limit:       1 << 20,
@@ -192,17 +178,14 @@ func (h *Handler) uploadPickupFile(ctx context.Context, pickupID string, child c
 	return nil
 }
 
-func (h *Handler) finishPickup(ctx context.Context, id, statusText string, listed, sent int, skipped []map[string]string) map[string]any {
+func (h *Handler) finishPickup(ctx context.Context, sub, id, statusText string, listed, sent int, skipped []map[string]string) map[string]any {
 	if skipped == nil {
 		skipped = []map[string]string{}
 	}
 	result := map[string]any{
 		"status": statusText, "listed": listed, "sent": sent, "skipped": skipped,
 	}
-	_, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/result", result, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+	_, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/pickups/"+url.PathEscape(id)+"/result", result, callOptions{as: sub})
 	if err != nil {
 		log.Printf("pickup result %s: %v", id, err)
 	}

@@ -59,6 +59,8 @@ Each call to Synaplan rides on the logged-in OpenCloud user's identity, exchange
 | `SYNAPLAN_OIDC_TOKEN_ENDPOINT` | Keycloak token endpoint, used for token exchange. |
 | `SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID` / `SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET` | Confidential client credentials that perform the exchange. |
 | `SYNAPLAN_OIDC_TARGET_AUDIENCE` | Audience (Synaplan client ID) baked into the exchanged token. |
+| `SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT` | Authorization endpoint the browser uses when a person allows work while they are away (code flow with `offline_access` for the exchange client). |
+| `SYNAPLAN_OPENCLOUD_CLIENT_ID` | OpenCloud's own OIDC client. A connected person's token is exchanged for it to read and write their files while they are away. Default `opencloud`. |
 
 ### Mode B: shared API key (simple, discouraged)
 
@@ -79,7 +81,6 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 |-----|---------|
 | `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
 | `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. Also encrypts keys in the state file when `SYNAPLAN_STATE_KEY` is unset. |
-| `OC_MACHINE_AUTH_API_KEY` | Same value as on OpenCloud. Lets copies and watches read and write a person's files without their browser session. |
 | `SYNAPLAN_INSTANCE_ID` / `SYNAPLAN_INSTANCE_SECRET` | The instance credential: which cloud this is. Normally left empty — an OpenCloud administrator registers from the Synaplan page (below). Set only when an operator obtained a credential elsewhere. |
 | `SYNAPLAN_DELIVERY_URL` | Address Synaplan calls. In dev: `http://host.docker.internal:9106/api/synaplan/inbound`. |
 | `SYNAPLAN_PUBLIC_URL` | Address a person opens in the browser, used in links back to a file. |

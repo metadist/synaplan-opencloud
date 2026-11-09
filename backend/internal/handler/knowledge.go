@@ -66,11 +66,11 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Keeping the copy up to date needs the key that works while the person
-	// is away. Without it the flag is not sent: Synaplan would wait for an
+	// Keeping the copy up to date needs the person's consent to work while
+	// they are away (a connected offline token). Without it the flag is not sent: Synaplan would wait for an
 	// upload that never comes, and the person would be told it is followed.
 	userID := currentUserID(r.Context())
-	keepSynced := req.KeepSynced && h.ensureBackgroundKey(r.Context(), userID)
+	keepSynced := req.KeepSynced && h.canActAway(userID)
 
 	var uploaded *uploadedFile
 	var savedPath, savedEtag string

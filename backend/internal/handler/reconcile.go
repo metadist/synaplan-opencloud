@@ -42,7 +42,7 @@ func (h *Handler) RunReconciler(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 	for {
-		if h.hasInstance() && h.settings.MachineAuthKey != "" {
+		if h.hasInstance() && h.delegation.Configured() {
 			passCtx, cancel := context.WithTimeout(ctx, passTimeout)
 			h.reconcileOnce(passCtx, "")
 			cancel()
@@ -85,10 +85,7 @@ func (h *Handler) WatchReconcileNow(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) loadWatchIndex(ctx context.Context) []indexWatch {
 	callCtx, cancel := bounded(ctx)
 	defer cancel()
-	status, body, err := h.synaplanDo(callCtx, http.MethodGet, "/api/v1/platform-links/watches?limit=500", nil, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+	status, body, err := h.synaplanDo(callCtx, http.MethodGet, "/api/v1/platform-links/watches?limit=500", nil, callOptions{cloud: true})
 	h.indexMu.Lock()
 	defer h.indexMu.Unlock()
 	if err != nil || status != http.StatusOK {
@@ -152,30 +149,22 @@ func (h *Handler) syncWatches(ctx context.Context, onlyUser string) {
 }
 
 func (h *Handler) reconcileWatch(ctx context.Context, watch indexWatch) {
-	if watch.Owner == "" || watch.TargetID == "" || h.cs3 == nil {
-		return
-	}
-	key := h.store().User(watch.Owner).BackgroundKey
-	if key == "" {
+	if watch.Owner == "" || watch.TargetID == "" || !h.canActAway(watch.Owner) {
 		return
 	}
 	ctx, cancel := bounded(ctx)
 	defer cancel()
-	userCtx, err := h.cs3.Impersonate(ctx, watch.Owner)
-	if err != nil {
-		log.Printf("watch %d impersonate: %v", watch.ID, err)
-		return
-	}
+	files := h.awayFiles(watch.Owner)
 	now := time.Now().Unix()
 	var rows []cs3reader.Child
 	if watch.TargetKind == "file" {
-		meta, err := h.cs3.StatAny(userCtx, watch.TargetID)
+		meta, err := files.StatAny(ctx, watch.TargetID)
 		if err != nil {
 			return
 		}
 		rows = []cs3reader.Child{{ID: watch.TargetID, Name: meta.Name, Etag: meta.Etag, MimeType: meta.MimeType, Size: meta.Size}}
 	} else {
-		children, err := h.cs3.List(userCtx, watch.TargetID)
+		children, err := files.List(ctx, watch.TargetID)
 		if err != nil {
 			log.Printf("watch %d list: %v", watch.ID, err)
 			return
@@ -200,7 +189,7 @@ func (h *Handler) reconcileWatch(ctx context.Context, watch indexWatch) {
 	if len(payload) == 0 {
 		return
 	}
-	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/cloud/watches/"+strconv.Itoa(watch.ID)+"/reconcile", map[string]any{"items": payload}, callOptions{apiKey: key})
+	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/cloud/watches/"+strconv.Itoa(watch.ID)+"/reconcile", map[string]any{"items": payload}, callOptions{as: watch.Owner})
 	if err != nil || status != http.StatusOK {
 		log.Printf("watch %d reconcile: status %d err %v", watch.ID, status, err)
 		return
@@ -214,14 +203,14 @@ func (h *Handler) reconcileWatch(ctx context.Context, watch indexWatch) {
 		if !ok {
 			continue
 		}
-		if err := h.uploadWatchFile(userCtx, watch.ID, child, key); err != nil {
+		if err := h.uploadWatchFile(ctx, files, watch.Owner, watch.ID, child); err != nil {
 			log.Printf("watch %d upload %s: %v", watch.ID, child.Name, err)
 		}
 	}
 }
 
-func (h *Handler) uploadWatchFile(ctx context.Context, watchID int, child cs3reader.Child, apiKey string) error {
-	file, err := h.cs3.Open(ctx, child.ID)
+func (h *Handler) uploadWatchFile(ctx context.Context, files personFiles, sub string, watchID int, child cs3reader.Child) error {
+	file, err := files.Open(ctx, child.ID)
 	if err != nil {
 		return err
 	}
@@ -245,7 +234,7 @@ func (h *Handler) uploadWatchFile(ctx context.Context, watchID int, child cs3rea
 		return err
 	}
 	status, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/cloud/watches/"+strconv.Itoa(watchID)+"/files", nil, callOptions{
-		apiKey:      apiKey,
+		as:          sub,
 		raw:         bytes.NewReader(buf.Bytes()),
 		contentType: mw.FormDataContentType(),
 		limit:       1 << 20,
@@ -287,13 +276,16 @@ type sourceChange struct {
 // version moves on only after Synaplan took the event and any upload it
 // asked for succeeded, so a failed upload is retried on the next pass.
 func (h *Handler) syncSourceEvents(ctx context.Context, onlyUser string) {
-	files := h.store().Synced()
-	if len(files) == 0 || h.cs3 == nil {
+	synced := h.store().Synced()
+	if len(synced) == 0 {
 		return
 	}
-	var changes []sourceChange
-	for _, file := range files {
+	byPerson := map[string][]sourceChange{}
+	for _, file := range synced {
 		if onlyUser != "" && file.UserID != onlyUser {
+			continue
+		}
+		if !h.canActAway(file.UserID) {
 			continue
 		}
 		if ctx.Err() != nil {
@@ -301,26 +293,21 @@ func (h *Handler) syncSourceEvents(ctx context.Context, onlyUser string) {
 		}
 		change, ok := h.sourceChangeFor(ctx, file)
 		if ok {
-			changes = append(changes, change)
+			byPerson[file.UserID] = append(byPerson[file.UserID], change)
 		}
 	}
-	for start := 0; start < len(changes); start += sourceEventBatch {
-		end := start + sourceEventBatch
-		if end > len(changes) {
-			end = len(changes)
+	for sub, changes := range byPerson {
+		for start := 0; start < len(changes); start += sourceEventBatch {
+			end := min(start+sourceEventBatch, len(changes))
+			h.sendSourceEvents(ctx, sub, changes[start:end])
 		}
-		h.sendSourceEvents(ctx, changes[start:end])
 	}
 }
 
 func (h *Handler) sourceChangeFor(ctx context.Context, file state.Synced) (sourceChange, bool) {
 	callCtx, cancel := bounded(ctx)
 	defer cancel()
-	userCtx, err := h.cs3.Impersonate(callCtx, file.UserID)
-	if err != nil {
-		return sourceChange{}, false
-	}
-	meta, err := h.cs3.StatAny(userCtx, file.ResourceID)
+	meta, err := h.awayFiles(file.UserID).StatAny(callCtx, file.ResourceID)
 	if errors.Is(err, cs3reader.ErrNotFound) {
 		return sourceChange{
 			file:  file,
@@ -345,17 +332,14 @@ func (h *Handler) sourceChangeFor(ctx context.Context, file state.Synced) (sourc
 	}, true
 }
 
-func (h *Handler) sendSourceEvents(ctx context.Context, changes []sourceChange) {
+func (h *Handler) sendSourceEvents(ctx context.Context, sub string, changes []sourceChange) {
 	events := make([]map[string]string, 0, len(changes))
 	for _, change := range changes {
 		events = append(events, change.event)
 	}
 	callCtx, cancel := bounded(ctx)
 	defer cancel()
-	status, body, err := h.synaplanDo(callCtx, http.MethodPost, "/api/v1/platform-links/sources/events", map[string]any{"events": events}, callOptions{
-		skipUser: true,
-		extra:    h.instanceHeaders(),
-	})
+	status, body, err := h.synaplanDo(callCtx, http.MethodPost, "/api/v1/platform-links/sources/events", map[string]any{"events": events}, callOptions{as: sub})
 	if err != nil || status != http.StatusOK {
 		log.Printf("source events: status %d err %v", status, err)
 		return
@@ -387,17 +371,12 @@ func (h *Handler) sendSourceEvents(ctx context.Context, changes []sourceChange) 
 // reuploadSynced sends the new bytes of a searchable file. It reports
 // whether the upload succeeded, so the caller commits the version only then.
 func (h *Handler) reuploadSynced(ctx context.Context, file state.Synced) bool {
-	key := h.store().User(file.UserID).BackgroundKey
-	if key == "" || h.cs3 == nil {
+	if !h.canActAway(file.UserID) {
 		return false
 	}
 	ctx, cancel := bounded(ctx)
 	defer cancel()
-	userCtx, err := h.cs3.Impersonate(ctx, file.UserID)
-	if err != nil {
-		return false
-	}
-	opened, err := h.cs3.Open(userCtx, file.ResourceID)
+	opened, err := h.awayFiles(file.UserID).Open(ctx, file.ResourceID)
 	if err != nil {
 		return false
 	}
@@ -422,7 +401,7 @@ func (h *Handler) reuploadSynced(ctx context.Context, file state.Synced) bool {
 		return false
 	}
 	status, _, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/files/upload", nil, callOptions{
-		apiKey:      key,
+		as:          file.UserID,
 		raw:         bytes.NewReader(buf.Bytes()),
 		contentType: mw.FormDataContentType(),
 		limit:       1 << 20,

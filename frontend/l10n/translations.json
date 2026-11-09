@@ -153,7 +153,13 @@
     "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
       "Synaplan kennt eine weitere Cloud für diesen Login, daher kann nichts, was mit einem persönlichen Login gesendet wird, dieser zugeordnet werden. Bitten Sie einen Synaplan-Administrator, die nicht mehr genutzte zu entfernen.",
       "Synaplan kennt %{count} weitere Clouds für diesen Login, daher kann nichts, was mit einem persönlichen Login gesendet wird, dieser zugeordnet werden. Bitten Sie einen Synaplan-Administrator, die nicht mehr genutzten zu entfernen."
-    ]
+    ],
+    "While you are away": "Während Sie abwesend sind",
+    "Synaplan may work for you while you are away.": "Synaplan darf für Sie arbeiten, während Sie abwesend sind.",
+    "Synaplan works for you only while you use OpenCloud.": "Synaplan arbeitet nur für Sie, während Sie OpenCloud nutzen.",
+    "Allow": "Erlauben",
+    "Stop": "Beenden",
+    "Synaplan could not be allowed to work for you. Try again.": "Synaplan konnte nicht erlaubt werden, für Sie zu arbeiten. Versuchen Sie es erneut."
   },
   "es": {
     "Synaplan": "Synaplan",
@@ -309,7 +315,13 @@
     "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
       "Synaplan conoce otra nube para este inicio de sesión, así que nada enviado con el inicio de sesión de una persona puede atribuirse a esta. Pide a un administrador de Synaplan que elimine la que ya no se usa.",
       "Synaplan conoce %{count} nubes más para este inicio de sesión, así que nada enviado con el inicio de sesión de una persona puede atribuirse a esta. Pide a un administrador de Synaplan que elimine las que ya no se usan."
-    ]
+    ],
+    "While you are away": "Mientras no estás",
+    "Synaplan may work for you while you are away.": "Synaplan puede trabajar para ti mientras no estás.",
+    "Synaplan works for you only while you use OpenCloud.": "Synaplan solo trabaja para ti mientras usas OpenCloud.",
+    "Allow": "Permitir",
+    "Stop": "Detener",
+    "Synaplan could not be allowed to work for you. Try again.": "No se pudo permitir que Synaplan trabaje para ti. Inténtalo de nuevo."
   },
   "fr": {
     "Synaplan": "Synaplan",
@@ -465,7 +477,13 @@
     "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
       "Synaplan connaît un autre cloud pour cet identifiant ; rien de ce qui est envoyé avec l'identifiant d'une personne ne peut donc être attribué à celui-ci. Demandez à un administrateur Synaplan de retirer celui qui n'est plus utilisé.",
       "Synaplan connaît %{count} autres clouds pour cet identifiant ; rien de ce qui est envoyé avec l'identifiant d'une personne ne peut donc être attribué à celui-ci. Demandez à un administrateur Synaplan de retirer ceux qui ne sont plus utilisés."
-    ]
+    ],
+    "While you are away": "Pendant votre absence",
+    "Synaplan may work for you while you are away.": "Synaplan peut travailler pour vous pendant votre absence.",
+    "Synaplan works for you only while you use OpenCloud.": "Synaplan ne travaille pour vous que pendant que vous utilisez OpenCloud.",
+    "Allow": "Autoriser",
+    "Stop": "Arrêter",
+    "Synaplan could not be allowed to work for you. Try again.": "Synaplan n’a pas pu être autorisé à travailler pour vous. Réessayez."
   },
   "tr": {
     "Synaplan": "Synaplan",
@@ -621,6 +639,12 @@
     "Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.": [
       "Synaplan bu giriş için bir bulut daha tanıyor; bu yüzden bir kişinin girişiyle gönderilen hiçbir şey buna atfedilemez. Artık kullanılmayanı kaldırması için bir Synaplan yöneticisine sorun.",
       "Synaplan bu giriş için %{count} bulut daha tanıyor; bu yüzden bir kişinin girişiyle gönderilen hiçbir şey buna atfedilemez. Artık kullanılmayanları kaldırması için bir Synaplan yöneticisine sorun."
-    ]
+    ],
+    "While you are away": "Siz yokken",
+    "Synaplan may work for you while you are away.": "Synaplan siz yokken sizin için çalışabilir.",
+    "Synaplan works for you only while you use OpenCloud.": "Synaplan yalnızca OpenCloud kullanırken sizin için çalışır.",
+    "Allow": "İzin ver",
+    "Stop": "Durdur",
+    "Synaplan could not be allowed to work for you. Try again.": "Synaplan’ın sizin için çalışmasına izin verilemedi. Tekrar deneyin."
   }
 }

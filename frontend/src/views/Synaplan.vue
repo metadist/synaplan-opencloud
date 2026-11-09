@@ -74,6 +74,7 @@
       </p>
 
       <account-card />
+      <background-access />
       <admin-settings />
       <ask-panel />
     </div>
@@ -87,6 +88,7 @@ import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 import AccountCard from '../components/AccountCard.vue'
+import BackgroundAccess from '../components/BackgroundAccess.vue'
 import AdminSettings from '../components/AdminSettings.vue'
 import AskPanel from '../components/AskPanel.vue'
 

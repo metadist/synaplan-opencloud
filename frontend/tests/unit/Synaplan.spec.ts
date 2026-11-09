@@ -27,11 +27,12 @@ const ocStub = (tag: string) =>
 
 const globalStubs = {
   'oc-button': ocStub('oc-button'),
-  // The three sections have their own specs; the view test covers the
+  // The sections have their own specs; the view test covers the
   // heading, the links and the connection test.
   AccountCard: true,
   AdminSettings: true,
-  AskPanel: true
+  AskPanel: true,
+  BackgroundAccess: true
 }
 
 import Synaplan from '../../src/views/Synaplan.vue'

@@ -13,6 +13,7 @@ func (h *Handler) Connection(w http.ResponseWriter, r *http.Request) {
 		"mode":       "organisation",
 		"configured": h.hasInstance(),
 		"bound":      h.bound(r.Context()),
+		"background": h.canActAway(currentUserID(r.Context())),
 		"serverUrl":  h.synaplanURL,
 		"publicUrl":  h.settings.PublicURL,
 	})
@@ -35,17 +36,16 @@ func (h *Handler) Bind(w http.ResponseWriter, r *http.Request) {
 		writeUpstream(w, status, body)
 		return
 	}
-	h.ensureBackgroundKey(r.Context(), uid)
 	writeJSON(w, http.StatusOK, map[string]any{"bound": true})
 }
 
 // bindLogin tells Synaplan that this OpenCloud login is the person's
-// Synaplan login. The person's own token proves it, so the first cloud
-// action (a watch, keep up to date) may do it without a separate click.
+// Synaplan login. The person's own token proves it, and Synaplan takes the
+// cloud from the token's client and the platform user from its subject.
 func (h *Handler) bindLogin(ctx context.Context, uid string) (int, []byte, error) {
 	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/sso/bind", map[string]string{
 		"external_id": uid,
-	}, callOptions{extra: h.instanceHeaders()})
+	}, callOptions{})
 	if err != nil || status >= 400 {
 		return status, body, err
 	}
@@ -81,7 +81,7 @@ func (h *Handler) bound(ctx context.Context) bool {
 	if !h.hasInstance() {
 		return false
 	}
-	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/api/v1/platform-links/sso/status?external_id="+currentUserID(ctx), nil, callOptions{extra: h.instanceHeaders()})
+	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/api/v1/platform-links/sso/status", nil, callOptions{})
 	if err != nil || status != http.StatusOK {
 		return false
 	}
@@ -90,38 +90,4 @@ func (h *Handler) bound(ctx context.Context) bool {
 	}
 	_ = json.Unmarshal(body, &parsed)
 	return parsed.Bound
-}
-
-// ensureBackgroundKey makes sure this service holds the key that works
-// while the person is away. It reports whether one is held afterwards.
-// Synaplan hands the plaintext out once; a later mint without it means
-// another instance of this service has it, and that is reported as false.
-func (h *Handler) ensureBackgroundKey(ctx context.Context, uid string) bool {
-	if uid == "" || !h.hasInstance() {
-		return false
-	}
-	if h.store().User(uid).BackgroundKey != "" {
-		return true
-	}
-	h.linked(ctx, uid)
-	status, body, err := h.synaplanDo(ctx, http.MethodPost, "/api/v1/platform-links/sso/background-key", map[string]string{
-		"external_id": uid,
-	}, callOptions{extra: h.instanceHeaders()})
-	if err != nil || status != http.StatusOK {
-		log.Printf("background key: status %d err %v", status, err)
-		return false
-	}
-	var parsed struct {
-		Key string `json:"key"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil || parsed.Key == "" {
-		return false
-	}
-	user := h.store().User(uid)
-	user.BackgroundKey = parsed.Key
-	if err := h.store().PutUser(uid, user); err != nil {
-		log.Printf("store background key: %v", err)
-		return false
-	}
-	return true
 }

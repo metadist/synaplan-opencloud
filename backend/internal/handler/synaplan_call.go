@@ -22,9 +22,13 @@ type callOptions struct {
 	// skipUser leaves off the exchanged bearer. Instance operations
 	// (claim a copy, report a read) authenticate with the instance secret.
 	skipUser bool
-	// apiKey sends X-API-Key instead of the browser token. Used for the
-	// key that works while the person is away, and for registration.
-	apiKey string
+	// as is the person (token subject) a call is made for while they are
+	// away. The call carries a Synaplan token minted from their offline
+	// token instead of the browser's exchanged token.
+	as string
+	// cloud authenticates as this service itself (client credentials),
+	// for calls about the cloud rather than a person.
+	cloud bool
 	// raw is a body that is already encoded (multipart). payload is ignored.
 	raw         io.Reader
 	contentType string
@@ -62,13 +66,23 @@ func (h *Handler) synaplanDo(ctx context.Context, method, rel string, payload an
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
-	if !opt.skipUser && opt.apiKey == "" && h.editor != nil {
+	switch {
+	case opt.as != "":
+		token, err := h.personBearer(ctx, opt.as)
+		if err != nil {
+			return 0, nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	case opt.cloud:
+		token, err := h.delegation.ClientToken(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	case !opt.skipUser && h.editor != nil:
 		if err := h.editor(ctx, req); err != nil {
 			return 0, nil, err
 		}
-	}
-	if opt.apiKey != "" {
-		req.Header.Set("X-API-Key", opt.apiKey)
 	}
 	for key, values := range opt.extra {
 		for _, value := range values {
