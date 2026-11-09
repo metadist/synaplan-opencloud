@@ -175,9 +175,11 @@ Rules:
   translation or route miss will not show up in Vitest.
 - Run E2E the way CI does: `CI=1` (one worker, one retry, trace on retry).
   OpenCloud 8.1.0 crashed under parallel Playwright load
-  (`fatal error: concurrent map read and map write`); 9.0.0 has not been
-  tried with more workers yet. The container has no restart policy — bring
-  it back with `docker compose up -d` and wait for
+  (`fatal error: concurrent map read and map write`). 9.0.0 ran three times
+  with four workers without a crash, but then the knowledge visibility check
+  is flaky: OpenCloud's nav sidebar intercepts the hover on the Synaplan
+  submenu until the test times out. The container has no restart policy; if
+  it stops, bring it back with `docker compose up -d` and wait for
   `status.php`.
 - Locally the suite runs against **real AI providers** (the keys in
   Synaplan's `.env`); in CI it runs against Synaplan's test stack with the
