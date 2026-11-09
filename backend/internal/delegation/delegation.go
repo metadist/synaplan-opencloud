@@ -47,9 +47,8 @@ type Delegation struct {
 	cfg   Config
 	store Store
 
-	mu     sync.Mutex
-	cache  map[string]cached
-	client cached
+	mu    sync.Mutex
+	cache map[string]cached
 }
 
 type cached struct {
@@ -178,25 +177,35 @@ func (d *Delegation) Token(ctx context.Context, subject, audience string) (strin
 	return exchanged.AccessToken, nil
 }
 
-// ClientToken returns this service's own token (client credentials grant),
-// used only for calls the cloud makes as itself.
-func (d *Delegation) ClientToken(ctx context.Context) (string, error) {
+// ClientToken returns this service's own token for audience: a client
+// credentials token exchanged for that audience, used only for calls the
+// cloud makes as itself.
+func (d *Delegation) ClientToken(ctx context.Context, audience string) (string, error) {
 	if !d.Configured() {
 		return "", errors.New("delegation: no client configured")
 	}
+	key := "\x00client\x00" + audience
 	d.mu.Lock()
-	if time.Now().Before(d.client.expires) {
-		token := d.client.token
+	if c, ok := d.cache[key]; ok && time.Now().Before(c.expires) {
 		d.mu.Unlock()
-		return token, nil
+		return c.token, nil
 	}
 	d.mu.Unlock()
-	resp, err := d.post(ctx, url.Values{"grant_type": {"client_credentials"}})
+	own, err := d.post(ctx, url.Values{"grant_type": {"client_credentials"}})
+	if err != nil {
+		return "", err
+	}
+	resp, err := d.post(ctx, url.Values{
+		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
+		"subject_token":      {own.AccessToken},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
+		"audience":           {audience},
+	})
 	if err != nil {
 		return "", err
 	}
 	d.mu.Lock()
-	d.client = cached{token: resp.AccessToken, expires: expiry(resp.ExpiresIn)}
+	d.cache[key] = cached{token: resp.AccessToken, expires: expiry(resp.ExpiresIn)}
 	d.mu.Unlock()
 	return resp.AccessToken, nil
 }

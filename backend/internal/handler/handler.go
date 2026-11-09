@@ -101,9 +101,6 @@ type Handler struct {
 	keys        []string
 	keysLoaded  bool
 	keysAt      time.Time
-	indexMu     sync.Mutex
-	watchIndex  []indexWatch
-	indexAt     time.Time
 	memoryCache
 }
 

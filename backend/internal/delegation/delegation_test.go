@@ -145,3 +145,19 @@ func TestSubject(t *testing.T) {
 		}
 	}
 }
+
+func TestClientTokenIsExchangedForTheAudienceAndCached(t *testing.T) {
+	idp := &fakeIdP{}
+	srv := idp.serve(t)
+	defer srv.Close()
+	d := newDelegation(srv.URL)
+	for range 2 {
+		token, err := d.ClientToken(context.Background(), "synaplan-app")
+		if err != nil || token != "for-synaplan-app" {
+			t.Fatalf("token = %q, err = %v", token, err)
+		}
+	}
+	if idp.exchanges.Load() != 1 {
+		t.Fatalf("exchanges = %d, want one cached", idp.exchanges.Load())
+	}
+}

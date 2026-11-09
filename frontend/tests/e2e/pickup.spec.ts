@@ -48,6 +48,7 @@ function openPickup(folderPath: string): {
       'bin/console',
       'app:cloud-pickups:open-test',
       `--email=${TEST_USER}`,
+      '--client=opencloud',
       `--folder=${folderPath}`,
       '--mode=fetch'
     ]).toString()

@@ -74,7 +74,7 @@ func (h *Handler) synaplanDo(ctx context.Context, method, rel string, payload an
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 	case opt.cloud:
-		token, err := h.delegation.ClientToken(ctx)
+		token, err := h.delegation.ClientToken(ctx, h.settings.SynaplanAudience)
 		if err != nil {
 			return 0, nil, err
 		}

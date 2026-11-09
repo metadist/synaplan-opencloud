@@ -23,7 +23,7 @@ type indexWatch struct {
 	ID         int    `json:"id"`
 	TargetKind string `json:"target_kind"`
 	TargetID   string `json:"target_id"`
-	Owner      string `json:"owner_external_id"`
+	Owner      string `json:"-"`
 	State      string `json:"state"`
 }
 
@@ -78,24 +78,30 @@ func (h *Handler) WatchReconcileNow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"sentence": "Synaplan checked your watched files."})
 }
 
-// loadWatchIndex fetches the active watches on this instance. A 200
-// answer is authoritative, an empty one too: a watch the person stopped
-// in Synaplan is not in it and must not be revived from local memory.
-// The local list is used only when Synaplan did not answer.
+// loadWatchIndex collects the active watches of everyone who allowed work
+// while they are away, each read with that person's own token. There is no
+// cloud-wide index: the service sees only the watches of people it may act
+// for. A 200 answer is authoritative for that person; when Synaplan does not
+// answer, the watches started here are used for them.
 func (h *Handler) loadWatchIndex(ctx context.Context) []indexWatch {
+	out := make([]indexWatch, 0)
+	for _, sub := range h.delegation.Subjects() {
+		out = append(out, h.watchesOf(ctx, sub)...)
+	}
+	return out
+}
+
+func (h *Handler) watchesOf(ctx context.Context, sub string) []indexWatch {
 	callCtx, cancel := bounded(ctx)
 	defer cancel()
-	status, body, err := h.synaplanDo(callCtx, http.MethodGet, "/api/v1/platform-links/watches?limit=500", nil, callOptions{cloud: true})
-	h.indexMu.Lock()
-	defer h.indexMu.Unlock()
+	status, body, err := h.synaplanDo(callCtx, http.MethodGet, "/api/v1/cloud/watches", nil, callOptions{as: sub})
 	if err != nil || status != http.StatusOK {
-		log.Printf("watch index: status %d err %v", status, err)
-		if time.Since(h.indexAt) < time.Hour && h.watchIndex != nil {
-			return h.watchIndex
-		}
+		log.Printf("watches of a person: status %d err %v", status, err)
 		fallback := make([]indexWatch, 0)
 		for _, local := range h.store().Watches() {
-			fallback = append(fallback, indexWatch{ID: local.ID, TargetKind: local.TargetKind, TargetID: local.TargetID, Owner: local.UserID, State: "active"})
+			if local.UserID == sub {
+				fallback = append(fallback, indexWatch{ID: local.ID, TargetKind: local.TargetKind, TargetID: local.TargetID, Owner: sub, State: "active"})
+			}
 		}
 		return fallback
 	}
@@ -103,30 +109,26 @@ func (h *Handler) loadWatchIndex(ctx context.Context) []indexWatch {
 		Items []indexWatch `json:"items"`
 	}
 	if err := json.Unmarshal(body, &page); err != nil {
-		return h.watchIndex
+		return nil
 	}
-	if page.Items == nil {
-		page.Items = []indexWatch{}
-	}
-	h.watchIndex = page.Items
-	h.indexAt = time.Now()
 	known := map[int]bool{}
-	for _, item := range page.Items {
-		known[item.ID] = true
+	for i := range page.Items {
+		page.Items[i].Owner = sub
+		known[page.Items[i].ID] = true
 	}
 	for _, local := range h.store().Watches() {
-		if !known[local.ID] {
+		if local.UserID == sub && !known[local.ID] {
 			_ = h.store().ForgetWatch(local.ID)
 		}
 	}
 	return page.Items
 }
 
-// activeWatchesFor returns the index rows that belong to one person.
+// activeWatchesFor returns one person's active watches.
 func (h *Handler) activeWatchesFor(ctx context.Context, uid string) []indexWatch {
 	var out []indexWatch
-	for _, watch := range h.loadWatchIndex(ctx) {
-		if watch.Owner == uid && (watch.State == "" || watch.State == "active") {
+	for _, watch := range h.watchesOf(ctx, uid) {
+		if watch.State == "" || watch.State == "active" {
 			out = append(out, watch)
 		}
 	}
