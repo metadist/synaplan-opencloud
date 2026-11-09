@@ -18,6 +18,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
@@ -61,6 +62,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			cs3 := cs3reader.New(gws, cfg.Insecure)
 
 			var editor synaplanapi.RequestEditorFn
+			var delegated *delegation.Delegation
 			if cfg.SynaplanAPIKey != "" {
 				logger.Warn().Msg("synaplan-opencloud: using shared API key auth — all calls will appear to Synaplan as a single user")
 				editor = synaplanauth.NewAPIKeyRequestEditor(cfg.SynaplanAPIKey)
@@ -72,9 +74,16 @@ func Server(cfg *config.Config) *cobra.Command {
 					cfg.OIDCTargetAudience,
 				)
 				editor = synaplanauth.NewRequestEditor(exchanger)
+				delegated = delegation.New(delegation.Config{
+					AuthorizeEndpoint:  cfg.OIDCAuthorizeEndpoint,
+					TokenEndpoint:      cfg.OIDCTokenEndpoint,
+					RevocationEndpoint: cfg.OIDCRevocationEndpoint,
+					ClientID:           cfg.OIDCExchangeClientID,
+					ClientSecret:       cfg.OIDCExchangeSecret,
+				}, delegation.NewMemoryStore())
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3)
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, cfg.OIDCTargetAudience)
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
@@ -103,6 +112,8 @@ func Server(cfg *config.Config) *cobra.Command {
 			// Public — <img> can't send a Bearer header.
 			mux.Get("/api/synaplan/assets/brand-icon", h.BrandIcon)
 			mux.Get("/api/synaplan/assets/{name}", h.Asset)
+			// Public — Synaplan calls it; a notification is a signed token.
+			mux.Post("/api/synaplan/inbound", h.Inbound)
 
 			mux.Group(func(r chi.Router) {
 				r.Use(synaplanauth.Middleware)
@@ -114,6 +125,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
+				r.Get("/api/synaplan/delegation", h.DelegationStatus)
+				r.Post("/api/synaplan/delegation", h.DelegationConnect)
+				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
 			})
 
 			server := &stdhttp.Server{

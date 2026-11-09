@@ -69,6 +69,8 @@
       <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-error">
         {{ error }}
       </p>
+
+      <BackgroundAccess />
     </div>
   </div>
 </template>
@@ -78,6 +80,7 @@ import { computed, ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
+import BackgroundAccess from '../components/BackgroundAccess.vue'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 
 const props = defineProps<{

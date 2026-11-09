@@ -33,6 +33,12 @@ type Config struct {
 	OIDCExchangeSecret   string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience   string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
+	// Working while a person is away: the person allows it once, their
+	// browser obtains a code for the exchange client, and this service keeps
+	// the resulting offline token in memory.
+	OIDCAuthorizeEndpoint  string `yaml:"oidc_authorize_endpoint" env:"SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT" desc:"Authorization endpoint the person's browser uses to allow work while they are away (authorization code with PKCE and offline_access for the exchange client). Empty turns it off."`
+	OIDCRevocationEndpoint string `yaml:"oidc_revocation_endpoint" env:"SYNAPLAN_OIDC_REVOCATION_ENDPOINT" desc:"Revocation endpoint (RFC 7009) that ends a person's offline token when they withdraw the permission. Empty turns working while away off."`
+
 	Context context.Context `yaml:"-"`
 }
 

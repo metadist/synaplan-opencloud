@@ -25,6 +25,7 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
+| `backend/internal/delegation/`, `notify/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications. |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
@@ -126,6 +127,22 @@ server's copy of the same app id.
   minutes; `/me` uses the incoming context).
 - Errors carry context: `fmt.Errorf("creating synaplan API client: %w", err)`.
   Never log or echo `SYNAPLAN_API_KEY`, exchanged tokens or `OC_JWT_SECRET`.
+- **The right token for the right service, always.** The token OpenCloud's
+  proxy hands us was issued for OpenCloud: it goes to OpenCloud's own APIs
+  and into the RFC 8693 exchange as `subject_token`, nowhere else. Every
+  call to Synaplan carries one of two things: the token the exchange minted
+  for Synaplan (`synaplanauth.NewRequestEditor`), or, while the person is
+  away, a Synaplan token minted from their own offline token
+  (`forAbsentPerson(ctx, sub)`, `internal/delegation`). The shared API key
+  of Mode B replaces both; Synaplan's open documents carry none
+  (`anonymous(ctx)`). There is no service or machine credential. The
+  generated client is the only HTTP path to Synaplan: its editors pick the
+  credential (`Handler.authenticate`) and end with `refuseOpenCloudToken`,
+  which refuses a request whose bearer equals the incoming OpenCloud token.
+  Do not call Synaplan by hand.
+- Notifications from Synaplan are verified in `internal/notify` before
+  anything they name is trusted: keys and issuer come from `SYNAPLAN_URL`,
+  never from the token.
 - Env var conventions: service-specific vars use the bare service name,
   `SYNAPLAN_HTTP_ADDR`, `SYNAPLAN_URL`, `SYNAPLAN_OIDC_*`; cross-service vars
   use `OC_`: `OC_REVA_GATEWAY`, `OC_JWT_SECRET`, `OC_INSECURE`; where both

@@ -15,3 +15,5 @@ services:
     environment:
       SYNAPLAN_URL: "http://host.docker.internal:8001"
       SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8081/realms/synaplan/protocol/openid-connect/token"
+      SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT: "https://host.docker.internal:8444/realms/synaplan/protocol/openid-connect/auth"
+      SYNAPLAN_OIDC_REVOCATION_ENDPOINT: "http://host.docker.internal:8081/realms/synaplan/protocol/openid-connect/revoke"

@@ -26,7 +26,8 @@ const ocStub = (tag: string) =>
   })
 
 const globalStubs = {
-  'oc-button': ocStub('oc-button')
+  'oc-button': ocStub('oc-button'),
+  BackgroundAccess: true
 }
 
 import Synaplan from '../../src/views/Synaplan.vue'
