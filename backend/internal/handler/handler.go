@@ -95,6 +95,7 @@ type Handler struct {
 	credential  atomic.Pointer[instanceCredential]
 	state       *state.Store
 	delegation  *delegation.Delegation
+	service     *delegation.Service
 	seen        *notify.Seen
 	seenMu      sync.Mutex
 	keysMu      sync.Mutex
@@ -108,7 +109,7 @@ type Handler struct {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *delegation.Delegation, settings Settings) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *delegation.Delegation, service *delegation.Service, settings Settings) (*Handler, error) {
 	apiClient, err := synaplanapi.NewClientWithResponses(
 		synaplanURL,
 		synaplanapi.WithHTTPClient(&http.Client{}),
@@ -147,6 +148,7 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		settings:    settings,
 		state:       store,
 		delegation:  delegated,
+		service:     service,
 		seen:        notify.NewSeen(),
 	}
 	if settings.InstanceID != "" && settings.InstanceSecret != "" {

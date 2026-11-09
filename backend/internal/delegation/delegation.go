@@ -67,7 +67,7 @@ type tokenResponse struct {
 // New returns a Delegation backed by store.
 func New(cfg Config, store Store) *Delegation {
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{Timeout: 15 * time.Second}
+		cfg.HTTPClient = defaultHTTPClient()
 	}
 	return &Delegation{cfg: cfg, store: store, cache: map[string]cached{}}
 }
@@ -177,39 +177,6 @@ func (d *Delegation) Token(ctx context.Context, subject, audience string) (strin
 	return exchanged.AccessToken, nil
 }
 
-// ClientToken returns this service's own token for audience: a client
-// credentials token exchanged for that audience, used only for calls the
-// cloud makes as itself.
-func (d *Delegation) ClientToken(ctx context.Context, audience string) (string, error) {
-	if !d.Configured() {
-		return "", errors.New("delegation: no client configured")
-	}
-	key := "\x00client\x00" + audience
-	d.mu.Lock()
-	if c, ok := d.cache[key]; ok && time.Now().Before(c.expires) {
-		d.mu.Unlock()
-		return c.token, nil
-	}
-	d.mu.Unlock()
-	own, err := d.post(ctx, url.Values{"grant_type": {"client_credentials"}})
-	if err != nil {
-		return "", err
-	}
-	resp, err := d.post(ctx, url.Values{
-		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
-		"subject_token":      {own.AccessToken},
-		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
-		"audience":           {audience},
-	})
-	if err != nil {
-		return "", err
-	}
-	d.mu.Lock()
-	d.cache[key] = cached{token: resp.AccessToken, expires: expiry(resp.ExpiresIn)}
-	d.mu.Unlock()
-	return resp.AccessToken, nil
-}
-
 func (d *Delegation) forget(subject string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -227,14 +194,18 @@ func (e *rejectedError) Error() string {
 }
 
 func (d *Delegation) post(ctx context.Context, form url.Values) (*tokenResponse, error) {
-	form.Set("client_id", d.cfg.ClientID)
-	form.Set("client_secret", d.cfg.ClientSecret)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.cfg.TokenEndpoint, strings.NewReader(form.Encode()))
+	return post(ctx, d.cfg, form)
+}
+
+func post(ctx context.Context, cfg Config, form url.Values) (*tokenResponse, error) {
+	form.Set("client_id", cfg.ClientID)
+	form.Set("client_secret", cfg.ClientSecret)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := d.cfg.HTTPClient.Do(req)
+	res, err := cfg.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("delegation: token endpoint: %w", err)
 	}
@@ -252,6 +223,10 @@ func (d *Delegation) post(ctx context.Context, form url.Values) (*tokenResponse,
 		return nil, fmt.Errorf("delegation: token endpoint answered %d: %s", res.StatusCode, parsed.Error)
 	}
 	return &parsed, nil
+}
+
+func defaultHTTPClient() *http.Client {
+	return &http.Client{Timeout: 15 * time.Second}
 }
 
 func expiry(seconds int) time.Time {

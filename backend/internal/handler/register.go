@@ -161,6 +161,9 @@ func (h *Handler) announce(ctx context.Context) bool {
 		"app_version":      "1.1.0",
 		"oidc_client_id":   h.settings.OIDCClientID,
 	}
+	if id := h.service.ClientID(); id != "" {
+		body["oidc_service_client_id"] = id
+	}
 	if h.settings.DeliveryURL != "" {
 		body["delivery_url"] = h.settings.DeliveryURL
 	}

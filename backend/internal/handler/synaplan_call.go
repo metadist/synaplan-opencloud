@@ -26,8 +26,9 @@ type callOptions struct {
 	// away. The call carries a Synaplan token minted from their offline
 	// token instead of the browser's exchanged token.
 	as string
-	// cloud authenticates as this service itself (client credentials),
-	// for calls about the cloud rather than a person.
+	// cloud authenticates as this service itself with its own service
+	// client (client credentials), for calls about the cloud rather than a
+	// person.
 	cloud bool
 	// raw is a body that is already encoded (multipart). payload is ignored.
 	raw         io.Reader
@@ -74,7 +75,7 @@ func (h *Handler) synaplanDo(ctx context.Context, method, rel string, payload an
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 	case opt.cloud:
-		token, err := h.delegation.ClientToken(ctx, h.settings.SynaplanAudience)
+		token, err := h.service.Token(ctx)
 		if err != nil {
 			return 0, nil, err
 		}

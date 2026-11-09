@@ -90,6 +90,8 @@ services:
       SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
+      SYNAPLAN_OIDC_SERVICE_CLIENT_ID: "synaplan-opencloud-service"
+      SYNAPLAN_OIDC_SERVICE_CLIENT_SECRET: "synaplan-opencloud-service-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
       SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT: "https://host.docker.internal:8443/realms/synaplan/protocol/openid-connect/auth"
       SYNAPLAN_OPENCLOUD_CLIENT_ID: "opencloud"

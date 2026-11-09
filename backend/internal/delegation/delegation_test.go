@@ -146,18 +146,21 @@ func TestSubject(t *testing.T) {
 	}
 }
 
-func TestClientTokenIsExchangedForTheAudienceAndCached(t *testing.T) {
+func TestServiceTokenIsAPlainClientCredentialsTokenAndCached(t *testing.T) {
 	idp := &fakeIdP{}
 	srv := idp.serve(t)
 	defer srv.Close()
-	d := newDelegation(srv.URL)
+	s := NewService(Config{TokenEndpoint: srv.URL, ClientID: "synaplan-opencloud-service", ClientSecret: "secret"})
 	for range 2 {
-		token, err := d.ClientToken(context.Background(), "synaplan-app")
-		if err != nil || token != "for-synaplan-app" {
+		token, err := s.Token(context.Background())
+		if err != nil || token != "client" {
 			t.Fatalf("token = %q, err = %v", token, err)
 		}
 	}
-	if idp.exchanges.Load() != 1 {
-		t.Fatalf("exchanges = %d, want one cached", idp.exchanges.Load())
+	if idp.lastGrant != "client_credentials" || idp.exchanges.Load() != 0 {
+		t.Fatalf("grant = %q, exchanges = %d", idp.lastGrant, idp.exchanges.Load())
+	}
+	if NewService(Config{}).Configured() {
+		t.Fatal("an empty service client is not configured")
 	}
 }

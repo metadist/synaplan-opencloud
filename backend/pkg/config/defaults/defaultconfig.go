@@ -42,16 +42,18 @@ func DefaultConfig() *config.Config {
 		GRPCClientTLS: &shared.GRPCClientTLS{
 			Mode: "off",
 		},
-		SynaplanURL:           "http://host.docker.internal:8000",
-		OIDCTokenEndpoint:     "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token",
-		OIDCExchangeClientID:  "synaplan-opencloud",
-		OIDCExchangeSecret:    "synaplan-opencloud-secret",
-		OIDCTargetAudience:    "synaplan-app",
-		OIDCAuthorizeEndpoint: "https://host.docker.internal:8443/realms/synaplan/protocol/openid-connect/auth",
-		OpenCloudClientID:     "opencloud",
-		DefaultAnswerLanguage: "en",
-		UseUserLanguage:       true,
-		AllowMemories:         true,
+		SynaplanURL:             "http://host.docker.internal:8000",
+		OIDCTokenEndpoint:       "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token",
+		OIDCExchangeClientID:    "synaplan-opencloud",
+		OIDCExchangeSecret:      "synaplan-opencloud-secret",
+		OIDCTargetAudience:      "synaplan-app",
+		OIDCAuthorizeEndpoint:   "https://host.docker.internal:8443/realms/synaplan/protocol/openid-connect/auth",
+		OpenCloudClientID:       "opencloud",
+		OIDCServiceClientID:     "synaplan-opencloud-service",
+		OIDCServiceClientSecret: "synaplan-opencloud-service-secret",
+		DefaultAnswerLanguage:   "en",
+		UseUserLanguage:         true,
+		AllowMemories:           true,
 	}
 }
 

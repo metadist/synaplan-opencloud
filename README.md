@@ -60,6 +60,7 @@ Each call to Synaplan rides on the logged-in OpenCloud user's identity, exchange
 | `SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID` / `SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET` | Confidential client credentials that perform the exchange. |
 | `SYNAPLAN_OIDC_TARGET_AUDIENCE` | Audience (Synaplan client ID) baked into the exchanged token. |
 | `SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT` | Authorization endpoint the browser uses when a person allows work while they are away (code flow with `offline_access` for the exchange client). |
+| `SYNAPLAN_OIDC_SERVICE_CLIENT_ID` / `SYNAPLAN_OIDC_SERVICE_CLIENT_SECRET` | This service's own OIDC client (client credentials only, Synaplan as audience). It authenticates calls about the cloud rather than a person (status, announcing the delivery address) and must differ from the exchange client. |
 | `SYNAPLAN_OPENCLOUD_CLIENT_ID` | OpenCloud's own OIDC client. A connected person's token is exchanged for it to read and write their files while they are away. Default `opencloud`. |
 
 ### Mode B: shared API key (simple, discouraged)

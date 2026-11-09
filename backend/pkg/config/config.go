@@ -35,8 +35,10 @@ type Config struct {
 	// Background work: a person connects once, the browser obtains a code for
 	// the exchange client, and this service keeps the resulting offline token
 	// in memory to act as that person while they are away.
-	OIDCAuthorizeEndpoint string `yaml:"oidc_authorize_endpoint" env:"SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT" desc:"Authorization endpoint the browser uses to connect background work (code flow with offline_access for the exchange client)."`
-	OpenCloudClientID     string `yaml:"opencloud_client_id" env:"SYNAPLAN_OPENCLOUD_CLIENT_ID" desc:"OIDC client of OpenCloud itself. A connected person's token is exchanged for it to read and write their files while they are away."`
+	OIDCAuthorizeEndpoint   string `yaml:"oidc_authorize_endpoint" env:"SYNAPLAN_OIDC_AUTHORIZE_ENDPOINT" desc:"Authorization endpoint the browser uses to connect background work (code flow with offline_access for the exchange client)."`
+	OIDCServiceClientID     string `yaml:"oidc_service_client_id" env:"SYNAPLAN_OIDC_SERVICE_CLIENT_ID" desc:"OIDC client this service authenticates as itself with (client credentials only), for calls about the cloud rather than a person. Must differ from the exchange client."`
+	OIDCServiceClientSecret string `yaml:"oidc_service_client_secret" env:"SYNAPLAN_OIDC_SERVICE_CLIENT_SECRET" desc:"Client secret of the service client. Never logged."`
+	OpenCloudClientID       string `yaml:"opencloud_client_id" env:"SYNAPLAN_OPENCLOUD_CLIENT_ID" desc:"OIDC client of OpenCloud itself. A connected person's token is exchanged for it to read and write their files while they are away."`
 
 	// Instance credential. Empty until an OpenCloud administrator registers
 	// this OpenCloud on the Synaplan page (a Synaplan administrator then

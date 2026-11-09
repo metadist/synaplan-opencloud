@@ -77,15 +77,21 @@ func Server(cfg *config.Config) *cobra.Command {
 			}
 
 			var delegated *delegation.Delegation
+			var service *delegation.Service
 			if cfg.SynaplanAPIKey == "" {
 				delegated = delegation.New(delegation.Config{
 					TokenEndpoint: cfg.OIDCTokenEndpoint,
 					ClientID:      cfg.OIDCExchangeClientID,
 					ClientSecret:  cfg.OIDCExchangeSecret,
 				}, delegation.NewMemoryStore())
+				service = delegation.NewService(delegation.Config{
+					TokenEndpoint: cfg.OIDCTokenEndpoint,
+					ClientID:      cfg.OIDCServiceClientID,
+					ClientSecret:  cfg.OIDCServiceClientSecret,
+				})
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, handler.Settings{
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, service, handler.Settings{
 				InstanceID:            cfg.InstanceID,
 				InstanceSecret:        cfg.InstanceSecret,
 				DeliveryURL:           cfg.DeliveryURL,
