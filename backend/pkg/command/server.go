@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	stdhttp "net/http"
+	"os"
 	"os/signal"
 
 	"github.com/go-chi/chi/v5"
@@ -74,10 +75,32 @@ func Server(cfg *config.Config) *cobra.Command {
 				editor = synaplanauth.NewRequestEditor(exchanger)
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3)
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, handler.Settings{
+				InstanceID:     cfg.InstanceID,
+				InstanceSecret: cfg.InstanceSecret,
+				DeliveryURL:    cfg.DeliveryURL,
+				PublicURL:      cfg.PublicURL,
+				ServerID:       cfg.ServerID,
+				OIDCClientID:   cfg.OIDCExchangeClientID,
+				MachineAuthKey: cfg.MachineAuthKey,
+				StatePath:      cfg.StatePath,
+				StateKey:       cfg.StateKey,
+				HoldInbound:    os.Getenv("SYNAPLAN_DEV_HOLD_INBOUND") == "1",
+				AllowSelfWrite: os.Getenv("SYNAPLAN_DEV_ALLOW_SELF_WRITE") == "1",
+				SharedKey:      cfg.SynaplanAPIKey != "",
+				OpenCloudURL:   cfg.OpenCloudURL,
+				Insecure:       cfg.Insecure,
+
+				DefaultAnswerLanguage: cfg.DefaultAnswerLanguage,
+				UseUserLanguage:       cfg.UseUserLanguage,
+				AllowMemories:         cfg.AllowMemories,
+			})
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
+			// Neither waits for Synaplan: the listener comes up regardless.
+			go h.RegisterInBackground(ctx)
+			go h.RunReconciler(ctx)
 
 			mux := chi.NewMux()
 			mux.Use(
@@ -103,6 +126,9 @@ func Server(cfg *config.Config) *cobra.Command {
 			// Public — <img> can't send a Bearer header.
 			mux.Get("/api/synaplan/assets/brand-icon", h.BrandIcon)
 			mux.Get("/api/synaplan/assets/{name}", h.Asset)
+			// Synaplan calls this with no OpenCloud session. The handler
+			// checks the signature before it fetches anything.
+			mux.Post("/api/synaplan/inbound", h.Inbound)
 
 			mux.Group(func(r chi.Router) {
 				r.Use(synaplanauth.Middleware)
@@ -114,6 +140,26 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
+				r.Post("/api/synaplan/chat", h.Chat)
+				r.Get("/api/synaplan/models", h.Models)
+				r.Post("/api/synaplan/media", h.Media)
+				r.Post("/api/synaplan/media/save", h.SaveMedia)
+				r.Post("/api/synaplan/cloud/status", h.CloudStatus)
+				r.Get("/api/synaplan/cloud/files", h.CloudDetail)
+				r.Get("/api/synaplan/watches/options", h.WatchOptions)
+				r.Post("/api/synaplan/watches", h.WatchStart)
+				r.Delete("/api/synaplan/watches", h.WatchStop)
+				r.Post("/api/synaplan/watches/reconcile", h.WatchReconcileNow)
+				r.Get("/api/synaplan/from-synaplan", h.ListSynaplanFiles)
+				r.Post("/api/synaplan/from-synaplan", h.CopyFromSynaplan)
+				r.Get("/api/synaplan/preferences", h.Preferences)
+				r.Put("/api/synaplan/preferences", h.SavePreferences)
+				r.Get("/api/synaplan/connection", h.Connection)
+				r.Get("/api/synaplan/instance", h.InstanceStatus)
+				r.Post("/api/synaplan/instance/register", h.RegisterInstance)
+				r.Post("/api/synaplan/connection/bind", h.Bind)
+				r.Get("/api/synaplan/settings", h.Settings)
+				r.Put("/api/synaplan/settings", h.SaveSettings)
 			})
 
 			server := &stdhttp.Server{

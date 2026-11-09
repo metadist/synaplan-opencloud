@@ -3,15 +3,28 @@ import { useGettext } from 'vue3-gettext'
 import { useTranslationExtension } from './useTranslationExtension'
 import { useSummarizeExtension } from './useSummarizeExtension'
 import { useKnowledgeExtension } from './useKnowledgeExtension'
+import { useChatExtension } from './useChatExtension'
+import { useWatchExtension } from './useWatchExtension'
+import { useFromSynaplanExtension } from './useFromSynaplanExtension'
+import { useReadFolderExtension } from './useReadFolderExtension'
 import { useSynaplanBrandIcon } from '../composables/useSynaplanBrandIcon'
 
+/**
+ * Groups the Synaplan file actions into one context-menu entry.
+ * OpenCloud shows a child (translate, summarize, knowledge, chat,
+ * watch, copy, read) only when that action applies to the selection.
+ */
 export const useSynaplanActionsExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
 
   const children = [
     useTranslationExtension(),
     useSummarizeExtension(),
-    useKnowledgeExtension()
+    useKnowledgeExtension(),
+    useChatExtension(),
+    useWatchExtension(),
+    useFromSynaplanExtension(),
+    useReadFolderExtension()
   ].map(({ action }) => action)
 
   return {

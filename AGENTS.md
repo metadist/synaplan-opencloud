@@ -126,6 +126,22 @@ server's copy of the same app id.
   minutes; `/me` uses the incoming context).
 - Errors carry context: `fmt.Errorf("creating synaplan API client: %w", err)`.
   Never log or echo `SYNAPLAN_API_KEY`, exchanged tokens or `OC_JWT_SECRET`.
+- **The right token for the right service, always.** The token OpenCloud's
+  proxy hands us was issued for OpenCloud: it goes to OpenCloud's own APIs
+  (Graph, the admin check) and into the RFC 8693 exchange as
+  `subject_token` — nowhere else. Every call to Synaplan carries one of
+  exactly three things: the token the exchange minted for Synaplan
+  (`synaplanauth.NewRequestEditor`), this instance's credential
+  (`X-Instance-Id/Secret`, for calls about the cloud rather than a person),
+  or a key Synaplan itself issued (the per-person background key). All
+  Synaplan traffic goes through `synaplanDo`, which refuses to send a
+  request whose bearer equals the incoming OpenCloud token
+  (`refuseOpenCloudToken`); do not add a second HTTP path to Synaplan.
+  The service never holds a Synaplan admin key: an administrator
+  registers the instance from the Synaplan page with their own exchanged
+  identity, and a credential is never minted in CI — the test realm's
+  Keycloak `admin` is a Synaplan administrator, which is all the E2E
+  setup needs.
 - Env var conventions: service-specific vars use the bare service name,
   `SYNAPLAN_HTTP_ADDR`, `SYNAPLAN_URL`, `SYNAPLAN_OIDC_*`; cross-service vars
   use `OC_`: `OC_REVA_GATEWAY`, `OC_JWT_SECRET`, `OC_INSECURE`; where both
@@ -202,9 +218,12 @@ Rules:
 
 ## E2E with Playwright — how the journeys are built
 
-The four specs in `frontend/tests/e2e/` are the pattern: `synaplan.spec.ts`
-(in-app view, `/me`), and `summarize`, `translation`, `knowledge`, each with a
-context-menu visibility check plus a text-file and a PDF (Tika) journey.
+The specs in `frontend/tests/e2e/` are the pattern: `synaplan.spec.ts`
+(the Synaplan page: `/me`, connection, read scope, the administrator's
+choices read-only), `summarize`, `translation`, `knowledge` (add, keep up to
+date, the Synaplan tab) and `chat`, each with a context-menu visibility check
+plus a text-file and, where Tika matters, a PDF journey; `watch.spec.ts`
+starts a watch on a folder, finds it in the Synaplan tab and stops it there.
 Every journey crosses every seam — OpenCloud UI → proxy → Go service →
 Keycloak token exchange → Synaplan → (Tika, model) → back into the dialog —
 so a green run is the proof that the integration works, not that a component

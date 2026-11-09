@@ -103,7 +103,7 @@ describe('KnowledgeDialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-knowledge-submit"]').text()).toContain(
-      'Update in Knowledge'
+      'Update in the knowledge folder'
     )
     expect(wrapper.get('[data-testid="synaplan-knowledge-stale"]').text()).toContain('changed')
   })
@@ -159,7 +159,7 @@ describe('KnowledgeDialog', () => {
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body] = post.mock.calls[0]
     expect(url).toBe('/api/synaplan/knowledge')
-    expect(body).toEqual({ resourceId: 'res-1', groupKey: 'RESEARCH' })
+    expect(body).toEqual({ resourceId: 'res-1', groupKey: 'RESEARCH', keepSynced: true })
 
     const success = wrapper.get('[data-testid="synaplan-knowledge-success"]')
     expect(success.text()).toContain('RESEARCH')
@@ -180,7 +180,11 @@ describe('KnowledgeDialog', () => {
     await flushPromises()
 
     // KnowledgeDialog uppercases + trims via createOption.
-    expect(post.mock.calls[0][1]).toEqual({ resourceId: 'res-1', groupKey: 'NEW_ONE' })
+    expect(post.mock.calls[0][1]).toEqual({
+      resourceId: 'res-1',
+      groupKey: 'NEW_ONE',
+      keepSynced: true
+    })
   })
 
   it('appends a freshly created tag to the option list so it stays selectable', async () => {
