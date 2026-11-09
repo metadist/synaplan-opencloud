@@ -1,5 +1,7 @@
 node_modules/
 frontend/dist/
+# Scratch build output of `make ci-local`; never mounted, never shipped.
+frontend/dist-ci/
 frontend/.__mf__temp/
 frontend/test-results/
 frontend/playwright-report/
@@ -9,3 +11,5 @@ backend/vendor/
 .github/docs/.cache/
 docs/generated/
 .env
+# Runtime cloud state: instance secret and encrypted away-keys.
+backend/.state/
