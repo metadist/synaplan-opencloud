@@ -9,6 +9,11 @@ import { useFromSynaplanExtension } from './useFromSynaplanExtension'
 import { useReadFolderExtension } from './useReadFolderExtension'
 import { useSynaplanBrandIcon } from '../composables/useSynaplanBrandIcon'
 
+/**
+ * Groups the Synaplan file actions into one context-menu entry.
+ * OpenCloud shows a child (translate, summarize, knowledge, chat,
+ * watch, copy, read) only when that action applies to the selection.
+ */
 export const useSynaplanActionsExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
 

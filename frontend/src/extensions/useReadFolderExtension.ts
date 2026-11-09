@@ -16,7 +16,11 @@ const prefsSchema = z.object({
   copyFolder: z.string().default('')
 })
 
-/** Adds the open folder to what Synaplan may read. */
+/**
+ * Adds "Let Synaplan read this folder" to the folder context menu.
+ * The service stores the folder id and replaces the path with the
+ * one OpenCloud knows, so a display name cannot widen the read scope.
+ */
 export const useReadFolderExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
   const { showMessage, showErrorMessage } = useMessages()

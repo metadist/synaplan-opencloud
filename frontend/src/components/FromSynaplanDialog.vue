@@ -127,12 +127,16 @@ async function onCopy() {
   saving.value = true
   error.value = ''
   try {
-    const res = await httpAuthenticated.post(
+    await httpAuthenticated.post(
       '/api/synaplan/from-synaplan',
       { fileId: chosen.value.id, folderId: props.resource.id, name: chosen.value.name },
-      { schema: z.object({ sentence: z.string(), path: z.string() }) }
+      { schema: z.object({ path: z.string() }) }
     )
-    saved.value = res.data.sentence
+    // The service can answer in English. The sentence the person reads
+    // comes from the catalog, the same way every other action does.
+    saved.value = $gettext('Copied %{name} into your files. The file is still in Synaplan.', {
+      name: chosen.value.name
+    })
   } catch (e) {
     error.value = sentenceFor(
       $gettext,

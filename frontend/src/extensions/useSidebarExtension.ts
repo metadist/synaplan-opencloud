@@ -4,7 +4,10 @@ import { useGettext } from 'vue3-gettext'
 import FileSidebar from '../components/FileSidebar.vue'
 import { useSynaplanBrandIcon } from '../composables/useSynaplanBrandIcon'
 
-/** The Synaplan tab in the file sidebar: who made it searchable, and how to remove it. */
+/**
+ * Synaplan panel in the file sidebar: who made the file searchable,
+ * and how to remove it. OpenCloud mounts it on the global files sidebar.
+ */
 export const useSidebarExtension = (): SidebarPanelExtension<Resource, Resource, Resource> => {
   const { $gettext } = useGettext()
 

@@ -12,7 +12,10 @@ const FromSynaplanDialog = defineAsyncComponent(
   () => import('../components/FromSynaplanDialog.vue')
 )
 
-/** Copies a Synaplan file into the folder that is open. */
+/**
+ * Adds "From Synaplan…" to the folder context menu. The dialog
+ * copies one of the person's Synaplan files into the open folder.
+ */
 export const useFromSynaplanExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
   const { dispatchModal } = useModals()

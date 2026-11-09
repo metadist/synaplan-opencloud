@@ -1,6 +1,12 @@
 import { reactive } from 'vue'
 import { z } from 'zod'
 
+/**
+ * Shared bird state for the files on screen. The row indicator and
+ * the sidebar both read `cloudMarks`. A mark that is still moving is
+ * asked again on its own, and an unreachable answer is not cached.
+ */
+
 export type CloudMark = {
   state: string
   folder: string

@@ -11,7 +11,10 @@ import { isSingleSupportedFile } from './supportedMimes'
 
 const ChatDialog = defineAsyncComponent(() => import('../components/ChatDialog.vue'))
 
-/** "Chat about this file" opens one question about the selected document. */
+/**
+ * Adds "Chat about this file…" to the file context menu. The dialog
+ * asks Synaplan one question about the selected document.
+ */
 export const useChatExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
   const { dispatchModal } = useModals()

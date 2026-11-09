@@ -7,7 +7,11 @@ import { markFor, queueCloudStatus } from '../composables/cloudStatus'
 
 type Marked = Resource & { etag?: string }
 
-/** The bird on a file Synaplan can search, and eyes when the file or folder is watched. */
+/**
+ * Resource indicator for a file Synaplan can search, and for a file
+ * or folder that is watched. OpenCloud draws it on the row; the
+ * accessible name uses the same state words as the Synaplan sidebar.
+ */
 export const useBirdIndicator = (): ResourceIndicatorExtension => {
   const { $gettext } = useGettext()
   const { httpAuthenticated } = useClientService()

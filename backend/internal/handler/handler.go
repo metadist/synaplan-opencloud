@@ -1,6 +1,6 @@
 // Package handler hosts the HTTP handlers for the synaplan-opencloud
 // backend. Each exposed endpoint lives in its own file (me.go,
-// translate.go, ...) and shares the Handler struct defined here.
+// translate.go, watch.go, ...) and shares the Handler struct defined here.
 package handler
 
 import (

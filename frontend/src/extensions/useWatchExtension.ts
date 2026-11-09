@@ -15,7 +15,11 @@ function oneResource(user: unknown, options: FileActionOptions) {
   return options.resources[0]
 }
 
-/** Watch a folder or a file. New files, or a new version, are handled in Synaplan. */
+/**
+ * Adds "Watch with Synaplan…" to the file and folder context menu.
+ * A new file, or a new version, is then handled by the watch the
+ * person started: keep it searchable, or run one of their tasks.
+ */
 export const useWatchExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
   const { dispatchModal } = useModals()
