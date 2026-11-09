@@ -26,11 +26,7 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": notify.BadSignature})
 		return
 	}
-	var body map[string]any
-	if err := json.Unmarshal(raw, &body); err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": notify.BadSignature})
-		return
-	}
+	token := string(raw)
 	if !h.hasInstance() {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": notify.BadSignature})
 		return
@@ -38,20 +34,20 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 	instanceID := oidcCloudID
 	// Reject what cannot verify before touching the key cache: the checks
 	// that need no key first, then the key fetch on a short deadline.
-	if reason := notify.Precheck(body, instanceID, time.Now().Unix()); reason != notify.OK {
+	if reason := notify.Precheck(token, instanceID, time.Now().Unix()); reason != notify.OK {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": reason})
 		return
 	}
 	keyCtx, cancelKeys := context.WithTimeout(r.Context(), keyFetchTimeout)
-	keys := h.notifyKeys(keyCtx)
+	issuer, keys := h.notifyKeys(keyCtx)
 	cancelKeys()
-	reason := notify.Verify(body, instanceID, keys, time.Now().Unix())
+	reason := notify.Verify(token, issuer, instanceID, keys, time.Now().Unix())
 	if reason != notify.OK {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": reason})
 		return
 	}
-	kind, _ := body["type"].(string)
-	id := notificationID(body["id"])
+	claims, _ := notify.Parse(token)
+	kind, id := claims.Type, claims.ID
 	if kind == "" || id == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": notify.BadSignature})
 		return
@@ -64,7 +60,7 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, map[string]string{"state": "pending"})
 		return
 	}
-	sub, _ := body["external_id"].(string)
+	sub := claims.Subject
 	if (kind == "delivery" || kind == "pickup") && !h.canActAway(sub) {
 		// Nobody can claim it without the person's own token. Let the
 		// retry in, once they connected.
@@ -103,17 +99,6 @@ func (h *Handler) releaseSeen(kind, id string) {
 	h.seen.Forget(kind, id)
 }
 
-func notificationID(v any) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case float64:
-		return strconv.FormatInt(int64(t), 10)
-	default:
-		return ""
-	}
-}
-
 // revokeIdentity handles identity_revoked. Synaplan names the identity
 // row it revoked; the person is found through the link id stored at bind.
 func (h *Handler) revokeIdentity(id string) {
@@ -141,16 +126,31 @@ func (h *Handler) revokeIdentity(id string) {
 // later notification.
 const keyFetchTimeout = 10 * time.Second
 
-func (h *Handler) notifyKeys(ctx context.Context) []string {
+// notifyKeys returns the issuer Synaplan's notifications carry and the keys
+// they are signed with, both read through the address this service reaches
+// Synaplan by. The issuer is Synaplan's public URL, which this service is not
+// configured with.
+func (h *Handler) notifyKeys(ctx context.Context) (string, []string) {
 	h.keysMu.Lock()
 	defer h.keysMu.Unlock()
 	if time.Since(h.keysAt) < 10*time.Minute && h.keysLoaded {
-		return h.keys
+		return h.issuer, h.keys
 	}
-	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/.well-known/jwks.json", nil, callOptions{skipUser: true})
+	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/.well-known/synaplan-configuration", nil, callOptions{skipUser: true})
+	if err != nil || status != http.StatusOK {
+		log.Printf("synaplan configuration: status %d err %v", status, err)
+		return h.issuer, h.keys
+	}
+	var configuration struct {
+		Issuer string `json:"issuer"`
+	}
+	if err := json.Unmarshal(body, &configuration); err != nil || configuration.Issuer == "" {
+		return h.issuer, h.keys
+	}
+	status, body, err = h.synaplanDo(ctx, http.MethodGet, "/.well-known/jwks.json", nil, callOptions{skipUser: true})
 	if err != nil || status != http.StatusOK {
 		log.Printf("notify keys: status %d err %v", status, err)
-		return h.keys
+		return h.issuer, h.keys
 	}
 	var parsed struct {
 		Keys []struct {
@@ -160,7 +160,7 @@ func (h *Handler) notifyKeys(ctx context.Context) []string {
 		} `json:"keys"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return h.keys
+		return h.issuer, h.keys
 	}
 	keys := make([]string, 0, len(parsed.Keys))
 	for _, key := range parsed.Keys {
@@ -168,10 +168,11 @@ func (h *Handler) notifyKeys(ctx context.Context) []string {
 			keys = append(keys, "ed25519:"+key.X)
 		}
 	}
+	h.issuer = configuration.Issuer
 	h.keys = keys
 	h.keysLoaded = true
 	h.keysAt = time.Now()
-	return h.keys
+	return h.issuer, h.keys
 }
 
 func (h *Handler) deliverCopy(w http.ResponseWriter, ctx context.Context, sub, id string) {

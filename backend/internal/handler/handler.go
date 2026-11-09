@@ -85,6 +85,7 @@ type Handler struct {
 	seenMu      sync.Mutex
 	keysMu      sync.Mutex
 	keys        []string
+	issuer      string
 	keysLoaded  bool
 	keysAt      time.Time
 	memoryCache

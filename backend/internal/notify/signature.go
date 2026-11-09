@@ -1,16 +1,15 @@
-// Package notify checks the signed notifications Synaplan sends before
-// this service calls back. The bytes match the vectors in Synaplan's
-// cloud-apps contract (notify-vectors.json).
+// Package notify checks the notifications Synaplan sends before this
+// service calls back: JSON Web Tokens in compact JWS form, typed
+// synaplan-notification+jwt, EdDSA (Ed25519) with a key from Synaplan's JWK
+// Set, issued by the Synaplan this service talks to. The bytes match the vectors in
+// Synaplan's cloud-apps contract (notify-vectors.json).
 package notify
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"math"
-	"sort"
 	"strings"
 	"time"
 )
@@ -18,150 +17,101 @@ import (
 const (
 	// OK is a notification that passed every check.
 	OK = "ok"
-	// BadSignature means the signature, the key, or the body is unusable.
+	// BadSignature means the signature, the key, or the token is unusable.
 	BadSignature = "bad_signature"
 	// WrongInstance means the notification names another cloud.
 	WrongInstance = "wrong_instance"
-	// Stale means the timestamp is outside the five-minute window.
+	// Stale means the token is outside its time window.
 	Stale = "stale"
+	// WrongIssuer means another Synaplan signed the notification.
+	WrongIssuer = "wrong_issuer"
 	// Replay means this id was already accepted.
 	Replay = "replay"
 
-	prefix         = "ed25519:"
-	windowSeconds  = 300
-	publicKeyBytes = ed25519.PublicKeySize
-	sigBytes       = ed25519.SignatureSize
+	tokenType = "synaplan-notification+jwt"
+
+	prefix      = "ed25519:"
+	skewSeconds = 60
 )
 
-// Precheck is the part of Verify that needs no key: a signature is
-// present and well-formed, the instance is this one, the time is within
-// the window. It returns OK or the reason, so a caller can refuse a body
-// before fetching the current keys.
-func Precheck(body map[string]any, instanceID string, now int64) string {
-	signature, _ := body["sig"].(string)
-	if signature == "" {
+// Claims is what a notification says. Read it only after Verify said OK.
+type Claims struct {
+	Issuer   string `json:"iss"`
+	Audience string `json:"aud"`
+	Subject  string `json:"sub"`
+	Type     string `json:"type"`
+	ID       string `json:"id"`
+	IssuedAt int64  `json:"iat"`
+	Expires  int64  `json:"exp"`
+}
+
+// Parse splits a token and decodes its claims without checking anything.
+func Parse(token string) (Claims, bool) {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return Claims{}, false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return Claims{}, false
+	}
+	var claims Claims
+	if json.Unmarshal(raw, &claims) != nil {
+		return Claims{}, false
+	}
+	return claims, true
+}
+
+// Precheck is the part of Verify that needs no key: the token is well
+// formed, addressed to this instance and within its window. It returns OK or
+// the reason, so a caller can refuse a token before fetching keys.
+func Precheck(token, instanceID string, now int64) string {
+	claims, ok := Parse(token)
+	if !ok {
 		return BadSignature
 	}
-	if _, ok := decode(signature, sigBytes); !ok {
-		return BadSignature
-	}
-	got, _ := body["instance_id"].(string)
-	if got != instanceID {
+	if claims.Audience != instanceID {
 		return WrongInstance
 	}
-	ts, ok := unixSeconds(body["ts"])
-	if !ok || abs(now-ts) > windowSeconds {
+	if claims.Expires == 0 || now > claims.Expires || claims.IssuedAt > now+skewSeconds {
 		return Stale
 	}
 	return OK
 }
 
-// Verify checks signature, instance and time. now is unix seconds.
-// keys are Synaplan's public keys from its JWK Set, as ed25519:<x>.
-func Verify(body map[string]any, instanceID string, keys []string, now int64) string {
-	if reason := Precheck(body, instanceID, now); reason != OK {
-		return reason
+// Verify checks the type, the EdDSA signature against keys
+// (ed25519:<base64url>), the issuer, and then everything Precheck checks.
+func Verify(token, issuer, instanceID string, keys []string, now int64) string {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return BadSignature
 	}
-	signature, _ := body["sig"].(string)
-	message, err := canonical(body)
+	header, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		return BadSignature
 	}
-	sig, ok := decode(signature, sigBytes)
-	if !ok {
+	var h struct {
+		Alg string `json:"alg"`
+		Typ string `json:"typ"`
+	}
+	if json.Unmarshal(header, &h) != nil || h.Alg != "EdDSA" || h.Typ != tokenType {
 		return BadSignature
 	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return BadSignature
+	}
+	signed := []byte(parts[0] + "." + parts[1])
 	for _, key := range keys {
-		pub, ok := decode(key, publicKeyBytes)
-		if ok && ed25519.Verify(ed25519.PublicKey(pub), message, sig) {
-			return OK
+		pub, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(key, prefix))
+		if err == nil && len(pub) == ed25519.PublicKeySize && ed25519.Verify(pub, signed, sig) {
+			if claims, _ := Parse(token); issuer == "" || claims.Issuer != issuer {
+				return WrongIssuer
+			}
+			return Precheck(token, instanceID, now)
 		}
 	}
 	return BadSignature
-}
-
-func unixSeconds(v any) (int64, bool) {
-	switch n := v.(type) {
-	case float64:
-		if math.Trunc(n) != n {
-			return 0, false
-		}
-		return int64(n), true
-	case json.Number:
-		i, err := n.Int64()
-		return i, err == nil
-	case int64:
-		return n, true
-	case int:
-		return int64(n), true
-	default:
-		return 0, false
-	}
-}
-
-func abs(n int64) int64 {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
-
-// canonical is the JSON Synaplan signed: sig removed, object keys sorted,
-// slashes and non-ASCII left as themselves.
-func canonical(body map[string]any) ([]byte, error) {
-	cleaned := make(map[string]any, len(body))
-	for k, v := range body {
-		if k == "sig" {
-			continue
-		}
-		cleaned[k] = v
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(sortValue(cleaned)); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
-}
-
-func sortValue(v any) any {
-	switch t := v.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		out := make(map[string]any, len(t))
-		for _, k := range keys {
-			out[k] = sortValue(t[k])
-		}
-		return out
-	case []any:
-		out := make([]any, len(t))
-		for i, item := range t {
-			out[i] = sortValue(item)
-		}
-		return out
-	default:
-		return v
-	}
-}
-
-func decode(encoded string, length int) ([]byte, bool) {
-	if !strings.HasPrefix(encoded, prefix) {
-		return nil, false
-	}
-	b64 := encoded[len(prefix):]
-	raw, err := base64.RawURLEncoding.DecodeString(b64)
-	if err != nil {
-		raw, err = base64.URLEncoding.DecodeString(b64)
-	}
-	if err != nil || len(raw) != length {
-		return nil, false
-	}
-	return raw, true
 }
 
 // Seen remembers notification ids for ten minutes.

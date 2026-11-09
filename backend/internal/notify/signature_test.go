@@ -16,24 +16,27 @@ func TestVerifyVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	var doc struct {
+		Issuer    string `json:"issuer"`
+		Receiver  string `json:"receiver_instance_id"`
 		PublicKey string `json:"public_key"`
 		Now       int64  `json:"now"`
 		Vectors   []struct {
-			Name   string         `json:"name"`
-			Expect string         `json:"expect"`
-			Body   map[string]any `json:"body"`
+			Name   string `json:"name"`
+			Expect string `json:"expect"`
+			Token  string `json:"token"`
 		} `json:"vectors"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
 	for _, vector := range doc.Vectors {
-		t.Run(vector.Name, func(t *testing.T) {
-			got := Verify(vector.Body, "pi_abc", []string{doc.PublicKey}, doc.Now)
-			if got != vector.Expect {
-				t.Fatalf("Verify() = %s, want %s", got, vector.Expect)
-			}
-		})
+		if got := Verify(vector.Token, doc.Issuer, doc.Receiver, []string{doc.PublicKey}, doc.Now); got != vector.Expect {
+			t.Errorf("%s: got %s, want %s", vector.Name, got, vector.Expect)
+		}
+	}
+	claims, ok := Parse(doc.Vectors[0].Token)
+	if !ok || claims.Subject != "ada" || claims.Type != "delivery" || claims.ID != "9" {
+		t.Fatalf("claims = %+v", claims)
 	}
 }
 
@@ -56,27 +59,25 @@ func TestSeenReplay(t *testing.T) {
 
 func TestPrecheckNeedsNoKey(t *testing.T) {
 	now := int64(1_700_000_000)
+	token := func(claims map[string]any) string {
+		payload, _ := json.Marshal(claims)
+		return "eyJhbGciOiJFZERTQSJ9." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+	}
 	cases := map[string]struct {
-		body map[string]any
-		want string
+		token string
+		want  string
 	}{
-		"unsigned":       {map[string]any{"instance_id": "pi_abc", "ts": now}, BadSignature},
-		"garbage sig":    {map[string]any{"sig": "ed25519:zz", "instance_id": "pi_abc", "ts": now}, BadSignature},
-		"other instance": {map[string]any{"sig": "ed25519:" + validSig(), "instance_id": "pi_x", "ts": now}, WrongInstance},
-		"too old":        {map[string]any{"sig": "ed25519:" + validSig(), "instance_id": "pi_abc", "ts": now - 1000}, Stale},
-		"plausible":      {map[string]any{"sig": "ed25519:" + validSig(), "instance_id": "pi_abc", "ts": now}, OK},
+		"not a token":     {"garbage", BadSignature},
+		"other instance":  {token(map[string]any{"aud": "pi_x", "iat": now, "exp": now + 300}), WrongInstance},
+		"expired":         {token(map[string]any{"aud": "pi_abc", "iat": now - 1000, "exp": now - 700}), Stale},
+		"from the future": {token(map[string]any{"aud": "pi_abc", "iat": now + 600, "exp": now + 900}), Stale},
+		"plausible":       {token(map[string]any{"aud": "pi_abc", "iat": now, "exp": now + 300}), OK},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := Precheck(tc.body, "pi_abc", now); got != tc.want {
+			if got := Precheck(tc.token, "pi_abc", now); got != tc.want {
 				t.Fatalf("Precheck() = %s, want %s", got, tc.want)
 			}
 		})
 	}
-}
-
-// validSig is a well-formed signature of the right length; Precheck does
-// not verify it, Verify would.
-func validSig() string {
-	return base64.RawURLEncoding.EncodeToString(make([]byte, sigBytes))
 }
