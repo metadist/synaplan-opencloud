@@ -71,10 +71,11 @@ func New(cfg Config) *Delegation {
 	return &Delegation{cfg: cfg, offline: map[string]string{}, cache: map[string]cached{}}
 }
 
-// Configured reports whether this service's client and an issuer are set
-// up (organisation login). Without them, nobody can connect.
+// Configured reports whether this service's client and the identity
+// provider's endpoints are set up (organisation login). Without them,
+// nobody can connect.
 func (d *Delegation) Configured() bool {
-	return d != nil && d.cfg.Provider.Issuer() != "" && d.cfg.ClientID != "" && d.cfg.ClientSecret != ""
+	return d != nil && d.cfg.Provider.Usable() && d.cfg.ClientID != "" && d.cfg.ClientSecret != ""
 }
 
 // Authorization is what the browser needs to ask for a code: this

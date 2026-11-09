@@ -1,6 +1,7 @@
 // Package idp finds the identity provider's endpoints from its issuer
-// (OpenID Connect Discovery). The token endpoint can be overridden for a
-// service that reaches the provider by another address than the browser.
+// (OpenID Connect Discovery). Each endpoint can be set instead, for a
+// provider without discovery or one this service reaches by another
+// address than the browser; with all three set, no issuer is needed.
 package idp
 
 import (
@@ -28,9 +29,9 @@ type Endpoints struct {
 // Provider resolves the endpoints of one issuer once, when first needed,
 // so the service starts even while the identity provider is not up yet.
 type Provider struct {
-	issuer        string
-	tokenOverride string
-	client        *http.Client
+	issuer string
+	set    Endpoints
+	client *http.Client
 
 	mu      sync.Mutex
 	found   *Endpoints
@@ -38,36 +39,37 @@ type Provider struct {
 	lastErr error
 }
 
-// New returns a Provider for issuer. tokenOverride, when set, replaces the
-// token endpoint the issuer publishes.
-func New(issuer, tokenOverride string, client *http.Client) *Provider {
-	return &Provider{issuer: issuer, tokenOverride: tokenOverride, client: client}
+// New returns a Provider for issuer. Endpoints in set replace the ones the
+// issuer publishes.
+func New(issuer string, set Endpoints, client *http.Client) *Provider {
+	return &Provider{issuer: issuer, set: set, client: client}
 }
 
-// Issuer is the issuer this Provider was created for; empty when none is
-// configured.
-func (p *Provider) Issuer() string {
-	if p == nil {
-		return ""
-	}
-	return p.issuer
+// Usable reports whether the endpoints can be known: from an issuer, or
+// all three set.
+func (p *Provider) Usable() bool {
+	return p != nil && (p.issuer != "" || p.set.complete())
 }
 
-// TokenEndpoint is the token endpoint: the override when set, without
-// asking the issuer, otherwise the published one.
+// TokenEndpoint is the token endpoint: the one set, without asking the
+// issuer, otherwise the published one.
 func (p *Provider) TokenEndpoint(ctx context.Context) (string, error) {
-	if p.tokenOverride != "" {
-		return p.tokenOverride, nil
+	if p.set.Token != "" {
+		return p.set.Token, nil
 	}
 	endpoints, err := p.Endpoints(ctx)
 	return endpoints.Token, err
 }
 
-// Endpoints returns the issuer's endpoints, discovered once. A failed
-// discovery is returned again until retryAfter has passed.
+// Endpoints returns the endpoints, the ones set taking precedence over the
+// discovered ones. Discovery runs once; a failed one is returned again
+// until retryAfter has passed.
 func (p *Provider) Endpoints(ctx context.Context) (Endpoints, error) {
+	if p.set.complete() {
+		return p.set, nil
+	}
 	if p.issuer == "" {
-		return Endpoints{}, errors.New("idp: no issuer configured")
+		return Endpoints{}, errors.New("idp: no issuer and not every endpoint set")
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -99,15 +101,23 @@ func (p *Provider) discover(ctx context.Context) (Endpoints, error) {
 		return Endpoints{}, err
 	}
 	found := Endpoints{
-		Authorization: provider.Endpoint().AuthURL,
-		Token:         provider.Endpoint().TokenURL,
-		Revocation:    published.Revocation,
+		Authorization: first(p.set.Authorization, provider.Endpoint().AuthURL),
+		Token:         first(p.set.Token, provider.Endpoint().TokenURL),
+		Revocation:    first(p.set.Revocation, published.Revocation),
 	}
-	if p.tokenOverride != "" {
-		found.Token = p.tokenOverride
-	}
-	if found.Authorization == "" || found.Token == "" || found.Revocation == "" {
+	if !found.complete() {
 		return Endpoints{}, errors.New("the issuer publishes no authorization, token or revocation endpoint")
 	}
 	return found, nil
+}
+
+func (e Endpoints) complete() bool {
+	return e.Authorization != "" && e.Token != "" && e.Revocation != ""
+}
+
+func first(set, published string) string {
+	if set != "" {
+		return set
+	}
+	return published
 }

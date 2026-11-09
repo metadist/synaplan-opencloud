@@ -96,7 +96,7 @@ func (f *fakeIdP) state() (exchanges int, refreshed, revoked []string) {
 }
 
 func newDelegation(f *fakeIdP) *Delegation {
-	return New(Config{Provider: idp.New(f.URL, "", f.Client()), ClientID: "synaplan-opencloud", ClientSecret: "secret", HTTPClient: f.Client()})
+	return New(Config{Provider: idp.New(f.URL, idp.Endpoints{}, f.Client()), ClientID: "synaplan-opencloud", ClientSecret: "secret", HTTPClient: f.Client()})
 }
 
 func connect(t *testing.T, d *Delegation, sub string) error {

@@ -28,11 +28,13 @@ type Config struct {
 	SynaplanAPIKey string `yaml:"synaplan_api_key" env:"SYNAPLAN_API_KEY" desc:"Shared Synaplan API key (sk_...). When set, the backend uses this for every outbound call and skips OIDC token exchange. Discouraged: all calls appear to Synaplan as a single user with no per-user identity."`
 
 	// OIDC token exchange configuration
-	OIDCIssuer           string `yaml:"oidc_issuer" env:"OC_OIDC_ISSUER;SYNAPLAN_OIDC_ISSUER" desc:"Issuer of the identity provider OpenCloud and Synaplan share. Its endpoints are read from its OpenID Connect discovery document; without it, people cannot allow work while they are away."`
-	OIDCTokenEndpoint    string `yaml:"oidc_token_endpoint" env:"SYNAPLAN_OIDC_TOKEN_ENDPOINT" desc:"Optional. Token endpoint as this service reaches it, when that differs from the one the issuer publishes (an internal address)."`
-	OIDCExchangeClientID string `yaml:"oidc_exchange_client_id" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID" desc:"Client ID for the token exchange confidential client."`
-	OIDCExchangeSecret   string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
-	OIDCTargetAudience   string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
+	OIDCIssuer                string `yaml:"oidc_issuer" env:"OC_OIDC_ISSUER;SYNAPLAN_OIDC_ISSUER" desc:"Issuer of the identity provider OpenCloud and Synaplan share. The endpoints below are read from its OpenID Connect discovery document unless they are set."`
+	OIDCAuthorizationEndpoint string `yaml:"oidc_authorization_endpoint" env:"SYNAPLAN_OIDC_AUTHORIZATION_ENDPOINT" desc:"Optional. Authorization endpoint the person's browser asks for a code, instead of the published one."`
+	OIDCTokenEndpoint         string `yaml:"oidc_token_endpoint" env:"SYNAPLAN_OIDC_TOKEN_ENDPOINT" desc:"Optional. Token endpoint as this service reaches it, instead of the published one (an internal address)."`
+	OIDCRevocationEndpoint    string `yaml:"oidc_revocation_endpoint" env:"SYNAPLAN_OIDC_REVOCATION_ENDPOINT" desc:"Optional. Revocation endpoint (RFC 7009) as this service reaches it, instead of the published one."`
+	OIDCExchangeClientID      string `yaml:"oidc_exchange_client_id" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID" desc:"Client ID for the token exchange confidential client."`
+	OIDCExchangeSecret        string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
+	OIDCTargetAudience        string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
 	Context context.Context `yaml:"-"`
 }

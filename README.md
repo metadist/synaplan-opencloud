@@ -56,8 +56,8 @@ Each call to Synaplan rides on the logged-in OpenCloud user's identity, exchange
 | Var | Purpose |
 |-----|---------|
 | `SYNAPLAN_URL` | Base URL of the Synaplan instance the backend talks to. |
-| `OC_OIDC_ISSUER` | Issuer of the Keycloak realm OpenCloud and Synaplan share (usually already set for OpenCloud). The authorization, token and revocation endpoints are read from its discovery document. |
-| `SYNAPLAN_OIDC_TOKEN_ENDPOINT` | Optional. Token endpoint as the backend reaches it, when that differs from the published one (an internal address). |
+| `OC_OIDC_ISSUER` | Issuer of the Keycloak realm OpenCloud and Synaplan share (usually already set for OpenCloud). The authorization, token and revocation endpoints are read from its discovery document unless set below. |
+| `SYNAPLAN_OIDC_AUTHORIZATION_ENDPOINT` / `SYNAPLAN_OIDC_TOKEN_ENDPOINT` / `SYNAPLAN_OIDC_REVOCATION_ENDPOINT` | Optional. Set an endpoint instead of the published one: for a provider without discovery (then set all three, no issuer needed), or one the backend reaches by an internal address. |
 | `SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID` / `SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET` | Confidential client credentials that perform the exchange. |
 | `SYNAPLAN_OIDC_TARGET_AUDIENCE` | Audience (Synaplan client ID) baked into the exchanged token. |
 

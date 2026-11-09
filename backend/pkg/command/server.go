@@ -70,7 +70,11 @@ func Server(cfg *config.Config) *cobra.Command {
 				logger.Warn().Msg("synaplan-opencloud: using shared API key auth — all calls will appear to Synaplan as a single user")
 				editor = synaplanauth.NewAPIKeyRequestEditor(cfg.SynaplanAPIKey)
 			} else {
-				provider := idp.New(cfg.OIDCIssuer, cfg.OIDCTokenEndpoint, identityProviderClient(cfg.Insecure))
+				provider := idp.New(cfg.OIDCIssuer, idp.Endpoints{
+					Authorization: cfg.OIDCAuthorizationEndpoint,
+					Token:         cfg.OIDCTokenEndpoint,
+					Revocation:    cfg.OIDCRevocationEndpoint,
+				}, identityProviderClient(cfg.Insecure))
 				exchanger := tokenexchange.New(
 					provider.TokenEndpoint,
 					cfg.OIDCExchangeClientID,

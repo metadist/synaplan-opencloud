@@ -87,7 +87,7 @@ func (e exchanger) Exchange(userID, bearer string) (string, error) {
 
 func newDelegation(p *identityProvider) *delegation.Delegation {
 	return delegation.New(delegation.Config{
-		Provider:     idp.New(p.URL, "", p.Client()),
+		Provider:     idp.New(p.URL, idp.Endpoints{}, p.Client()),
 		ClientID:     "synaplan-opencloud",
 		ClientSecret: "secret",
 		HTTPClient:   p.Client(),

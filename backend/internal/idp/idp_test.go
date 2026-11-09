@@ -44,14 +44,14 @@ func TestEndpoints(t *testing.T) {
 		wantErr   bool
 	}{
 		"published":           {complete, "", "/token", false},
-		"token overridden":    {complete, "http://internal/token", "http://internal/token", false},
+		"token set":           {complete, "http://internal/token", "http://internal/token", false},
 		"no revocation":       {map[string]string{"authorization_endpoint": "/auth", "token_endpoint": "/token"}, "", "", true},
 		"no discovery at all": {nil, "", "", true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			srv, _ := issuer(t, tc.publish)
-			got, err := New(srv.URL, tc.override, srv.Client()).Endpoints(context.Background())
+			got, err := New(srv.URL, Endpoints{Token: tc.override}, srv.Client()).Endpoints(context.Background())
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("err = %v", err)
 			}
@@ -71,7 +71,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestDiscoveryRunsOnceAndBacksOffAfterAFailure(t *testing.T) {
 	srv, calls := issuer(t, complete)
-	p := New(srv.URL, "", srv.Client())
+	p := New(srv.URL, Endpoints{}, srv.Client())
 	for range 3 {
 		if _, err := p.Endpoints(context.Background()); err != nil {
 			t.Fatal(err)
@@ -82,7 +82,7 @@ func TestDiscoveryRunsOnceAndBacksOffAfterAFailure(t *testing.T) {
 	}
 
 	broken, brokenCalls := issuer(t, nil)
-	q := New(broken.URL, "", broken.Client())
+	q := New(broken.URL, Endpoints{}, broken.Client())
 	for range 3 {
 		if _, err := q.Endpoints(context.Background()); err == nil {
 			t.Fatal("a missing discovery document was accepted")
@@ -93,9 +93,31 @@ func TestDiscoveryRunsOnceAndBacksOffAfterAFailure(t *testing.T) {
 	}
 }
 
-func TestAnOverriddenTokenEndpointNeedsNoDiscovery(t *testing.T) {
-	got, err := New("", "http://internal/token", nil).TokenEndpoint(context.Background())
-	if err != nil || got != "http://internal/token" {
-		t.Fatalf("TokenEndpoint() = %q, %v", got, err)
+func TestEndpointsSetNeedNoDiscovery(t *testing.T) {
+	all := Endpoints{Authorization: "https://idp/auth", Token: "http://internal/token", Revocation: "http://internal/revoke"}
+	cases := map[string]struct {
+		set    Endpoints
+		usable bool
+	}{
+		"all three set":  {all, true},
+		"only the token": {Endpoints{Token: all.Token}, false},
+		"nothing at all": {Endpoints{}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := New("", tc.set, nil)
+			if p.Usable() != tc.usable {
+				t.Fatalf("Usable() = %v", p.Usable())
+			}
+			got, err := p.Endpoints(context.Background())
+			if tc.usable && (err != nil || got != all) || !tc.usable && err == nil {
+				t.Fatalf("Endpoints() = %+v, %v", got, err)
+			}
+			if tc.set.Token != "" {
+				if token, err := p.TokenEndpoint(context.Background()); err != nil || token != tc.set.Token {
+					t.Fatalf("TokenEndpoint() = %q, %v", token, err)
+				}
+			}
+		})
 	}
 }
