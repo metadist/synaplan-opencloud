@@ -6,9 +6,16 @@ import (
 	"strings"
 )
 
+// oidcCloudID is the fixed instance id Synaplan gives the one cloud it is
+// configured for by environment (PLATFORM_LINKS_OIDC_CLOUD); notifications
+// to this OpenCloud are addressed to it.
+const oidcCloudID = "oidc-cloud"
+
+// hasInstance reports whether this OpenCloud is connected to Synaplan: with
+// organisation login there is nothing to register, the connection is the
+// shared identity provider and Synaplan's configuration.
 func (h *Handler) hasInstance() bool {
-	id, secret := h.instance()
-	return id != "" && secret != ""
+	return h.delegation.Configured()
 }
 
 // canonicalPath is the space-relative form both the read scope and the

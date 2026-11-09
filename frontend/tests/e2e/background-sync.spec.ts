@@ -1,6 +1,6 @@
 import { test, expect, APIRequestContext } from '@playwright/test'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
-import { allowBackgroundWork, ensureRegistered } from '../../support/helpers/cloudHelper'
+import { allowBackgroundWork } from '../../support/helpers/cloudHelper'
 import { resourceId } from '../../support/helpers/davHelper'
 import {
   deleteFileQuiet,
@@ -36,8 +36,7 @@ let synaplanToken: string
 let webDavUrl: string
 const cleanup: string[] = []
 
-test.beforeAll(async ({ browser, request }) => {
-  await ensureRegistered(request)
+test.beforeAll(async ({ browser }) => {
   const { page } = await loginAsUser(browser, TEST_USER, TEST_PASSWORD)
   await allowBackgroundWork(page)
   await logout(page)

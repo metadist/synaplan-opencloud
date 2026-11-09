@@ -77,26 +77,16 @@ func Server(cfg *config.Config) *cobra.Command {
 			}
 
 			var delegated *delegation.Delegation
-			var service *delegation.Service
 			if cfg.SynaplanAPIKey == "" {
 				delegated = delegation.New(delegation.Config{
 					TokenEndpoint: cfg.OIDCTokenEndpoint,
 					ClientID:      cfg.OIDCExchangeClientID,
 					ClientSecret:  cfg.OIDCExchangeSecret,
 				}, delegation.NewMemoryStore())
-				service = delegation.NewService(delegation.Config{
-					TokenEndpoint: cfg.OIDCTokenEndpoint,
-					ClientID:      cfg.OIDCServiceClientID,
-					ClientSecret:  cfg.OIDCServiceClientSecret,
-				})
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, service, handler.Settings{
-				InstanceID:            cfg.InstanceID,
-				InstanceSecret:        cfg.InstanceSecret,
-				DeliveryURL:           cfg.DeliveryURL,
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, handler.Settings{
 				PublicURL:             cfg.PublicURL,
-				ServerID:              cfg.ServerID,
 				OIDCClientID:          cfg.OIDCExchangeClientID,
 				OIDCAuthorizeEndpoint: cfg.OIDCAuthorizeEndpoint,
 				SynaplanAudience:      cfg.OIDCTargetAudience,
@@ -116,8 +106,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
-			// Neither waits for Synaplan: the listener comes up regardless.
-			go h.RegisterInBackground(ctx)
+			// Does not wait for Synaplan: the listener comes up regardless.
 			go h.RunReconciler(ctx)
 
 			mux := chi.NewMux()
@@ -177,7 +166,6 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Put("/api/synaplan/preferences", h.SavePreferences)
 				r.Get("/api/synaplan/connection", h.Connection)
 				r.Get("/api/synaplan/instance", h.InstanceStatus)
-				r.Post("/api/synaplan/instance/register", h.RegisterInstance)
 				r.Post("/api/synaplan/connection/bind", h.Bind)
 				r.Get("/api/synaplan/settings", h.Settings)
 				r.Put("/api/synaplan/settings", h.SaveSettings)

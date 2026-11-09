@@ -67,14 +67,17 @@ function mountIt() {
   })
 }
 
-const instance: { registered: boolean; status: string; host: string; conflicts?: number } = {
-  registered: true,
+const instance = {
+  visible: true,
+  known: true,
   status: 'active',
-  host: 'cloud.example'
+  host: 'cloud.example',
+  deliveryUrl: 'http://svc/inbound',
+  reachable: true as boolean | null
 }
 
 /** GET answers by route: the settings and the instance state are two calls. */
-function answer(settingsData: typeof settings, instanceData = instance) {
+function answer(settingsData: typeof settings, instanceData: Record<string, unknown> = instance) {
   get.mockImplementation((url: string) =>
     Promise.resolve({ data: url.includes('/instance') ? instanceData : settingsData })
   )
@@ -139,60 +142,62 @@ describe('AdminSettings', () => {
   })
 })
 
-describe('AdminSettings registration', () => {
+describe('AdminSettings, this OpenCloud in Synaplan', () => {
   beforeEach(() => {
     get.mockReset()
     put.mockReset()
     post.mockReset()
   })
 
-  it('lets an administrator register an unregistered OpenCloud with their own login', async () => {
-    answer(settings, { registered: false, status: '', host: 'cloud.example' })
-    post.mockResolvedValueOnce({
-      data: { registered: true, status: 'active', host: 'cloud.example' }
+  it('an admin of both sees the host and delivery address Synaplan has configured', async () => {
+    answer(settings, {
+      visible: true,
+      known: true,
+      status: 'active',
+      host: 'cloud.example',
+      deliveryUrl: 'http://synaplan-opencloud:9106/api/synaplan/inbound',
+      reachable: true
+    })
+    const wrapper = mountIt()
+    await flushPromises()
+    const state = wrapper.get('[data-testid="synaplan-instance-state"]').text()
+    expect(state).toContain('cloud.example')
+    expect(state).toContain('reaches it at http://synaplan-opencloud:9106/api/synaplan/inbound')
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('an admin of both is told when Synaplan cannot reach the delivery address', async () => {
+    answer(settings, {
+      visible: true,
+      known: true,
+      status: 'active',
+      host: 'cloud.example',
+      deliveryUrl: 'http://nowhere/inbound',
+      reachable: false
     })
     const wrapper = mountIt()
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
-      'Not registered yet'
+      'cannot reach it'
     )
-    await wrapper.get('[data-testid="synaplan-instance-register"]').trigger('click')
+  })
+
+  it('names the Synaplan setting when Synaplan has no configuration for this OpenCloud', async () => {
+    answer(settings, { visible: true, known: false })
+    const wrapper = mountIt()
     await flushPromises()
-    expect(post).toHaveBeenCalledWith('/api/synaplan/instance/register', {}, expect.anything())
     expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
-      'accepted by Synaplan'
+      'PLATFORM_LINKS_OIDC_CLOUD'
+    )
+  })
+
+  it('someone who is not a Synaplan admin only learns that Synaplan configures it', async () => {
+    answer({ ...settings, isAdmin: false }, { visible: false, known: false })
+    const wrapper = mountIt()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
+      'from its own configuration'
     )
     expect(wrapper.find('[data-testid="synaplan-instance-register"]').exists()).toBe(false)
-  })
-
-  it('tells a regular user to ask their administrator and offers no button', async () => {
-    answer(
-      { ...settings, isAdmin: false },
-      { registered: false, status: '', host: 'cloud.example' }
-    )
-    const wrapper = mountIt()
-    await flushPromises()
-    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
-      'Ask your administrator'
-    )
-    expect(wrapper.find('[data-testid="synaplan-instance-register"]').exists()).toBe(false)
-  })
-
-  it('names a conflicting registration so the administrator can clean it up', async () => {
-    answer(settings, { registered: true, status: 'active', host: 'cloud.example', conflicts: 2 })
-    const wrapper = mountIt()
-    await flushPromises()
-    expect(wrapper.get('[data-testid="synaplan-instance-conflict"]').text()).toContain(
-      '2 other clouds'
-    )
-  })
-
-  it('says a pending instance waits for a Synaplan administrator', async () => {
-    answer(settings, { registered: true, status: 'pending', host: 'cloud.example' })
-    const wrapper = mountIt()
-    await flushPromises()
-    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
-      'Waiting for a Synaplan administrator'
-    )
   })
 })

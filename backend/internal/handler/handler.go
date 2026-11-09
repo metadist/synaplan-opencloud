@@ -13,7 +13,6 @@ import (
 	"path"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -43,12 +42,8 @@ import (
 // can take minutes.
 // Settings is the cloud-file configuration the process was started with.
 type Settings struct {
-	InstanceID     string
-	InstanceSecret string
-	DeliveryURL    string
-	PublicURL      string
-	ServerID       string
-	OIDCClientID   string
+	PublicURL    string
+	OIDCClientID string
 	// OIDCAuthorizeEndpoint is where the browser asks the identity provider
 	// for a code for OIDCClientID, to connect background work.
 	OIDCAuthorizeEndpoint string
@@ -76,14 +71,6 @@ type Settings struct {
 	AllowMemories         bool
 }
 
-// instanceCredential is the platform instance this OpenCloud is
-// registered as. It is replaced as one value, because background
-// registration writes it while request handlers read it.
-type instanceCredential struct {
-	id     string
-	secret string
-}
-
 type Handler struct {
 	synaplanURL string
 	synaplanAPI *synaplanapi.ClientWithResponses
@@ -92,10 +79,8 @@ type Handler struct {
 	cs3         *cs3reader.Reader
 	assetProxy  *httputil.ReverseProxy
 	settings    Settings
-	credential  atomic.Pointer[instanceCredential]
 	state       *state.Store
 	delegation  *delegation.Delegation
-	service     *delegation.Service
 	seen        *notify.Seen
 	seenMu      sync.Mutex
 	keysMu      sync.Mutex
@@ -109,7 +94,7 @@ type Handler struct {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *delegation.Delegation, service *delegation.Service, settings Settings) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *delegation.Delegation, settings Settings) (*Handler, error) {
 	apiClient, err := synaplanapi.NewClientWithResponses(
 		synaplanURL,
 		synaplanapi.WithHTTPClient(&http.Client{}),
@@ -148,31 +133,9 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		settings:    settings,
 		state:       store,
 		delegation:  delegated,
-		service:     service,
 		seen:        notify.NewSeen(),
 	}
-	if settings.InstanceID != "" && settings.InstanceSecret != "" {
-		h.setCredential(settings.InstanceID, settings.InstanceSecret)
-	} else if id, secret := store.Instance(); id != "" && secret != "" {
-		h.setCredential(id, secret)
-	}
 	return h, nil
-}
-
-func (h *Handler) setCredential(id, secret string) {
-	h.credential.Store(&instanceCredential{id: id, secret: secret})
-}
-
-// instance returns the registered credential, or empty strings.
-func (h *Handler) instance() (string, string) {
-	if h == nil {
-		return "", ""
-	}
-	cred := h.credential.Load()
-	if cred == nil {
-		return "", ""
-	}
-	return cred.id, cred.secret
 }
 
 // store is the process state. A handler built in a test has none, so

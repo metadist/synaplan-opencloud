@@ -57,7 +57,7 @@ func Precheck(body map[string]any, instanceID string, now int64) string {
 }
 
 // Verify checks signature, instance and time. now is unix seconds.
-// keys are the public keys from instances/self (publicKey field).
+// keys are Synaplan's public keys from its JWK Set, as ed25519:<x>.
 func Verify(body map[string]any, instanceID string, keys []string, now int64) string {
 	if reason := Precheck(body, instanceID, now); reason != OK {
 		return reason
@@ -203,5 +203,5 @@ func (s *Seen) Forget(kind, id string) {
 	delete(s.ids, kind+"\x00"+id)
 }
 
-// ErrNoKeys is returned when instances/self listed no notify keys.
+// ErrNoKeys is returned when Synaplan's JWK Set listed no keys.
 var ErrNoKeys = errors.New("no notify keys")

@@ -1,10 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
-import {
-  allowBackgroundWork,
-  ensureRegistered,
-  stopBackgroundWork
-} from '../../support/helpers/cloudHelper'
+import { allowBackgroundWork, stopBackgroundWork } from '../../support/helpers/cloudHelper'
 import {
   deleteFileQuiet,
   downloadTextFile,
@@ -39,10 +35,6 @@ let ocToken: string
 let webDavUrl: string
 const synaplanFiles: number[] = []
 const cloudFiles: string[] = []
-
-test.beforeAll(async ({ request }) => {
-  await ensureRegistered(request)
-})
 
 test.beforeEach(async ({ request }) => {
   synaplanToken = await getAccessToken(request, TEST_USER, TEST_PASSWORD, {

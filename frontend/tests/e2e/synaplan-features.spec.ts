@@ -1,6 +1,5 @@
 import { test, expect, Page } from '@playwright/test'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
-import { ensureRegistered } from '../../support/helpers/cloudHelper'
 import { openSynaplanMenu } from '../../support/helpers/contextMenuHelper'
 import {
   deleteFileQuiet,
@@ -26,10 +25,6 @@ const SYNAPLAN_API_URL = process.env.SYNAPLAN_API_URL ?? 'http://localhost:8000'
 test.describe.configure({ mode: 'serial' })
 
 let page: Page
-
-test.beforeAll(async ({ request }) => {
-  await ensureRegistered(request)
-})
 
 test.afterEach(async () => {
   if (!page) return
@@ -119,15 +114,15 @@ test('an image made in Synaplan is saved into the files', async ({ browser }) =>
   )
 })
 
-test('the administrator sees the registration and saves the answer settings', async ({
+test('the administrator sees how Synaplan reaches this OpenCloud and saves the answer settings', async ({
   browser
 }) => {
   page = (await loginAsUser(browser, 'admin', 'admin')).page
   await page.goto('/synaplan')
-  await expect(page.locator('[data-testid="synaplan-instance-state"]')).toBeVisible({
-    timeout: 15_000
-  })
-  await expect(page.locator('[data-testid="synaplan-instance-register"]')).toHaveCount(0)
+  await expect(page.locator('[data-testid="synaplan-instance-state"]')).toContainText(
+    'reaches it at',
+    { timeout: 15_000 }
+  )
   await expect(page.locator('[data-testid="synaplan-admin-readonly"]')).toHaveCount(0)
 
   await page.locator('[data-testid="synaplan-admin-save"]').click()

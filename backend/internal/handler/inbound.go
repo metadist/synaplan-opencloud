@@ -35,7 +35,7 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": notify.BadSignature})
 		return
 	}
-	instanceID, _ := h.instance()
+	instanceID := oidcCloudID
 	// Reject what cannot verify before touching the key cache: the checks
 	// that need no key first, then the key fetch on a short deadline.
 	if reason := notify.Precheck(body, instanceID, time.Now().Unix()); reason != notify.OK {
@@ -131,9 +131,11 @@ func (h *Handler) revokeIdentity(id string) {
 	}
 }
 
-// notifyKeys returns Synaplan's current notify public keys. A 200 answer
-// is authoritative, an empty list included: a key Synaplan dropped must
-// stop being trusted. Only a failed or unreadable answer keeps the cache.
+// notifyKeys returns Synaplan's current notify public keys from its open
+// JWK Set: public keys need no credential, and a notice is verified before
+// anyone it names is trusted. A 200 answer is authoritative, an empty list
+// included: a key Synaplan dropped must stop being trusted. Only a failed or
+// unreadable answer keeps the cache.
 // keyFetchTimeout bounds the fetch of Synaplan's notification keys, which
 // runs under the key cache's lock: one slow answer must not hold every
 // later notification.
@@ -145,23 +147,25 @@ func (h *Handler) notifyKeys(ctx context.Context) []string {
 	if time.Since(h.keysAt) < 10*time.Minute && h.keysLoaded {
 		return h.keys
 	}
-	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/api/v1/platform-links/instances/self", nil, callOptions{cloud: true})
+	status, body, err := h.synaplanDo(ctx, http.MethodGet, "/.well-known/jwks.json", nil, callOptions{skipUser: true})
 	if err != nil || status != http.StatusOK {
 		log.Printf("notify keys: status %d err %v", status, err)
 		return h.keys
 	}
 	var parsed struct {
-		NotifyKeys []struct {
-			PublicKey string `json:"publicKey"`
-		} `json:"notify_keys"`
+		Keys []struct {
+			Kty string `json:"kty"`
+			Crv string `json:"crv"`
+			X   string `json:"x"`
+		} `json:"keys"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return h.keys
 	}
-	keys := make([]string, 0, len(parsed.NotifyKeys))
-	for _, key := range parsed.NotifyKeys {
-		if key.PublicKey != "" {
-			keys = append(keys, key.PublicKey)
+	keys := make([]string, 0, len(parsed.Keys))
+	for _, key := range parsed.Keys {
+		if key.Kty == "OKP" && key.Crv == "Ed25519" && key.X != "" {
+			keys = append(keys, "ed25519:"+key.X)
 		}
 	}
 	h.keys = keys

@@ -16,20 +16,15 @@ import (
 
 // callOptions tunes one outbound Synaplan request.
 type callOptions struct {
-	// extra headers are set after the user editor, so an instance
-	// credential or a background key wins over the browser token.
+	// extra headers are set after the user editor.
 	extra http.Header
-	// skipUser leaves off the exchanged bearer. Instance operations
-	// (claim a copy, report a read) authenticate with the instance secret.
+	// skipUser sends no credential at all, for Synaplan's open routes
+	// (capabilities, its public keys).
 	skipUser bool
 	// as is the person (token subject) a call is made for while they are
 	// away. The call carries a Synaplan token minted from their offline
 	// token instead of the browser's exchanged token.
 	as string
-	// cloud authenticates as this service itself with its own service
-	// client (client credentials), for calls about the cloud rather than a
-	// person.
-	cloud bool
 	// raw is a body that is already encoded (multipart). payload is ignored.
 	raw         io.Reader
 	contentType string
@@ -70,12 +65,6 @@ func (h *Handler) synaplanDo(ctx context.Context, method, rel string, payload an
 	switch {
 	case opt.as != "":
 		token, err := h.personBearer(ctx, opt.as)
-		if err != nil {
-			return 0, nil, err
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
-	case opt.cloud:
-		token, err := h.service.Token(ctx)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -131,14 +120,6 @@ const passTimeout = 8 * time.Minute
 // bounded returns a child context with the background deadline.
 func bounded(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, backgroundTimeout)
-}
-
-func (h *Handler) instanceHeaders() http.Header {
-	id, secret := h.instance()
-	return http.Header{
-		"X-Instance-Id":     {id},
-		"X-Instance-Secret": {secret},
-	}
 }
 
 // errOpenCloudTokenForwarded is the one mistake this service must never

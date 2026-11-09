@@ -20,7 +20,7 @@ func TestUserDefaultsHaveAnArrayOfFolders(t *testing.T) {
 	}
 }
 
-func TestKeysSurviveAReloadEncrypted(t *testing.T) {
+func TestPeopleSurviveAReload(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := Open(path, "secret")
 	if err != nil {
@@ -31,25 +31,12 @@ func TestKeysSurviveAReloadEncrypted(t *testing.T) {
 	if err := store.PutUser("ada", user); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetInstance("pi_1", "instance-secret"); err != nil {
-		t.Fatal(err)
-	}
 	again, err := Open(path, "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id, ok := again.UserByLinkID(7); !ok || id != "ada" {
 		t.Fatalf("link id lookup = %q, %v", id, ok)
-	}
-	if id, secret := again.Instance(); id != "pi_1" || secret != "instance-secret" {
-		t.Fatalf("instance = %q / %q", id, secret)
-	}
-	wrongKey, err := Open(path, "other")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, secret := wrongKey.Instance(); secret != "" {
-		t.Fatal("a wrong state key decrypted the instance secret")
 	}
 }
 

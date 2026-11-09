@@ -159,7 +159,11 @@
     "Synaplan works for you only while you use OpenCloud.": "Synaplan arbeitet nur für Sie, während Sie OpenCloud nutzen.",
     "Allow": "Erlauben",
     "Stop": "Beenden",
-    "Synaplan could not be allowed to work for you. Try again.": "Synaplan konnte nicht erlaubt werden, für Sie zu arbeiten. Versuchen Sie es erneut."
+    "Synaplan could not be allowed to work for you. Try again.": "Synaplan konnte nicht erlaubt werden, für Sie zu arbeiten. Versuchen Sie es erneut.",
+    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan kennt dieses OpenCloud aus seiner eigenen Konfiguration.",
+    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan ist für dieses OpenCloud noch nicht eingerichtet. Der Betreiber setzt PLATFORM_LINKS_OIDC_CLOUD.",
+    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan kennt dieses OpenCloud als %{host}, erreicht es aber nicht unter %{url}.",
+    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan kennt dieses OpenCloud als %{host} und erreicht es unter %{url}."
   },
   "es": {
     "Synaplan": "Synaplan",
@@ -321,7 +325,11 @@
     "Synaplan works for you only while you use OpenCloud.": "Synaplan solo trabaja para ti mientras usas OpenCloud.",
     "Allow": "Permitir",
     "Stop": "Detener",
-    "Synaplan could not be allowed to work for you. Try again.": "No se pudo permitir que Synaplan trabaje para ti. Inténtalo de nuevo."
+    "Synaplan could not be allowed to work for you. Try again.": "No se pudo permitir que Synaplan trabaje para ti. Inténtalo de nuevo.",
+    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan conoce este OpenCloud por su propia configuración.",
+    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan aún no está configurado para este OpenCloud. Su operador define PLATFORM_LINKS_OIDC_CLOUD.",
+    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan conoce este OpenCloud como %{host}, pero no lo alcanza en %{url}.",
+    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan conoce este OpenCloud como %{host} y lo alcanza en %{url}."
   },
   "fr": {
     "Synaplan": "Synaplan",
@@ -483,7 +491,11 @@
     "Synaplan works for you only while you use OpenCloud.": "Synaplan ne travaille pour vous que pendant que vous utilisez OpenCloud.",
     "Allow": "Autoriser",
     "Stop": "Arrêter",
-    "Synaplan could not be allowed to work for you. Try again.": "Synaplan n’a pas pu être autorisé à travailler pour vous. Réessayez."
+    "Synaplan could not be allowed to work for you. Try again.": "Synaplan n’a pas pu être autorisé à travailler pour vous. Réessayez.",
+    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan connaît cet OpenCloud par sa propre configuration.",
+    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan n’est pas encore configuré pour cet OpenCloud. Son exploitant définit PLATFORM_LINKS_OIDC_CLOUD.",
+    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan connaît cet OpenCloud sous %{host}, mais ne l’atteint pas à %{url}.",
+    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan connaît cet OpenCloud sous %{host} et l’atteint à %{url}."
   },
   "tr": {
     "Synaplan": "Synaplan",
@@ -645,6 +657,10 @@
     "Synaplan works for you only while you use OpenCloud.": "Synaplan yalnızca OpenCloud kullanırken sizin için çalışır.",
     "Allow": "İzin ver",
     "Stop": "Durdur",
-    "Synaplan could not be allowed to work for you. Try again.": "Synaplan’ın sizin için çalışmasına izin verilemedi. Tekrar deneyin."
+    "Synaplan could not be allowed to work for you. Try again.": "Synaplan’ın sizin için çalışmasına izin verilemedi. Tekrar deneyin.",
+    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan bu OpenCloud’u kendi yapılandırmasından tanıyor.",
+    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan bu OpenCloud için henüz ayarlanmadı. İşletmecisi PLATFORM_LINKS_OIDC_CLOUD değerini ayarlar.",
+    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan bu OpenCloud’u %{host} olarak tanıyor ancak %{url} adresinden ulaşamıyor.",
+    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan bu OpenCloud’u %{host} olarak tanıyor ve ona %{url} adresinden ulaşıyor."
   }
 }

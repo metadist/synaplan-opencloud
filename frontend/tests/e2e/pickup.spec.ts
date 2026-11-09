@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
-import { allowBackgroundWork, ensureRegistered } from '../../support/helpers/cloudHelper'
+import { allowBackgroundWork } from '../../support/helpers/cloudHelper'
 import {
   deleteFileQuiet,
   ensureFolder,
@@ -68,8 +68,7 @@ async function setReadScope(request: Parameters<typeof getAccessToken>[0], mode:
   expect((await resp.json()).reported).toBe(true)
 }
 
-test.beforeAll(async ({ browser, request }) => {
-  await ensureRegistered(request)
+test.beforeAll(async ({ browser }) => {
   const { page } = await loginAsUser(browser, TEST_USER, TEST_PASSWORD)
   await allowBackgroundWork(page)
   await logout(page)

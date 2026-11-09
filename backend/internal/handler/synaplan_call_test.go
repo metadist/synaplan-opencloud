@@ -47,16 +47,12 @@ func TestSynaplanDoSendsTheInstanceCredentialWithoutAUserToken(t *testing.T) {
 			return nil
 		},
 	}
-	h.setCredential("pi_1", "s3cret")
-	_, _, err := h.synaplanDo(context.Background(), http.MethodGet, "/x", nil, callOptions{skipUser: true, extra: h.instanceHeaders()})
+	_, _, err := h.synaplanDo(context.Background(), http.MethodGet, "/x", nil, callOptions{skipUser: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if editorCalls != 0 || got.Get("Authorization") != "" {
-		t.Fatal("the user token was sent on an instance call")
-	}
-	if got.Get("X-Instance-Id") != "pi_1" || got.Get("X-Instance-Secret") != "s3cret" {
-		t.Fatalf("instance headers = %v", got)
+		t.Fatal("a credential was sent on an open call")
 	}
 }
 

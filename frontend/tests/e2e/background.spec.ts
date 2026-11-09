@@ -3,7 +3,6 @@ import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authH
 import {
   allowBackgroundWork,
   connection,
-  ensureRegistered,
   stopBackgroundWork
 } from '../../support/helpers/cloudHelper'
 
@@ -21,10 +20,6 @@ const TEST_PASSWORD = 'testpass123'
 test.describe.configure({ mode: 'serial' })
 
 let userPage: Page
-
-test.beforeAll(async ({ request }) => {
-  await ensureRegistered(request)
-})
 
 test.beforeEach(async ({ browser }) => {
   userPage = (await loginAsUser(browser, TEST_USER, TEST_PASSWORD)).page

@@ -10,31 +10,6 @@
     <template v-if="settings">
       <h2 class="ext:text-lg ext:font-semibold">{{ $gettext('This OpenCloud in Synaplan') }}</h2>
       <p class="ext:text-sm" data-testid="synaplan-instance-state">{{ instanceSentence }}</p>
-      <p
-        v-if="instance && instance.conflicts > 0"
-        class="ext:text-sm ext:text-role-error"
-        data-testid="synaplan-instance-conflict"
-      >
-        {{
-          $ngettext(
-            'Synaplan knows one other cloud for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove the one no longer in use.',
-            'Synaplan knows %{count} other clouds for this login, so nothing sent with a person’s login can be attributed to this one. Ask a Synaplan administrator to remove those no longer in use.',
-            instance.conflicts,
-            { count: String(instance.conflicts) }
-          )
-        }}
-      </p>
-      <oc-button
-        v-if="settings.isAdmin && instance && !instance.registered"
-        appearance="filled"
-        color-role="primary"
-        :disabled="registering"
-        :show-spinner="registering"
-        data-testid="synaplan-instance-register"
-        @click="register"
-      >
-        {{ $gettext('Register this OpenCloud') }}
-      </oc-button>
       <h2 class="ext:text-lg ext:font-semibold">
         {{ $gettext('How do people here use Synaplan?') }}
       </h2>
@@ -141,7 +116,7 @@ import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { sentenceFor } from '../failures'
 
-const { $gettext, $ngettext } = useGettext()
+const { $gettext } = useGettext()
 const { httpAuthenticated } = useClientService()
 
 const languageSchema = z.object({ code: z.string(), name: z.string() })
@@ -158,16 +133,17 @@ type AdminSettingsData = z.infer<typeof settingsSchema>
 type LanguageOption = z.infer<typeof languageSchema>
 
 const instanceSchema = z.object({
-  registered: z.boolean(),
-  status: z.string(),
-  host: z.string(),
-  conflicts: z.number().default(0)
+  visible: z.boolean(),
+  known: z.boolean(),
+  status: z.string().default(''),
+  host: z.string().default(''),
+  deliveryUrl: z.string().default(''),
+  reachable: z.boolean().nullable().default(null)
 })
 type InstanceState = z.infer<typeof instanceSchema>
 
 const settings = ref<AdminSettingsData | null>(null)
 const instance = ref<InstanceState | null>(null)
-const registering = ref(false)
 const selectedLanguage = ref<LanguageOption | null>(null)
 const useUserLanguage = ref(true)
 const allowMemories = ref(true)
@@ -221,26 +197,30 @@ const answerLanguageSentence = computed(() => {
     : $gettext('Answers come in %{language}.', { language: name })
 })
 
-// Who connected this cloud, and whether Synaplan has said yes yet. The
-// administrator's own login does the registering; nothing is pasted.
+// How Synaplan sees this OpenCloud. Nothing is registered here: Synaplan
+// knows the cloud from its own configuration, and only a Synaplan
+// administrator may see that, read with their own login.
 const instanceSentence = computed(() => {
-  if (!instance.value) return ''
-  if (!instance.value.registered) {
-    return settings.value?.isAdmin
-      ? $gettext(
-          'Not registered yet. Register it with your login: copies, folder reads and watches start working once Synaplan has accepted it.'
-        )
-      : $gettext('Ask your administrator to connect this OpenCloud to Synaplan.')
+  const state = instance.value
+  if (!state) return ''
+  if (!state.visible) {
+    return $gettext('Synaplan knows this OpenCloud from its own configuration.')
   }
-  if (instance.value.status === 'active') {
-    return $gettext('Registered as %{host} and accepted by Synaplan.', {
-      host: instance.value.host
+  if (!state.known) {
+    return $gettext(
+      'Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.'
+    )
+  }
+  if (state.reachable === false) {
+    return $gettext('Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.', {
+      host: state.host,
+      url: state.deliveryUrl
     })
   }
-  return $gettext(
-    'Registered as %{host}. Waiting for a Synaplan administrator to approve it in Synaplan.',
-    { host: instance.value.host }
-  )
+  return $gettext('Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.', {
+    host: state.host,
+    url: state.deliveryUrl
+  })
 })
 
 async function loadInstance() {
@@ -249,27 +229,6 @@ async function loadInstance() {
     instance.value = res.data
   } catch {
     instance.value = null
-  }
-}
-
-async function register() {
-  registering.value = true
-  error.value = ''
-  try {
-    const res = await httpAuthenticated.post(
-      '/api/synaplan/instance/register',
-      {},
-      { schema: instanceSchema }
-    )
-    instance.value = res.data
-  } catch (e) {
-    error.value = sentenceFor(
-      $gettext,
-      e,
-      $gettext('Synaplan could not finish this. Try again in a minute, or ask your administrator.')
-    )
-  } finally {
-    registering.value = false
   }
 }
 

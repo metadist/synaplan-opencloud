@@ -80,8 +80,6 @@ type disk struct {
 	Watches        []Watch         `json:"watches"`
 	Owns           []OwnWrite      `json:"owns"`
 	Admin          Admin           `json:"admin"`
-	InstanceID     string          `json:"instanceId,omitempty"`
-	InstanceSecret []byte          `json:"instanceSecret,omitempty"`
 }
 
 // Store is safe for concurrent use.
@@ -334,43 +332,6 @@ func (s *Store) PutAdmin(admin Admin) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.disk.Admin = admin
-	return s.flush()
-}
-
-// Instance returns the stored platform instance, when registration
-// saved one. The secret is empty when it could not be decrypted.
-func (s *Store) Instance() (string, string) {
-	if s == nil {
-		return "", ""
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	secret := ""
-	if len(s.disk.InstanceSecret) > 0 && s.aead != nil {
-		plain, err := s.decrypt(s.disk.InstanceSecret)
-		if err == nil {
-			secret = string(plain)
-		}
-	}
-	return s.disk.InstanceID, secret
-}
-
-// SetInstance stores the platform instance. The secret is encrypted.
-func (s *Store) SetInstance(id, secret string) error {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.disk.InstanceID = id
-	s.disk.InstanceSecret = nil
-	if secret != "" && s.aead != nil {
-		sealed, err := s.encrypt([]byte(secret))
-		if err != nil {
-			return err
-		}
-		s.disk.InstanceSecret = sealed
-	}
 	return s.flush()
 }
 
