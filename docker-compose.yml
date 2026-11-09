@@ -49,7 +49,7 @@ services:
       - traefik
 
   traefik:
-    image: traefik:v3.6.11@sha256:acfc80650104f0194a15f73dc1648f517561bc1645391a15705332a064cfc33c
+    image: traefik:v3.7.17@sha256:f4bb143d1135a579b630ed491e17ec50f6f7c9c6a30585ff3d385471d2a86f5a
     restart: unless-stopped
     entrypoint:
       - '/bin/sh'
