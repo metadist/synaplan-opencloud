@@ -95,8 +95,8 @@ func (h *Handler) SaveMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 // uploadsSegment matches one path segment Synaplan uses under
-// /api/v1/files/uploads/: a number, or a stored file name without
-// separators. Anything else is not a generated file.
+// /api/v1/files/uploads/: a shard directory, or a stored file name
+// without separators. Anything else is not a generated file.
 var uploadsSegment = regexp.MustCompile(`^[A-Za-z0-9._-]{1,200}$`)
 
 // generatedFilePath turns the URL Synaplan returned for a generated file
@@ -118,12 +118,16 @@ func generatedFilePath(raw string) (string, bool) {
 			return "", false
 		}
 		return "/api/v1/files/" + strconv.Itoa(id) + "/download", true
-	case len(parts) == 3 && parts[0] == "uploads":
-		owner, err := strconv.Atoi(parts[1])
-		if err != nil || owner <= 0 || !uploadsSegment.MatchString(parts[2]) {
-			return "", false
+	case len(parts) >= 3 && len(parts) <= 8 && parts[0] == "uploads":
+		// Synaplan shards stored files: uploads/04/000/00004/2026/11/name.png.
+		clean := make([]string, 0, len(parts)-1)
+		for _, part := range parts[1:] {
+			if part == "." || part == ".." || !uploadsSegment.MatchString(part) {
+				return "", false
+			}
+			clean = append(clean, url.PathEscape(part))
 		}
-		return "/api/v1/files/uploads/" + strconv.Itoa(owner) + "/" + url.PathEscape(parts[2]), true
+		return "/api/v1/files/uploads/" + strings.Join(clean, "/"), true
 	default:
 		return "", false
 	}

@@ -86,8 +86,8 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 | `SYNAPLAN_PUBLIC_URL` | Address a person opens in the browser, used in links back to a file. |
 | `SYNAPLAN_OPENCLOUD_URL` (or `OC_URL`) | OpenCloud's own address, for the Graph lookup that tells an administrator from a user. Without it only the roles in the request token count. |
 | `SYNAPLAN_SERVER_ID` | Name this OpenCloud announces to Synaplan. |
-| `SYNAPLAN_STATE_PATH` | File for read settings, away-keys and the administrator's choices. Empty keeps them in memory only, so a restart forgets them. |
-| `SYNAPLAN_STATE_KEY` | Encrypts the away-keys in the state file. Defaults to `OC_JWT_SECRET`. |
+| `SYNAPLAN_STATE_PATH` | File for read settings, the instance credential and the administrator's choices. Empty keeps them in memory only, so a restart forgets them. Offline tokens for work while a person is away are kept in memory only: after a restart people allow it again. |
+| `SYNAPLAN_STATE_KEY` | Encrypts the instance secret in the state file. Defaults to `OC_JWT_SECRET`. |
 
 ### Registering this OpenCloud with Synaplan
 

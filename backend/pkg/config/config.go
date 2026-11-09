@@ -48,8 +48,8 @@ type Config struct {
 	PublicURL      string `yaml:"public_url" env:"SYNAPLAN_PUBLIC_URL" desc:"Address a person opens in the browser, used in links back to a file."`
 	ServerID       string `yaml:"server_id" env:"SYNAPLAN_SERVER_ID" desc:"Stable id of this OpenCloud server, sent when the instance is registered."`
 	OpenCloudURL   string `yaml:"opencloud_url" env:"SYNAPLAN_OPENCLOUD_URL;OC_URL" desc:"Address of OpenCloud's own API as this service reaches it. Used to ask the Graph API whether a person is an administrator."`
-	StatePath      string `yaml:"state_path" env:"SYNAPLAN_STATE_PATH" desc:"File that stores read settings, the administrator's choices and the key used while a person is away. Put it on durable storage. Empty keeps that state in memory only."`
-	StateKey       string `yaml:"state_key" env:"SYNAPLAN_STATE_KEY;OC_JWT_SECRET" desc:"Secret used to encrypt keys in the state file. Falls back to the OpenCloud JWT secret. Never logged."`
+	StatePath      string `yaml:"state_path" env:"SYNAPLAN_STATE_PATH" desc:"File that stores read settings, the instance credential and the administrator's choices. Put it on durable storage. Empty keeps that state in memory only."`
+	StateKey       string `yaml:"state_key" env:"SYNAPLAN_STATE_KEY;OC_JWT_SECRET" desc:"Secret used to encrypt the instance secret in the state file. Falls back to the OpenCloud JWT secret. Never logged."`
 
 	// Answer language and memories. An OpenCloud administrator can change
 	// these on the Synaplan page; the values here are the starting point.

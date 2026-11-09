@@ -115,7 +115,11 @@ export async function sendToCloud(
     data: { destination: 'platform', identity_id: linkId }
   })
   const body = (await resp.json()) as { reference?: string | null; context?: { state?: string } }
-  return { status: resp.status(), reference: body.reference ?? null, state: body.context?.state ?? '' }
+  return {
+    status: resp.status(),
+    reference: body.reference ?? null,
+    state: body.context?.state ?? ''
+  }
 }
 
 /** Delete a file from the person's Synaplan files; ignores failures. */

@@ -10,7 +10,11 @@ export async function resourceId(
   const url = `${webDavUrl.replace(/\/$/, '')}/${path.split('/').map(encodeURIComponent).join('/')}`
   const resp = await request.fetch(url, {
     method: 'PROPFIND',
-    headers: { Authorization: `Bearer ${accessToken}`, Depth: '0', 'Content-Type': 'application/xml' },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Depth: '0',
+      'Content-Type': 'application/xml'
+    },
     data: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><oc:fileid/></d:prop></d:propfind>'
   })
   const match = /<oc:fileid>([^<]+)<\/oc:fileid>/.exec(await resp.text())

@@ -63,7 +63,13 @@ test.afterEach(async ({ request }) => {
 })
 
 async function sendNewFile(request: Parameters<typeof uploadToSynaplan>[0], name: string) {
-  const fileId = await uploadToSynaplan(request, SYNAPLAN_API_URL, synaplanToken, name, `copy of ${name}`)
+  const fileId = await uploadToSynaplan(
+    request,
+    SYNAPLAN_API_URL,
+    synaplanToken,
+    name,
+    `copy of ${name}`
+  )
   synaplanFiles.push(fileId)
   const linkId = await linkToCloud(request, SYNAPLAN_API_URL, synaplanToken, OC_HOST)
   return sendToCloud(request, SYNAPLAN_API_URL, synaplanToken, fileId, linkId)

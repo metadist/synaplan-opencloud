@@ -131,9 +131,13 @@ server's copy of the same app id.
   (Graph, the admin check) and into the RFC 8693 exchange as
   `subject_token` — nowhere else. Every call to Synaplan carries one of
   exactly three things: the token the exchange minted for Synaplan
-  (`synaplanauth.NewRequestEditor`), this instance's credential
-  (`X-Instance-Id/Secret`, for calls about the cloud rather than a person),
-  or a key Synaplan itself issued (the per-person background key). All
+  (`synaplanauth.NewRequestEditor`), a Synaplan token minted from the
+  person's own offline token while they are away (`callOptions.as`,
+  `internal/delegation`), or this service's own client token for calls
+  about the cloud rather than a person (`callOptions.cloud`; the instance
+  secret only announces the instance after registration). Files are read
+  while the person is away over WebDAV with an OpenCloud token minted the
+  same way (`internal/davfiles`); there is no machine key. All
   Synaplan traffic goes through `synaplanDo`, which refuses to send a
   request whose bearer equals the incoming OpenCloud token
   (`refuseOpenCloudToken`); do not add a second HTTP path to Synaplan.

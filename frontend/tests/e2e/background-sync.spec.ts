@@ -67,7 +67,8 @@ function service(request: APIRequestContext) {
     post: (path: string, data: unknown) =>
       request.post(`${OC_API_URL}/api/synaplan${path}`, { headers, data }),
     delete: (path: string) => request.delete(`${OC_API_URL}/api/synaplan${path}`, { headers }),
-    checkNow: () => request.post(`${OC_API_URL}/api/synaplan/watches/reconcile`, { headers, data: {} })
+    checkNow: () =>
+      request.post(`${OC_API_URL}/api/synaplan/watches/reconcile`, { headers, data: {} })
   }
 }
 
@@ -106,7 +107,11 @@ test('a file kept up to date: an edit reaches Synaplan in the next pass', async 
   cleanup.push(path)
   const fileId = await resourceId(request, webDavUrl, ocToken, path)
   const api = service(request)
-  const added = await api.post('/knowledge', { resourceId: fileId, groupKey: GROUP, keepSynced: true })
+  const added = await api.post('/knowledge', {
+    resourceId: fileId,
+    groupKey: GROUP,
+    keepSynced: true
+  })
   expect(added.ok(), await added.text()).toBe(true)
   const name = path.split('/').pop()
   const kept = async () =>
