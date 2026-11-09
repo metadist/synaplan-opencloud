@@ -73,7 +73,7 @@ func Precheck(token, instanceID string, now int64) string {
 	if claims.Audience != instanceID {
 		return WrongInstance
 	}
-	if claims.Expires == 0 || now > claims.Expires || claims.IssuedAt > now+skewSeconds {
+	if claims.Expires == 0 || now >= claims.Expires || claims.IssuedAt > now+skewSeconds {
 		return Stale
 	}
 	return OK

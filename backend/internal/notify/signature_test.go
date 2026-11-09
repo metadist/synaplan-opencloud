@@ -72,6 +72,7 @@ func TestPrecheckNeedsNoKey(t *testing.T) {
 		"expired":         {token(map[string]any{"aud": "pi_abc", "iat": now - 1000, "exp": now - 700}), Stale},
 		"from the future": {token(map[string]any{"aud": "pi_abc", "iat": now + 600, "exp": now + 900}), Stale},
 		"plausible":       {token(map[string]any{"aud": "pi_abc", "iat": now, "exp": now + 300}), OK},
+		"at exp":          {token(map[string]any{"aud": "pi_abc", "iat": now - 300, "exp": now}), Stale},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

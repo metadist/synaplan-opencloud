@@ -79,11 +79,6 @@ func (h *Handler) DelegationConnect(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Synaplan could not be allowed to work for you. Try again.", Code: "connect_failed"})
 		return
 	}
-	if h.hasInstance() {
-		if _, _, err := h.bindLogin(r.Context(), sub); err != nil {
-			log.Printf("sso bind after connect: %v", err)
-		}
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"connected": true})
 }
 

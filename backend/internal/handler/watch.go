@@ -66,7 +66,6 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := currentUserID(r.Context())
-	h.linked(r.Context(), uid)
 	body := map[string]any{
 		"target_kind": req.TargetKind,
 		"target_id":   req.TargetID,

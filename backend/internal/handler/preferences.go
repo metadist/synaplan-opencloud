@@ -17,7 +17,7 @@ func (h *Handler) Preferences(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"readScope":  user.ReadScope,
 		"copyFolder": user.CopyFolder,
-		"bound":      h.bound(r.Context()),
+		"bound":      h.hasInstance(),
 	})
 }
 
@@ -58,7 +58,6 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"saved": true, "reported": false})
 		return
 	}
-	h.linked(r.Context(), uid)
 	status, _, err := h.synaplanDo(r.Context(), http.MethodPut, "/api/v1/platform-links/read-scope", map[string]any{
 		"external_id": uid,
 		"mode":        req.Mode,

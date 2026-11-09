@@ -31,7 +31,6 @@
     "Synaplan did not accept this OpenCloud login.": "Synaplan hat diese OpenCloud-Anmeldung nicht akzeptiert.",
     "Your Synaplan": "Ihr Synaplan",
     "This OpenCloud login is your Synaplan login. A shared key, when an administrator set one, uses one Synaplan account for everyone.": "Diese OpenCloud-Anmeldung ist Ihre Synaplan-Anmeldung. Ein gemeinsamer Schlüssel, den eine Administration gesetzt hat, nutzt ein Synaplan-Konto für alle.",
-    "Connect this login": "Diese Anmeldung verbinden",
     "Only what I watch": "Nur was ich beobachte",
     "Also folders I allow": "Auch Ordner, die ich erlaube",
     "All of my files": "Alle meine Dateien",
@@ -44,7 +43,6 @@
     "Describe an image": "Beschreiben Sie ein Bild",
     "Ask your administrator to connect this OpenCloud to Synaplan.": "Bitten Sie Ihre Administration, dieses OpenCloud mit Synaplan zu verbinden.",
     "This login is connected to Synaplan.": "Diese Anmeldung ist mit Synaplan verbunden.",
-    "This login is not connected yet.": "Diese Anmeldung ist noch nicht verbunden.",
     "Saved into your files. The image is still in Synaplan.": "In Ihren Dateien gespeichert. Das Bild bleibt in Synaplan.",
     "What should happen when this file changes?": "Was soll geschehen, wenn sich diese Datei ändert?",
     "What should happen with new files?": "Was soll mit neuen Dateien geschehen?",
@@ -160,10 +158,8 @@
     "Allow": "Erlauben",
     "Stop": "Beenden",
     "Synaplan could not be allowed to work for you. Try again.": "Synaplan konnte nicht erlaubt werden, für Sie zu arbeiten. Versuchen Sie es erneut.",
-    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan kennt dieses OpenCloud aus seiner eigenen Konfiguration.",
-    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan ist für dieses OpenCloud noch nicht eingerichtet. Der Betreiber setzt PLATFORM_LINKS_OIDC_CLOUD.",
-    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan kennt dieses OpenCloud als %{host}, erreicht es aber nicht unter %{url}.",
-    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan kennt dieses OpenCloud als %{host} und erreicht es unter %{url}."
+    "Synaplan cannot be reached from this OpenCloud.": "Synaplan ist von diesem OpenCloud aus nicht erreichbar.",
+    "Synaplan answers and offers: %{features}. How Synaplan sees this OpenCloud is in Synaplan’s administration under Platform instances.": "Synaplan antwortet und bietet an: %{features}. Wie Synaplan dieses OpenCloud sieht, steht in der Synaplan-Administration unter Plattform-Instanzen."
   },
   "es": {
     "Synaplan": "Synaplan",
@@ -197,7 +193,6 @@
     "Synaplan did not accept this OpenCloud login.": "Synaplan no aceptó este inicio de sesión de OpenCloud.",
     "Your Synaplan": "Tu Synaplan",
     "This OpenCloud login is your Synaplan login. A shared key, when an administrator set one, uses one Synaplan account for everyone.": "Este inicio de sesión de OpenCloud es tu inicio de sesión de Synaplan. Una clave compartida, si un administrador la configuró, usa una cuenta de Synaplan para todos.",
-    "Connect this login": "Conectar este inicio de sesión",
     "Only what I watch": "Solo lo que vigilo",
     "Also folders I allow": "También las carpetas que permito",
     "All of my files": "Todos mis archivos",
@@ -210,7 +205,6 @@
     "Describe an image": "Describe una imagen",
     "Ask your administrator to connect this OpenCloud to Synaplan.": "Pide a tu administrador que conecte este OpenCloud con Synaplan.",
     "This login is connected to Synaplan.": "Este inicio de sesión está conectado a Synaplan.",
-    "This login is not connected yet.": "Este inicio de sesión aún no está conectado.",
     "Saved into your files. The image is still in Synaplan.": "Guardado en tus archivos. La imagen sigue en Synaplan.",
     "What should happen when this file changes?": "¿Qué debe pasar cuando cambie este archivo?",
     "What should happen with new files?": "¿Qué debe pasar con los archivos nuevos?",
@@ -326,10 +320,8 @@
     "Allow": "Permitir",
     "Stop": "Detener",
     "Synaplan could not be allowed to work for you. Try again.": "No se pudo permitir que Synaplan trabaje para ti. Inténtalo de nuevo.",
-    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan conoce este OpenCloud por su propia configuración.",
-    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan aún no está configurado para este OpenCloud. Su operador define PLATFORM_LINKS_OIDC_CLOUD.",
-    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan conoce este OpenCloud como %{host}, pero no lo alcanza en %{url}.",
-    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan conoce este OpenCloud como %{host} y lo alcanza en %{url}."
+    "Synaplan cannot be reached from this OpenCloud.": "No se puede acceder a Synaplan desde este OpenCloud.",
+    "Synaplan answers and offers: %{features}. How Synaplan sees this OpenCloud is in Synaplan’s administration under Platform instances.": "Synaplan responde y ofrece: %{features}. Cómo ve Synaplan este OpenCloud se muestra en la administración de Synaplan, en Instancias de plataforma."
   },
   "fr": {
     "Synaplan": "Synaplan",
@@ -363,7 +355,6 @@
     "Synaplan did not accept this OpenCloud login.": "Synaplan n’a pas accepté cette connexion OpenCloud.",
     "Your Synaplan": "Votre Synaplan",
     "This OpenCloud login is your Synaplan login. A shared key, when an administrator set one, uses one Synaplan account for everyone.": "Cette connexion OpenCloud est votre connexion Synaplan. Une clé partagée, si un administrateur en a défini une, utilise un compte Synaplan pour tout le monde.",
-    "Connect this login": "Connecter cette connexion",
     "Only what I watch": "Uniquement ce que je surveille",
     "Also folders I allow": "Aussi les dossiers que j’autorise",
     "All of my files": "Tous mes fichiers",
@@ -376,7 +367,6 @@
     "Describe an image": "Décrivez une image",
     "Ask your administrator to connect this OpenCloud to Synaplan.": "Demandez à votre administrateur de connecter cet OpenCloud à Synaplan.",
     "This login is connected to Synaplan.": "Cette connexion est reliée à Synaplan.",
-    "This login is not connected yet.": "Cette connexion n’est pas encore reliée.",
     "Saved into your files. The image is still in Synaplan.": "Enregistré dans vos fichiers. L’image est toujours dans Synaplan.",
     "What should happen when this file changes?": "Que doit-il se passer quand ce fichier change ?",
     "What should happen with new files?": "Que doit-il se passer avec les nouveaux fichiers ?",
@@ -492,10 +482,8 @@
     "Allow": "Autoriser",
     "Stop": "Arrêter",
     "Synaplan could not be allowed to work for you. Try again.": "Synaplan n’a pas pu être autorisé à travailler pour vous. Réessayez.",
-    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan connaît cet OpenCloud par sa propre configuration.",
-    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan n’est pas encore configuré pour cet OpenCloud. Son exploitant définit PLATFORM_LINKS_OIDC_CLOUD.",
-    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan connaît cet OpenCloud sous %{host}, mais ne l’atteint pas à %{url}.",
-    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan connaît cet OpenCloud sous %{host} et l’atteint à %{url}."
+    "Synaplan cannot be reached from this OpenCloud.": "Synaplan n’est pas joignable depuis cet OpenCloud.",
+    "Synaplan answers and offers: %{features}. How Synaplan sees this OpenCloud is in Synaplan’s administration under Platform instances.": "Synaplan répond et propose : %{features}. La façon dont Synaplan voit cet OpenCloud figure dans l’administration de Synaplan, sous Instances de plateforme."
   },
   "tr": {
     "Synaplan": "Synaplan",
@@ -529,7 +517,6 @@
     "Synaplan did not accept this OpenCloud login.": "Synaplan bu OpenCloud girişini kabul etmedi.",
     "Your Synaplan": "Synaplan’ınız",
     "This OpenCloud login is your Synaplan login. A shared key, when an administrator set one, uses one Synaplan account for everyone.": "Bu OpenCloud girişi sizin Synaplan girişinizdir. Bir yönetici ortak anahtar verdiyse herkes aynı Synaplan hesabını kullanır.",
-    "Connect this login": "Bu girişi bağla",
     "Only what I watch": "Yalnızca izlediklerim",
     "Also folders I allow": "İzin verdiğim klasörler de",
     "All of my files": "Tüm dosyalarım",
@@ -542,7 +529,6 @@
     "Describe an image": "Bir görseli tarif edin",
     "Ask your administrator to connect this OpenCloud to Synaplan.": "Yöneticinizden bu OpenCloud’u Synaplan’a bağlamasını isteyin.",
     "This login is connected to Synaplan.": "Bu giriş Synaplan’a bağlı.",
-    "This login is not connected yet.": "Bu giriş henüz bağlı değil.",
     "Saved into your files. The image is still in Synaplan.": "Dosyalarınıza kaydedildi. Görsel Synaplan’da duruyor.",
     "What should happen when this file changes?": "Bu dosya değişince ne olsun?",
     "What should happen with new files?": "Yeni dosyalarda ne olsun?",
@@ -658,9 +644,7 @@
     "Allow": "İzin ver",
     "Stop": "Durdur",
     "Synaplan could not be allowed to work for you. Try again.": "Synaplan’ın sizin için çalışmasına izin verilemedi. Tekrar deneyin.",
-    "Synaplan knows this OpenCloud from its own configuration.": "Synaplan bu OpenCloud’u kendi yapılandırmasından tanıyor.",
-    "Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.": "Synaplan bu OpenCloud için henüz ayarlanmadı. İşletmecisi PLATFORM_LINKS_OIDC_CLOUD değerini ayarlar.",
-    "Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.": "Synaplan bu OpenCloud’u %{host} olarak tanıyor ancak %{url} adresinden ulaşamıyor.",
-    "Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.": "Synaplan bu OpenCloud’u %{host} olarak tanıyor ve ona %{url} adresinden ulaşıyor."
+    "Synaplan cannot be reached from this OpenCloud.": "Synaplan’a bu OpenCloud’dan ulaşılamıyor.",
+    "Synaplan answers and offers: %{features}. How Synaplan sees this OpenCloud is in Synaplan’s administration under Platform instances.": "Synaplan yanıt veriyor ve şunları sunuyor: %{features}. Synaplan’ın bu OpenCloud’u nasıl gördüğü, Synaplan yönetiminde Platform örnekleri altında yer alır."
   }
 }

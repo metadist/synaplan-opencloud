@@ -68,12 +68,8 @@ function mountIt() {
 }
 
 const instance = {
-  visible: true,
-  known: true,
-  status: 'active',
-  host: 'cloud.example',
-  deliveryUrl: 'http://svc/inbound',
-  reachable: true as boolean | null
+  reachable: true,
+  capabilities: ['deliveries', 'pickups']
 }
 
 /** GET answers by route: the settings and the instance state are two calls. */
@@ -142,62 +138,29 @@ describe('AdminSettings', () => {
   })
 })
 
-describe('AdminSettings, this OpenCloud in Synaplan', () => {
+describe('AdminSettings, Synaplan as seen from here', () => {
   beforeEach(() => {
     get.mockReset()
     put.mockReset()
     post.mockReset()
   })
 
-  it('an admin of both sees the host and delivery address Synaplan has configured', async () => {
-    answer(settings, {
-      visible: true,
-      known: true,
-      status: 'active',
-      host: 'cloud.example',
-      deliveryUrl: 'http://synaplan-opencloud:9106/api/synaplan/inbound',
-      reachable: true
-    })
+  it('says what Synaplan offers and where its administration shows this OpenCloud', async () => {
+    answer(settings)
     const wrapper = mountIt()
     await flushPromises()
-    const state = wrapper.get('[data-testid="synaplan-instance-state"]').text()
-    expect(state).toContain('cloud.example')
-    expect(state).toContain('reaches it at http://synaplan-opencloud:9106/api/synaplan/inbound')
+    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toBe(
+      'Synaplan answers and offers: deliveries, pickups. How Synaplan sees this OpenCloud is in Synaplan’s administration under Platform instances.'
+    )
     expect(post).not.toHaveBeenCalled()
   })
 
-  it('an admin of both is told when Synaplan cannot reach the delivery address', async () => {
-    answer(settings, {
-      visible: true,
-      known: true,
-      status: 'active',
-      host: 'cloud.example',
-      deliveryUrl: 'http://nowhere/inbound',
-      reachable: false
-    })
+  it('says so when Synaplan cannot be reached', async () => {
+    answer(settings, { reachable: false, capabilities: [] })
     const wrapper = mountIt()
     await flushPromises()
-    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
-      'cannot reach it'
+    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toBe(
+      'Synaplan cannot be reached from this OpenCloud.'
     )
-  })
-
-  it('names the Synaplan setting when Synaplan has no configuration for this OpenCloud', async () => {
-    answer(settings, { visible: true, known: false })
-    const wrapper = mountIt()
-    await flushPromises()
-    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
-      'PLATFORM_LINKS_OIDC_CLOUD'
-    )
-  })
-
-  it('someone who is not a Synaplan admin only learns that Synaplan configures it', async () => {
-    answer({ ...settings, isAdmin: false }, { visible: false, known: false })
-    const wrapper = mountIt()
-    await flushPromises()
-    expect(wrapper.get('[data-testid="synaplan-instance-state"]').text()).toContain(
-      'from its own configuration'
-    )
-    expect(wrapper.find('[data-testid="synaplan-instance-register"]').exists()).toBe(false)
   })
 })

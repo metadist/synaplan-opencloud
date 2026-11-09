@@ -7,7 +7,7 @@ import (
 )
 
 // oidcCloudID is the fixed instance id Synaplan gives the one cloud it is
-// configured for by environment (PLATFORM_LINKS_OIDC_CLOUD); notifications
+// configured for by environment (PLATFORM_LINKS_OIDC_CLOUD_*); notifications
 // to this OpenCloud are addressed to it.
 const oidcCloudID = "oidc-cloud"
 

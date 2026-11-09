@@ -133,12 +133,8 @@ type AdminSettingsData = z.infer<typeof settingsSchema>
 type LanguageOption = z.infer<typeof languageSchema>
 
 const instanceSchema = z.object({
-  visible: z.boolean(),
-  known: z.boolean(),
-  status: z.string().default(''),
-  host: z.string().default(''),
-  deliveryUrl: z.string().default(''),
-  reachable: z.boolean().nullable().default(null)
+  reachable: z.boolean(),
+  capabilities: z.array(z.string()).default([])
 })
 type InstanceState = z.infer<typeof instanceSchema>
 
@@ -197,30 +193,21 @@ const answerLanguageSentence = computed(() => {
     : $gettext('Answers come in %{language}.', { language: name })
 })
 
-// How Synaplan sees this OpenCloud. Nothing is registered here: Synaplan
-// knows the cloud from its own configuration, and only a Synaplan
-// administrator may see that, read with their own login.
+// What Synaplan offers this OpenCloud, from its open configuration. How
+// Synaplan sees this OpenCloud is on Synaplan's administration page: tokens
+// that come through this OpenCloud do not reach admin routes.
 const instanceSentence = computed(() => {
   const state = instance.value
   if (!state) return ''
-  if (!state.visible) {
-    return $gettext('Synaplan knows this OpenCloud from its own configuration.')
+  if (!state.reachable) {
+    return $gettext('Synaplan cannot be reached from this OpenCloud.')
   }
-  if (!state.known) {
-    return $gettext(
-      'Synaplan is not set up for this OpenCloud yet. Its operator sets PLATFORM_LINKS_OIDC_CLOUD.'
-    )
-  }
-  if (state.reachable === false) {
-    return $gettext('Synaplan knows this OpenCloud as %{host} but cannot reach it at %{url}.', {
-      host: state.host,
-      url: state.deliveryUrl
-    })
-  }
-  return $gettext('Synaplan knows this OpenCloud as %{host} and reaches it at %{url}.', {
-    host: state.host,
-    url: state.deliveryUrl
-  })
+  return $gettext(
+    'Synaplan answers and offers: %{features}. How Synaplan sees this OpenCloud is in Synaplan’s administration under Platform instances.',
+    {
+      features: state.capabilities.join(', ')
+    }
+  )
 })
 
 async function loadInstance() {

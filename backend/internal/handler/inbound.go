@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -76,7 +75,7 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 	case "pickup":
 		h.answerPickup(w, ctx, sub, id)
 	case "identity_revoked":
-		h.revokeIdentity(id)
+		h.revokeIdentity(sub)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusNoContent)
@@ -99,20 +98,15 @@ func (h *Handler) releaseSeen(kind, id string) {
 	h.seen.Forget(kind, id)
 }
 
-// revokeIdentity handles identity_revoked. Synaplan names the identity
-// row it revoked; the person is found through the link id stored at bind.
-func (h *Handler) revokeIdentity(id string) {
-	linkID, err := strconv.Atoi(id)
-	if err != nil {
+// revokeIdentity handles identity_revoked: Synaplan ended the person's
+// link, named by sub. Their offline token and settings here go too.
+func (h *Handler) revokeIdentity(sub string) {
+	if sub == "" {
 		return
 	}
-	uid, ok := h.store().UserByLinkID(linkID)
-	if !ok {
-		return
-	}
-	h.delegation.Disconnect(uid)
-	if err := h.store().ForgetUser(uid); err != nil {
-		log.Printf("identity revoked: forget %s: %v", uid, err)
+	h.delegation.Disconnect(sub)
+	if err := h.store().ForgetUser(sub); err != nil {
+		log.Printf("identity revoked: forget %s: %v", sub, err)
 	}
 }
 

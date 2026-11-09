@@ -166,7 +166,6 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Put("/api/synaplan/preferences", h.SavePreferences)
 				r.Get("/api/synaplan/connection", h.Connection)
 				r.Get("/api/synaplan/instance", h.InstanceStatus)
-				r.Post("/api/synaplan/connection/bind", h.Bind)
 				r.Get("/api/synaplan/settings", h.Settings)
 				r.Put("/api/synaplan/settings", h.SaveSettings)
 			})

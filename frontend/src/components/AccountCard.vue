@@ -11,19 +11,6 @@
     <p v-if="connection" class="ext:text-sm" data-testid="synaplan-connection">
       {{ connectionText }}
     </p>
-    <div
-      v-if="connection?.configured && !connection.bound"
-      class="ext:flex ext:flex-wrap ext:gap-2"
-    >
-      <oc-button
-        appearance="filled"
-        color-role="primary"
-        data-testid="synaplan-bind"
-        @click="bindAccount"
-      >
-        {{ $gettext('Connect this login') }}
-      </oc-button>
-    </div>
     <p v-if="prefs" class="ext:text-sm ext:font-semibold">
       {{ $gettext('What Synaplan may read') }}
     </p>
@@ -105,15 +92,11 @@ const connectionText = computed(() => {
   if (!connection.value.configured) {
     return $gettext('Ask your administrator to connect this OpenCloud to Synaplan.')
   }
-  return connection.value.bound
-    ? $gettext('This login is connected to Synaplan.')
-    : $gettext('This login is not connected yet.')
+  return $gettext('This login is connected to Synaplan.')
 })
 
 const unreachable = () =>
   $gettext('Synaplan cannot be reached. Try again in a minute, or ask your administrator.')
-const couldNotFinish = () =>
-  $gettext('Synaplan could not finish this. Try again in a minute, or ask your administrator.')
 
 onMounted(loadSettings)
 
@@ -154,20 +137,6 @@ async function saveRead() {
         'The setting was saved here, but Synaplan did not receive it. Save again in a minute.'
       )
     )
-  }
-}
-
-async function bindAccount() {
-  error.value = ''
-  try {
-    await httpAuthenticated.post(
-      '/api/synaplan/connection/bind',
-      {},
-      { schema: z.object({ bound: z.boolean() }) }
-    )
-    await loadSettings()
-  } catch (e) {
-    error.value = sentenceFor($gettext, e, couldNotFinish())
   }
 }
 </script>

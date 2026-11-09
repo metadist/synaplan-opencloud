@@ -27,7 +27,7 @@ func TestPeopleSurviveAReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	user := store.User("ada")
-	user.LinkID = 7
+	user.CopyFolder = "Synaplan/Copies"
 	if err := store.PutUser("ada", user); err != nil {
 		t.Fatal(err)
 	}
@@ -35,8 +35,8 @@ func TestPeopleSurviveAReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id, ok := again.UserByLinkID(7); !ok || id != "ada" {
-		t.Fatalf("link id lookup = %q, %v", id, ok)
+	if got := again.User("ada").CopyFolder; got != "Synaplan/Copies" {
+		t.Fatalf("copy folder after reload = %q", got)
 	}
 }
 

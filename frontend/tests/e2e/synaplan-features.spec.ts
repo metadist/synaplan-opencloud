@@ -114,13 +114,13 @@ test('an image made in Synaplan is saved into the files', async ({ browser }) =>
   )
 })
 
-test('the administrator sees how Synaplan reaches this OpenCloud and saves the answer settings', async ({
+test('the administrator sees what Synaplan offers and saves the answer settings', async ({
   browser
 }) => {
   page = (await loginAsUser(browser, 'admin', 'admin')).page
   await page.goto('/synaplan')
   await expect(page.locator('[data-testid="synaplan-instance-state"]')).toContainText(
-    'reaches it at',
+    'Synaplan answers and offers: deliveries',
     { timeout: 15_000 }
   )
   await expect(page.locator('[data-testid="synaplan-admin-readonly"]')).toHaveCount(0)

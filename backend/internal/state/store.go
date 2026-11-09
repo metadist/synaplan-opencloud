@@ -33,9 +33,6 @@ type Folder struct {
 type User struct {
 	ReadScope  ReadScope `json:"readScope"`
 	CopyFolder string    `json:"copyFolder"`
-	// LinkID is the identity row Synaplan created at bind. An
-	// identity_revoked notification names that id, not the person.
-	LinkID int `json:"linkId,omitempty"`
 }
 
 // Synced is a searchable file this OpenCloud is keeping up to date.
@@ -148,21 +145,6 @@ func (s *Store) User(id string) User {
 		user.ReadScope.Folders = []Folder{}
 	}
 	return user
-}
-
-// UserByLinkID finds the person bound under a Synaplan identity row id.
-func (s *Store) UserByLinkID(linkID int) (string, bool) {
-	if s == nil || linkID <= 0 {
-		return "", false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, user := range s.disk.Users {
-		if user.LinkID == linkID {
-			return id, true
-		}
-	}
-	return "", false
 }
 
 // PutUser stores the person's settings.

@@ -5,47 +5,30 @@ import (
 	"net/http"
 )
 
-// instanceStatus is what the Synaplan page shows about this OpenCloud in
-// Synaplan. There is nothing to register: Synaplan knows the cloud from its
-// own configuration (row oidc-cloud). Only a Synaplan administrator may see
-// that row, so the answer is read with the signed-in person's own token.
+// instanceStatus is what the Synaplan page shows about Synaplan: whether it
+// answers here and what it offers clouds, from its open configuration. How
+// Synaplan sees this OpenCloud is on Synaplan's own administration page;
+// tokens that come through this OpenCloud do not reach admin routes.
 type instanceStatus struct {
-	Visible     bool   `json:"visible"`
-	Known       bool   `json:"known"`
-	Status      string `json:"status"`
-	Host        string `json:"host"`
-	DeliveryURL string `json:"deliveryUrl"`
-	Reachable   *bool  `json:"reachable"`
+	Reachable    bool     `json:"reachable"`
+	Capabilities []string `json:"capabilities"`
 }
 
-// InstanceStatus reports how Synaplan sees this OpenCloud, for an
-// administrator of both; anyone else gets visible=false.
+// InstanceStatus reports Synaplan's open configuration.
 func (h *Handler) InstanceStatus(w http.ResponseWriter, r *http.Request) {
-	state := instanceStatus{}
-	status, body, err := h.synaplanDo(r.Context(), http.MethodGet, "/api/v1/admin/platform-links/instances", nil, callOptions{})
+	state := instanceStatus{Capabilities: []string{}}
+	status, body, err := h.synaplanDo(r.Context(), http.MethodGet, "/.well-known/synaplan-configuration", nil, callOptions{skipUser: true})
 	if err != nil || status != http.StatusOK {
 		writeJSON(w, http.StatusOK, state)
 		return
 	}
-	state.Visible = true
-	var list struct {
-		Instances []struct {
-			ID          string `json:"id"`
-			Status      string `json:"status"`
-			Host        string `json:"host"`
-			DeliveryURL string `json:"deliveryUrl"`
-			Reachable   *bool  `json:"reachable"`
-		} `json:"instances"`
+	var configuration struct {
+		Capabilities []string `json:"capabilities"`
 	}
-	_ = json.Unmarshal(body, &list)
-	for _, instance := range list.Instances {
-		if instance.ID == oidcCloudID {
-			state.Known = true
-			state.Status = instance.Status
-			state.Host = instance.Host
-			state.DeliveryURL = instance.DeliveryURL
-			state.Reachable = instance.Reachable
-		}
+	_ = json.Unmarshal(body, &configuration)
+	state.Reachable = true
+	if configuration.Capabilities != nil {
+		state.Capabilities = configuration.Capabilities
 	}
 	writeJSON(w, http.StatusOK, state)
 }
