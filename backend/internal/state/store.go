@@ -8,7 +8,6 @@ package state
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -75,11 +74,11 @@ type Admin struct {
 }
 
 type disk struct {
-	Users          map[string]User `json:"users"`
-	Synced         []Synced        `json:"synced"`
-	Watches        []Watch         `json:"watches"`
-	Owns           []OwnWrite      `json:"owns"`
-	Admin          Admin           `json:"admin"`
+	Users   map[string]User `json:"users"`
+	Synced  []Synced        `json:"synced"`
+	Watches []Watch         `json:"watches"`
+	Owns    []OwnWrite      `json:"owns"`
+	Admin   Admin           `json:"admin"`
 }
 
 // Store is safe for concurrent use.
@@ -349,22 +348,6 @@ func (s *Store) IsOwnWrite(userID, resourceID string, now int64) bool {
 		}
 	}
 	return false
-}
-
-func (s *Store) encrypt(plain []byte) ([]byte, error) {
-	nonce := make([]byte, s.aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return s.aead.Seal(nonce, nonce, plain, nil), nil
-}
-
-func (s *Store) decrypt(sealed []byte) ([]byte, error) {
-	ns := s.aead.NonceSize()
-	if len(sealed) < ns {
-		return nil, errors.New("state: short ciphertext")
-	}
-	return s.aead.Open(nil, sealed[:ns], sealed[ns:], nil)
 }
 
 func (s *Store) flush() error {
