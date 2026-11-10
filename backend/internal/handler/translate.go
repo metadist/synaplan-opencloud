@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/davfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -29,7 +29,7 @@ type translateResponse struct {
 	Translation string `json:"translation"`
 }
 
-// Translate reads a file from OpenCloud storage (via CS3) and asks
+// Translate reads a file over WebDAV, as the signed-in person, and asks
 // Synaplan to translate it to the requested target language.
 // Implemented as /summary/generate with summaryType=abstractive,
 // length=long, outputLanguage=<target>.
@@ -48,7 +48,7 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, ok := h.runSummaryPipeline(w, r, req.ResourceID, "translate", func(ctx context.Context, file *cs3reader.File) (string, error) {
+	result, ok := h.runSummaryPipeline(w, r, req.ResourceID, "translate", func(ctx context.Context, file *davfiles.File) (string, error) {
 		text, fileID, cleanup, err := h.prepareSummaryInput(ctx, file)
 		defer cleanup()
 		if err != nil {

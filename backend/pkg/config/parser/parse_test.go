@@ -12,6 +12,7 @@ import (
 // the validator's branches.
 func fullOIDCConfig() *config.Config {
 	return &config.Config{
+		OpenCloudURL:         "https://cloud.example",
 		SynaplanURL:          "http://synaplan.example",
 		OIDCTokenEndpoint:    "https://kc.example/realms/x/protocol/openid-connect/token",
 		OIDCExchangeClientID: "synaplan-opencloud",
@@ -26,8 +27,18 @@ func TestValidate_OIDCOnly(t *testing.T) {
 	}
 }
 
+func TestValidate_RequiresOpenCloudURL(t *testing.T) {
+	cfg := fullOIDCConfig()
+	cfg.OpenCloudURL = ""
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "OC_URL") {
+		t.Errorf("config without OpenCloud URL should fail naming OC_URL, got: %v", err)
+	}
+}
+
 func TestValidate_APIKeyOnly(t *testing.T) {
 	cfg := &config.Config{
+		OpenCloudURL:   "https://cloud.example",
 		SynaplanURL:    "http://synaplan.example",
 		SynaplanAPIKey: "sk_abc1234567890",
 	}
@@ -47,7 +58,7 @@ func TestValidate_BothModes(t *testing.T) {
 
 func TestValidate_NeitherMode(t *testing.T) {
 	// Empty config — no auth mode configured. Must fail closed.
-	cfg := &config.Config{SynaplanURL: "http://synaplan.example"}
+	cfg := &config.Config{OpenCloudURL: "https://cloud.example", SynaplanURL: "http://synaplan.example"}
 	err := Validate(cfg)
 	if err == nil {
 		t.Fatal("empty auth config should fail validation")
@@ -69,6 +80,7 @@ func TestValidate_PartialOIDC(t *testing.T) {
 
 func TestValidate_APIKeyBadFormat(t *testing.T) {
 	cfg := &config.Config{
+		OpenCloudURL:   "https://cloud.example",
 		SynaplanURL:    "http://synaplan.example",
 		SynaplanAPIKey: "not-a-synaplan-key",
 	}

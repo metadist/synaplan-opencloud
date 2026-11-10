@@ -1,20 +1,18 @@
 // Package synaplanauth wires per-user authentication for every hop
 // between the OpenCloud client and the Synaplan backend.
 //
-// Two tokens ride along with each request:
-//
-//   - The end-user's OIDC access token, received in the Authorization
-//     header, used as the subject token in RFC 8693 token exchange
-//     when the backend calls the Synaplan API on the user's behalf.
-//   - The reva access token, received in the x-access-token header set
-//     by OpenCloud's proxy after authenticating the OIDC session.
-//     cs3reader uses it to reach the CS3 gateway as the end-user.
+// The end-user's OIDC access token arrives in the Authorization header.
+// It was issued for OpenCloud: it goes to OpenCloud's own APIs (davfiles
+// reads and writes files with it) and into RFC 8693 token exchange as the
+// subject token when the backend calls the Synaplan API on the user's
+// behalf. OpenCloud's proxy also identifies the user to this service
+// (the reva user on the request context).
 //
 // Handlers shouldn't repeat the token-exchange dance on every call.
 // Instead, this package provides:
 //
-//   - Middleware, which enforces both tokens plus a reva user are
-//     present and stows them on the request context;
+//   - Middleware, which enforces that the token and a reva user are
+//     present and stows the token on the request context;
 //   - NewRequestEditor, a synaplanapi RequestEditorFn that transparently
 //     performs the OIDC → Synaplan exchange and sets the Bearer header
 //     on every outgoing API request;
@@ -88,18 +86,12 @@ func CopyAuth(src, dst context.Context) context.Context {
 //     and for local/test setups that bypass the proxy.
 //  2. A non-empty Bearer token must be present in the Authorization
 //     header. The OpenCloud proxy forwards the original OIDC access
-//     token unchanged (it only adds x-access-token for the reva JWT),
-//     so "Bearer <token>" here is the user's Keycloak access token.
-//  3. The reva access token from the x-access-token header (set by the
-//     proxy after OIDC auth) is lifted into the context via
-//     revactx.ContextSetToken so anything downstream — including
-//     cs3reader calling the CS3 gateway — can pull it back via
-//     revactx.ContextMustGetToken without touching the request.
+//     token unchanged, so "Bearer <token>" here is the user's
+//     Keycloak access token.
 //
-// On success both tokens are stored in the request context. On
-// failure the request is rejected with 401 before the handler runs,
-// so handlers can assume a reva user, a reva access token and an
-// OIDC token are all present.
+// On success the token is stored in the request context. On failure
+// the request is rejected with 401 before the handler runs, so
+// handlers can assume a reva user and an OIDC token are present.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := revactx.ContextGetUser(r.Context()); !ok {
@@ -111,15 +103,7 @@ func Middleware(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized: missing OIDC bearer token", http.StatusUnauthorized)
 			return
 		}
-		revaToken := r.Header.Get(revactx.TokenHeader)
-		if revaToken == "" {
-			http.Error(w, "unauthorized: missing reva access token", http.StatusUnauthorized)
-			return
-		}
-		ctx := r.Context()
-		ctx = ContextWithOIDCToken(ctx, oidcToken)
-		ctx = revactx.ContextSetToken(ctx, revaToken)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r.WithContext(ContextWithOIDCToken(r.Context(), oidcToken)))
 	})
 }
 

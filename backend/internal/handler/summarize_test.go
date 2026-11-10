@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Summarize's validation path runs before any CS3 or Synaplan calls,
+// Summarize's validation path runs before any OpenCloud or Synaplan calls,
 // so we can exercise it against a bare Handler value. Anything past
 // validation is covered by E2E.
 
@@ -54,7 +54,7 @@ func TestSummarize_RejectsMissingFields(t *testing.T) {
 
 func TestSummarize_AcceptsAllAllowedTypeAndLengthCombos(t *testing.T) {
 	// Validation must pass for every supported combo. With a bare
-	// Handler (nil cs3), the pipeline fails at the cs3.Open step
+	// Handler (no files client), the pipeline stops before opening the file
 	// and the runner writes a 502 — anything non-400 here proves
 	// we got past validation.
 	types := []string{"abstractive", "bullet-points", "extractive"}

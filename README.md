@@ -77,10 +77,9 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 
 | Var | Purpose |
 |-----|---------|
-| `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
-| `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. |
-
-The backend downloads file contents from OpenCloud's storage data server, so that server must be reachable from the backend. On the OpenCloud side set `STORAGE_USERS_HTTP_ADDR` to a non-loopback address and `STORAGE_USERS_DATA_SERVER_URL` to a URL the backend can resolve (for example `http://opencloud:9158/data`).
+| `OC_URL` / `SYNAPLAN_OPENCLOUD_URL` | URL of OpenCloud as the backend reaches it. Files are read and written through its WebDAV and Graph APIs with the signed-in person's own token, so the backend sees exactly what the person sees. `SYNAPLAN_OPENCLOUD_URL` wins when both are set, for a backend that reaches OpenCloud at an internal address (the dev stack uses `http://opencloud:9200`). |
+| `OC_INSECURE` | Skip TLS certificate verification for calls to OpenCloud. Development only. |
+| `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's proxy, which tells the backend who the signed-in person is. |
 
 The dev defaults live in [`docker-compose.yml`](docker-compose.yml) and use Mode A.
 

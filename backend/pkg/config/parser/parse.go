@@ -33,10 +33,14 @@ func ParseConfig(cfg *config.Config) error {
 	return Validate(cfg)
 }
 
-// Validate validates the config. Exactly one outbound auth mode must
-// be configured: either a shared Synaplan API key (SYNAPLAN_API_KEY)
-// or the full set of OIDC token-exchange variables.
+// Validate validates the config. OpenCloud must be reachable, and
+// exactly one outbound auth mode must be configured: either a shared
+// Synaplan API key (SYNAPLAN_API_KEY) or the full set of OIDC
+// token-exchange variables.
 func Validate(cfg *config.Config) error {
+	if cfg.OpenCloudURL == "" {
+		return errors.New("synaplan-opencloud: OC_URL (or SYNAPLAN_OPENCLOUD_URL) is not set; files are read through OpenCloud's WebDAV API")
+	}
 	hasAPIKey := cfg.SynaplanAPIKey != ""
 	hasTokenExchange := cfg.OIDCTokenEndpoint != "" &&
 		cfg.OIDCExchangeClientID != "" &&

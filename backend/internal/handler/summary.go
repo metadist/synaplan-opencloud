@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/davfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
@@ -62,11 +62,11 @@ var supportedSummaryTypes = map[synaplanapi.PostApiSummaryGenerateJSONBodySummar
 }
 
 // summaryPipelineFn is the per-handler body of work that runs with a
-// CS3-opened file and returns the summary text (or translation).
-type summaryPipelineFn func(ctx context.Context, file *cs3reader.File) (string, error)
+// file opened over WebDAV and returns the summary text (or translation).
+type summaryPipelineFn func(ctx context.Context, file *davfiles.File) (string, error)
 
 // runSummaryPipeline handles the boilerplate around every summary-
-// backed handler: creates the bounded ctx, opens the CS3 file, runs
+// backed handler: creates the bounded ctx, opens the file, runs
 // fn, and maps any error to a JSON response with the right status
 // code (422 for errClientInput, 502 otherwise). Returns (result,
 // true) on success or ("", false) if it has already written an
@@ -82,9 +82,13 @@ func (h *Handler) runSummaryPipeline(
 	ctx, cancel := context.WithTimeout(r.Context(), summaryTimeout)
 	defer cancel()
 
-	file, err := h.cs3.Open(ctx, resourceID)
+	if h.files == nil {
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not read file: storage is not configured"})
+		return "", false
+	}
+	file, err := h.files.Open(ctx, resourceID)
 	if err != nil {
-		log.Printf("%s: cs3 open: %v", op, err)
+		log.Printf("%s: open: %v", op, err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not read file: " + err.Error()})
 		return "", false
 	}
@@ -135,7 +139,7 @@ type uploadedFile struct {
 	ExtractedTextLength int  `json:"extracted_text_length"`
 }
 
-// prepareSummaryInput turns a CS3-opened file into the inputs
+// prepareSummaryInput turns an opened file into the inputs
 // generateSummary expects. For text files it reads the bytes inline
 // and returns them as `text`. For binary documents it uploads to
 // Synaplan with process_level=extract and returns the assigned
@@ -146,7 +150,7 @@ type uploadedFile struct {
 // Exactly one of (text, fileID) will be non-nil on success.
 func (h *Handler) prepareSummaryInput(
 	ctx context.Context,
-	file *cs3reader.File,
+	file *davfiles.File,
 ) (text *string, fileID *int, cleanup func(), err error) {
 	cleanup = func() {}
 
@@ -200,7 +204,7 @@ type uploadProvenance struct {
 	Overwrite    bool
 }
 
-func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadProvenance) error {
+func writeProvenance(mw *multipart.Writer, file *davfiles.File, prov *uploadProvenance) error {
 	if err := mw.WriteField("source", "opencloud"); err != nil {
 		return fmt.Errorf("write source: %w", err)
 	}
@@ -237,7 +241,7 @@ func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadPro
 
 func (h *Handler) upload(
 	ctx context.Context,
-	file *cs3reader.File,
+	file *davfiles.File,
 	groupKey string,
 	processLevel synaplanapi.PostApiFilesUploadMultipartBodyProcessLevel,
 	prov *uploadProvenance,

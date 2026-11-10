@@ -43,10 +43,10 @@ func (h *Handler) KnowledgeStatus(w http.ResponseWriter, r *http.Request) {
 // knowledgeStatusFor stats the OpenCloud file (the access check) and
 // asks Synaplan which knowledge copy, if any, belongs to that file.
 func (h *Handler) knowledgeStatusFor(ctx context.Context, resourceID string) (knowledgeStatusResponse, error) {
-	if h.cs3 == nil {
+	if h.files == nil {
 		return knowledgeStatusResponse{}, &knowledgeLookupError{code: http.StatusBadGateway, msg: "could not read file: storage is not configured"}
 	}
-	file, err := h.cs3.Stat(ctx, resourceID)
+	file, err := h.files.Stat(ctx, resourceID)
 	if err != nil {
 		return knowledgeStatusResponse{}, &knowledgeLookupError{code: http.StatusBadGateway, msg: "could not read file: " + err.Error()}
 	}
@@ -103,7 +103,7 @@ func statusCodeForKnowledge(err error) int {
 
 // RemoveFromKnowledge deletes the Synaplan knowledge copy of one
 // OpenCloud file. The Synaplan id is resolved from that file after a
-// CS3 access check, so a caller cannot name some other file by id.
+// access check in OpenCloud, so a caller cannot name some other file by id.
 func (h *Handler) RemoveFromKnowledge(w http.ResponseWriter, r *http.Request) {
 	resourceID := r.URL.Query().Get("resourceId")
 	if resourceID == "" {

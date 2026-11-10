@@ -11,9 +11,6 @@ services:
       OC_EXCLUDE_RUN_SERVICES: idp
       OC_LOG_LEVEL: error
       OC_JWT_SECRET: "synaplan-dev-secret"
-      GATEWAY_GRPC_ADDR: 0.0.0.0:9142
-      STORAGE_USERS_HTTP_ADDR: 0.0.0.0:9158
-      STORAGE_USERS_DATA_SERVER_URL: http://opencloud:9158/data
       IDM_ADMIN_PASSWORD: admin
       PROXY_ENABLE_BASIC_AUTH: "true"
       PROXY_TLS: "false"
@@ -82,7 +79,7 @@ services:
       - "9106:9106"
     environment:
       SYNAPLAN_HTTP_ADDR: ":9106"
-      OC_REVA_GATEWAY: "opencloud:9142"
+      SYNAPLAN_OPENCLOUD_URL: "http://opencloud:9200"
       OC_JWT_SECRET: "synaplan-dev-secret"
       OC_INSECURE: "true"
       SYNAPLAN_URL: "http://host.docker.internal:8000"

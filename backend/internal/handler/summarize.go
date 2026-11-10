@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/davfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -20,7 +20,7 @@ type summarizeResponse struct {
 	Summary string `json:"summary"`
 }
 
-// Summarize reads a file from OpenCloud storage via CS3 and returns
+// Summarize reads a file over WebDAV, as the signed-in person, and returns
 // a Synaplan-generated summary of the requested type and length. No
 // translation — outputLanguage is left unset.
 func (h *Handler) Summarize(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +44,7 @@ func (h *Handler) Summarize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, ok := h.runSummaryPipeline(w, r, req.ResourceID, "summarize", func(ctx context.Context, file *cs3reader.File) (string, error) {
+	result, ok := h.runSummaryPipeline(w, r, req.ResourceID, "summarize", func(ctx context.Context, file *davfiles.File) (string, error) {
 		text, fileID, cleanup, err := h.prepareSummaryInput(ctx, file)
 		defer cleanup()
 		if err != nil {

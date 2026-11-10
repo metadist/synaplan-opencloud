@@ -15,7 +15,7 @@ import (
 
 // newAssetTestHandler spins up a Handler with just enough state for
 // the asset proxy tests: a reverse-proxy pointed at `target`, no
-// Synaplan API client, no CS3 reader. newHandler can't be used
+// Synaplan API client, no files client. newHandler can't be used
 // because it tries to contact OIDC for the real request editor.
 func newAssetTestHandler(target *url.URL) *Handler {
 	return &Handler{

@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	stdhttp "net/http"
 	"os/signal"
@@ -15,9 +16,9 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/middleware"
 	"github.com/opencloud-eu/opencloud/pkg/runner"
 	"github.com/opencloud-eu/opencloud/pkg/version"
-	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
+	"github.com/opencloud-eu/reva/v2/pkg/rhttp"
 
-	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/davfiles"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
@@ -45,20 +46,16 @@ func Server(cfg *config.Config) *cobra.Command {
 			}
 			ctx := cfg.Context
 
-			tm, err := pool.StringToTLSMode(cfg.GRPCClientTLS.Mode)
-			if err != nil {
-				return err
-			}
-			gws, err := pool.GatewaySelector(
-				cfg.RevaGateway,
-				pool.WithTLSMode(tm),
-				pool.WithTLSCACert(cfg.GRPCClientTLS.CACert),
+			files := davfiles.New(
+				cfg.OpenCloudURL,
+				rhttp.GetHTTPClient(rhttp.Insecure(cfg.Insecure)),
+				func(ctx context.Context) (string, error) {
+					if token := synaplanauth.OIDCTokenFromContext(ctx); token != "" {
+						return token, nil
+					}
+					return "", errors.New("no OpenCloud token in request context")
+				},
 			)
-			if err != nil {
-				return fmt.Errorf("could not get reva client selector: %s", err)
-			}
-
-			cs3 := cs3reader.New(gws, cfg.Insecure)
 
 			var editor synaplanapi.RequestEditorFn
 			if cfg.SynaplanAPIKey != "" {
@@ -74,7 +71,7 @@ func Server(cfg *config.Config) *cobra.Command {
 				editor = synaplanauth.NewRequestEditor(exchanger)
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3)
+			h, err := handler.New(editor, cfg.SynaplanURL, files)
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}

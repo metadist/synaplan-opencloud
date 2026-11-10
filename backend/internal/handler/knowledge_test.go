@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// AddToKnowledge's validation runs before any CS3 or Synaplan call,
+// AddToKnowledge's validation runs before any OpenCloud or Synaplan call,
 // so we can exercise it against a bare Handler value. Anything past
 // validation is covered by E2E.
 
@@ -56,7 +56,7 @@ func TestAddToKnowledge_RejectsBadInput(t *testing.T) {
 }
 
 func TestAddToKnowledge_AcceptsValidInput(t *testing.T) {
-	// Past validation the handler hits CS3 and fails with 502 against
+	// Past validation the handler needs the files client and fails with 502 on
 	// a bare Handler — anything non-400 proves validation passed.
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(

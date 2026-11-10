@@ -57,12 +57,12 @@ func (h *Handler) SaveToSpace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "text is too large to save"})
 		return
 	}
-	if h.cs3 == nil {
+	if h.files == nil {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: storage is not configured"})
 		return
 	}
 
-	saved, err := h.cs3.Save(r.Context(), name, []byte(text))
+	saved, err := h.files.Save(r.Context(), name, []byte(text))
 	if err != nil {
 		log.Printf("save to space: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: " + err.Error()})

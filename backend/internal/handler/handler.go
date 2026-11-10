@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/davfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -25,8 +25,8 @@ import (
 //     auth editor registered (either OIDC token exchange or a shared
 //     API key, picked at startup in pkg/command/server.go), so every
 //     call is authenticated without per-handler boilerplate.
-//   - cs3 reads file bytes from OpenCloud storage via the reva
-//     gateway for file-based operations like /translate.
+//   - files reads and writes the signed-in person's files through
+//     OpenCloud's WebDAV and Graph APIs, as that person.
 //   - assetProxy streams whitelisted brand assets from the paired
 //     Synaplan install for the public /api/synaplan/assets endpoint.
 //
@@ -40,7 +40,7 @@ type Handler struct {
 	synaplanAPI *synaplanapi.ClientWithResponses
 	editor      synaplanapi.RequestEditorFn
 	httpClient  *http.Client
-	cs3         *cs3reader.Reader
+	files       *davfiles.Client
 	assetProxy  *httputil.ReverseProxy
 }
 
@@ -48,7 +48,7 @@ type Handler struct {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, files *davfiles.Client) (*Handler, error) {
 	apiClient, err := synaplanapi.NewClientWithResponses(
 		synaplanURL,
 		synaplanapi.WithHTTPClient(&http.Client{}),
@@ -78,7 +78,7 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		synaplanAPI: apiClient,
 		editor:      editor,
 		httpClient:  &http.Client{},
-		cs3:         cs3,
+		files:       files,
 		assetProxy:  assetProxy,
 	}, nil
 }

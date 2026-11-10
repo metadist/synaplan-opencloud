@@ -27,7 +27,6 @@ func DefaultConfig() *config.Config {
 		Service: config.Service{
 			Name: "synaplan",
 		},
-		RevaGateway: shared.DefaultRevaConfig().Address,
 		HTTP: config.HTTP{
 			Addr:      "127.0.0.1:9106",
 			Root:      "/api/synaplan",
@@ -38,9 +37,6 @@ func DefaultConfig() *config.Config {
 				AllowedHeaders:   []string{"Authorization", "Origin", "Content-Type", "Accept", "X-Requested-With", "X-Request-Id"},
 				AllowCredentials: true,
 			},
-		},
-		GRPCClientTLS: &shared.GRPCClientTLS{
-			Mode: "off",
 		},
 		SynaplanURL:          "http://host.docker.internal:8000",
 		OIDCTokenEndpoint:    "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token",

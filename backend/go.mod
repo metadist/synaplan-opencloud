@@ -13,13 +13,11 @@ replace github.com/go-micro/plugins/v4/store/nats-js-kv => github.com/opencloud-
 replace github.com/pablodz/inotifywaitgo v0.0.9 => github.com/opencloud-eu/inotifywaitgo v0.0.0-20251111171128-a390bae3c5e9
 
 require (
-	github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9
 	github.com/go-chi/chi/v5 v5.4.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/opencloud-eu/opencloud v1.1.1-0.20260309132930-a8430384a1b7
 	github.com/opencloud-eu/reva/v2 v2.49.0
 	github.com/spf13/cobra v1.10.2
-	google.golang.org/grpc v1.83.0
 )
 
 require (
@@ -53,6 +51,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/cornelk/hashmap v1.0.8 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
+	github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davidbyttow/govips/v2 v2.17.0 // indirect
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
@@ -234,6 +233,7 @@ require (
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260803160001-6ac0973c030d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
+	google.golang.org/grpc v1.83.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect

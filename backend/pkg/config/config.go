@@ -15,13 +15,12 @@ type Config struct {
 	LogLevel string `yaml:"loglevel" env:"OC_LOG_LEVEL;SYNAPLAN_LOG_LEVEL" desc:"The log level. Valid values are: 'panic', 'fatal', 'error', 'warn', 'info', 'debug', 'trace'."`
 	Debug    Debug  `yaml:"debug"`
 
-	HTTP          HTTP                  `yaml:"http"`
-	GRPCClientTLS *shared.GRPCClientTLS `yaml:"grpc_client_tls"`
+	HTTP HTTP `yaml:"http"`
 
 	TokenManager *TokenManager `yaml:"token_manager"`
 
-	RevaGateway string `yaml:"reva_gateway" env:"OC_REVA_GATEWAY" desc:"CS3 gateway used to look up user metadata"`
-	Insecure    bool   `yaml:"insecure" env:"OC_INSECURE;SYNAPLAN_INSECURE" desc:"Run in insecure mode."`
+	OpenCloudURL string `yaml:"opencloud_url" env:"OC_URL;SYNAPLAN_OPENCLOUD_URL" desc:"URL of OpenCloud as this service reaches it. Files are read and written through its WebDAV and Graph APIs, as the signed-in person."`
+	Insecure     bool   `yaml:"insecure" env:"OC_INSECURE;SYNAPLAN_INSECURE" desc:"Skip TLS certificate verification for calls to OpenCloud."`
 
 	// Synaplan API configuration
 	SynaplanURL    string `yaml:"synaplan_url" env:"SYNAPLAN_URL" desc:"Base URL of the Synaplan instance."`

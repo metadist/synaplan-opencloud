@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Translate's validation path runs before any CS3 or Synaplan calls,
+// Translate's validation path runs before any OpenCloud or Synaplan calls,
 // so we can exercise it against a bare Handler value. Anything past
 // validation is covered by E2E.
 

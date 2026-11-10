@@ -6,14 +6,16 @@ Instructions for agents working on this repo.
 
 synaplan-opencloud is an OpenCloud web extension (Vue 3, built with the
 OpenCloud extension-sdk) plus a small Go service that follows the OpenCloud
-service conventions (cobra commands, env-tagged config, reva/CS3 for file
-bytes). The extension adds Synaplan actions to the file context menu —
-summarize, translate, add to / update in / remove from the knowledge base,
-save a result into the personal space — and calls the Go service at
-`/api/synaplan/*` through OpenCloud's proxy. The Go service authenticates the
+service conventions (cobra commands, env-tagged config). The extension adds
+Synaplan actions to the file context menu (summarize, translate, add to /
+update in / remove from the knowledge base, save a result into the personal
+space) and calls the Go service at `/api/synaplan/*` through OpenCloud's
+proxy. The Go service authenticates the
 OpenCloud user, swaps their Keycloak login for a Synaplan token with RFC 8693
 token exchange (or attaches one shared API key in the discouraged Mode B),
-reads the file through the CS3 gateway, and calls Synaplan with a client that
+reads and writes files as that person through OpenCloud's public WebDAV and
+Graph APIs (never its internal CS3 services, so the service can run
+anywhere OpenCloud's URL reaches), and calls Synaplan with a client that
 is **generated** from the pinned Synaplan image's OpenAPI spec. There is no
 database of its own and no state beyond what Synaplan and OpenCloud hold.
 
@@ -24,7 +26,7 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
 | `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
-| `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
+| `backend/internal/synaplanauth/`, `tokenexchange/`, `davfiles/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the person's files over WebDAV and Graph. |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
@@ -119,7 +121,7 @@ server's copy of the same app id.
   hand-edit `client.gen.go`; never commit it. An endpoint missing from the
   client means the pin is too old — bump it (below), don't write the call by
   hand.
-- Handlers stay thin and read top-down: decode and validate → CS3 read →
+- Handlers stay thin and read top-down: decode and validate → WebDAV read →
   Synaplan call → `writeJSON`. Validation runs before any I/O so unit tests can
   exercise it against a bare `Handler{}`; everything past validation is
   covered by E2E. Per-call timeouts go on the request context (LLM calls take
@@ -128,7 +130,7 @@ server's copy of the same app id.
   Never log or echo `SYNAPLAN_API_KEY`, exchanged tokens or `OC_JWT_SECRET`.
 - Env var conventions: service-specific vars use the bare service name,
   `SYNAPLAN_HTTP_ADDR`, `SYNAPLAN_URL`, `SYNAPLAN_OIDC_*`; cross-service vars
-  use `OC_`: `OC_REVA_GATEWAY`, `OC_JWT_SECRET`, `OC_INSECURE`; where both
+  use `OC_`: `OC_URL`, `OC_JWT_SECRET`, `OC_INSECURE`; where both
   make sense list both, `env:"OC_LOG_LEVEL;SYNAPLAN_LOG_LEVEL"`. Never
   introduce an `OC_SYNAPLAN_*` prefix — no other OpenCloud service does that.
 - A new config field is a struct field with `yaml`, `env` **and** `desc` tags,

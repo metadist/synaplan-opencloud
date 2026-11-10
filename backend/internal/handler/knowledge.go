@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/davfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -33,7 +33,7 @@ type knowledgeResponse struct {
 	SynaplanFileID      int    `json:"synaplanFileId"`
 }
 
-// AddToKnowledge reads a file from OpenCloud storage via CS3 and
+// AddToKnowledge reads a file over WebDAV, as the signed-in person, and
 // uploads it to Synaplan with process_level=vectorize under the
 // user-supplied group key, making it available for RAG-powered
 // chat and search. Unlike translate/summarize there's no deferred
@@ -61,7 +61,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var uploaded *uploadedFile
-	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
+	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *davfiles.File) (string, error) {
 		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
 			return "", fmt.Errorf("unsupported mime type %q: %w", file.MimeType, errClientInput)
 		}
