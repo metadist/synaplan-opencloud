@@ -147,6 +147,29 @@ test('a summary saved to the files lands in the personal space with its content'
   await userPage.locator('.oc-modal-title-actions-cancel').click()
 })
 
+test('a file without text says so in one sentence', async ({ request }) => {
+  const baseName = `blank-${Date.now()}.txt`
+  const remotePath = `${TESTS_DIR}/${baseName}`
+  await uploadTextFile(request, webDavUrl, accessToken, remotePath, '   \n')
+  filesToCleanup.push(remotePath)
+
+  await navigateToTestsFolder(userPage)
+  const row = await findFileRow(userPage, baseName)
+  await openSynaplanMenu(row)
+  await userPage.locator('.oc-files-actions-summarize-trigger').click()
+  await expect(userPage.locator('[data-testid="synaplan-summarize-dialog"]')).toBeVisible({
+    timeout: 10_000
+  })
+  await userPage.locator('[data-testid="synaplan-summarize-submit"]').click()
+
+  await expect(userPage.locator('[data-testid="synaplan-summarize-error"]')).toHaveText(
+    'This file is empty.',
+    { timeout: 15_000 }
+  )
+  await expect(userPage.locator('[data-testid="synaplan-summarize-result"]')).toBeHidden()
+  await userPage.locator('.oc-modal-title-actions-cancel').click()
+})
+
 async function runSummarizeFlow(
   page: Page,
   fileName: string,
