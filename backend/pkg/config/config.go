@@ -35,6 +35,7 @@ type Config struct {
 	OIDCExchangeClientID      string `yaml:"oidc_exchange_client_id" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID" desc:"Client ID for the token exchange confidential client."`
 	OIDCExchangeSecret        string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience        string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
+	DelegationFile            string `yaml:"delegation_file" env:"SYNAPLAN_DELEGATION_FILE" desc:"Optional. File that keeps the offline tokens of people who allowed background access across restarts, encrypted with the exchange client secret. Empty keeps them in memory only, so a restart makes people allow again."`
 
 	Context context.Context `yaml:"-"`
 }
