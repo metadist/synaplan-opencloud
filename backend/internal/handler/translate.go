@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
@@ -30,9 +31,10 @@ type translateResponse struct {
 }
 
 // Translate reads a file from OpenCloud storage (via CS3) and asks
-// Synaplan to translate it to the requested target language.
-// Implemented as /summary/generate with summaryType=abstractive,
-// length=long, outputLanguage=<target>.
+// Synaplan to translate it: /summary/generate with
+// summaryType=translation. A Synaplan that does not offer that type is
+// refused up front; a summary in the target language is not a
+// translation.
 func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 	var req translateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -48,17 +50,23 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.translationUnavailable(r.Context()) {
+		writeJSON(w, http.StatusUnprocessableEntity, errorResponse{
+			Error: "This Synaplan cannot translate a file. Ask your administrator.",
+			Code:  "translation_unavailable",
+		})
+		return
+	}
+
 	result, ok := h.runSummaryPipeline(w, r, req.ResourceID, "translate", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		text, fileID, cleanup, err := h.prepareSummaryInput(ctx, file)
 		defer cleanup()
 		if err != nil {
 			return "", err
 		}
-		// length=long because translation should preserve the source;
-		// use /summarize for shorter output.
 		return h.generateSummary(
 			ctx, text, fileID,
-			synaplanapi.Abstractive,
+			synaplanapi.Translation,
 			synaplanapi.PostApiSummaryGenerateJSONBodyLengthLong,
 			&req.TargetLanguage,
 		)
@@ -67,4 +75,18 @@ func (h *Handler) Translate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, translateResponse{Translation: result})
+}
+
+// translationUnavailable is true only when Synaplan answered and its
+// summary types do not include translation. No answer is not a refusal:
+// the translation request is still sent and fails on its own.
+func (h *Handler) translationUnavailable(ctx context.Context) bool {
+	if h.synaplanAPI == nil {
+		return false
+	}
+	res, err := h.synaplanAPI.GetApiConfigCapabilitiesWithResponse(anonymous(ctx))
+	if err != nil || res.JSON200 == nil {
+		return false
+	}
+	return !slices.Contains(res.JSON200.Summary.Types, string(synaplanapi.Translation))
 }

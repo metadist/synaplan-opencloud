@@ -7,6 +7,7 @@ describe('sentenceFor', () => {
   it.each([
     ['file_not_found', 'This file is no longer there. Reload the folder and try again.'],
     ['file_empty', 'This file is empty.'],
+    ['translation_unavailable', 'This Synaplan cannot translate a file. Ask your administrator.'],
     ['unsupported_type', 'Synaplan cannot read this kind of file.'],
     [
       'no_text',
