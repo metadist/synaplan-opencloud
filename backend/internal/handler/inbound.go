@@ -2,12 +2,9 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -111,10 +108,9 @@ func (h *Handler) synaplanSigner(ctx context.Context) (string, jwt.Keyfunc) {
 	n.triedAt = time.Now()
 	ctx, cancel := context.WithTimeout(anonymous(ctx), discoveryTimeout)
 	defer cancel()
-	// Open document, like the key set below: no credential, read directly.
-	issuer, err := h.synaplanIssuer(ctx)
-	if err != nil {
-		log.Printf("synaplan configuration: %v", err)
+	configuration, err := h.synaplanAPI.SynaplanConfigurationWithResponse(ctx)
+	if err != nil || configuration.JSON200 == nil || configuration.JSON200.Issuer == "" {
+		log.Printf("synaplan configuration: %v", answerOf(configuration, err))
 		return "", nil
 	}
 	keys, err := keyfunc.Get(strings.TrimRight(h.synaplanURL, "/")+"/.well-known/jwks.json", keyfunc.Options{
@@ -132,38 +128,15 @@ func (h *Handler) synaplanSigner(ctx context.Context) (string, jwt.Keyfunc) {
 		log.Printf("synaplan keys: %v", err)
 		return "", nil
 	}
-	n.issuer, n.keys = issuer, keys
+	n.issuer, n.keys = configuration.JSON200.Issuer, keys
 	return n.issuer, n.keys.Keyfunc
 }
 
-// synaplanIssuer reads the issuer Synaplan's notifications carry from its
-// open configuration document at SYNAPLAN_URL.
-func (h *Handler) synaplanIssuer(ctx context.Context) (string, error) {
-	endpoint, err := url.JoinPath(h.synaplanURL, ".well-known/synaplan-configuration")
+// answerOf describes a failed call for the log: the transport error, or
+// the status Synaplan answered with.
+func answerOf(resp interface{ StatusCode() int }, err error) any {
 	if err != nil {
-		return "", fmt.Errorf("building configuration url: %w", err)
+		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return "", fmt.Errorf("building configuration request: %w", err)
-	}
-	res, err := h.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = res.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<16))
-	if err != nil {
-		return "", fmt.Errorf("reading configuration: %w", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("configuration answered %d", res.StatusCode)
-	}
-	var doc struct {
-		Issuer string `json:"issuer"`
-	}
-	if err := json.Unmarshal(body, &doc); err != nil || doc.Issuer == "" {
-		return "", fmt.Errorf("configuration names no issuer")
-	}
-	return doc.Issuer, nil
+	return resp.StatusCode()
 }
