@@ -80,6 +80,27 @@ test('allow, stop and allow again to work while away', async ({ request }) => {
   await expect(userPage.locator('[data-testid="synaplan-delegation-error"]')).toHaveCount(0)
 })
 
+// The sign-in service may need the person (a login, a consent): the silent
+// attempt then comes back empty, and a popup the person opens with a second
+// click finishes it. Aborting the silent request makes that happen here.
+test('when the silent attempt fails, a popup the person opens allows it', async ({ request }) => {
+  test.setTimeout(60_000)
+  const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)
+  await stop(userPage)
+  await userPage.route(/\/protocol\/openid-connect\/auth\?.*prompt=none/, (route) => route.abort())
+  const { connect, disconnect } = await openSection(userPage)
+
+  await connect.click()
+  const signIn = userPage.locator('[data-testid="synaplan-delegation-sign-in"]')
+  await expect(signIn).toBeVisible({ timeout: 20_000 })
+  const [popup] = await Promise.all([userPage.waitForEvent('popup'), signIn.click()])
+  await popup.waitForEvent('close', { timeout: 20_000 })
+
+  await expect(disconnect).toBeVisible({ timeout: 15_000 })
+  expect(await connected(request, token)).toBe(true)
+  await userPage.unrouteAll()
+})
+
 test('a refused permission shows one readable sentence', async ({ request }) => {
   test.setTimeout(60_000)
   const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)
