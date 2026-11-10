@@ -38,6 +38,9 @@ const answerSchema = z.object({
 })
 type Answer = z.infer<typeof answerSchema>
 
+/** The browser refused to open the sign-in window. */
+export class PopupBlockedError extends Error {}
+
 const SILENT_TIMEOUT_MS = 10_000
 const POPUP_POLL_MS = 500
 
@@ -161,7 +164,7 @@ export function useDelegation(): {
   async function signIn() {
     const popup = window.open('about:blank', 'synaplan-connect', 'popup,width=520,height=680')
     if (!popup) {
-      throw new Error('the sign-in window was blocked')
+      throw new PopupBlockedError('the sign-in window was blocked')
     }
     busy.value = true
     try {
@@ -187,8 +190,10 @@ export function useDelegation(): {
       await httpAuthenticated.delete('/api/synaplan/delegation', {
         schema: z.object({ connected: z.boolean() })
       })
-      await load()
     } finally {
+      // The service forgets the token even when the identity provider
+      // could not confirm the revocation, so the state is read either way.
+      await load().catch(() => {})
       busy.value = false
     }
   }

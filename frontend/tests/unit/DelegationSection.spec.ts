@@ -12,7 +12,12 @@ const access = {
   disconnect: vi.fn()
 }
 
+const { PopupBlockedError } = vi.hoisted(() => ({
+  PopupBlockedError: class PopupBlockedError extends Error {}
+}))
+
 vi.mock('../../src/composables/useDelegation', () => ({
+  PopupBlockedError,
   useDelegation: () => access
 }))
 
@@ -85,5 +90,26 @@ describe('DelegationSection', () => {
     await wrapper.get('[data-testid="synaplan-delegation-connect"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).not.toBe('')
+  })
+
+  it('says the sign-in window was blocked when the browser refuses it', async () => {
+    access.status.value = { available: true, connected: false }
+    access.needsSignIn.value = true
+    access.signIn.mockRejectedValue(new PopupBlockedError('blocked'))
+    const wrapper = mountCard()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-delegation-sign-in"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toContain('pop-ups')
+  })
+
+  it('says stopping could not be confirmed when Stop fails', async () => {
+    access.status.value = { available: true, connected: true }
+    access.disconnect.mockRejectedValue(new Error('boom'))
+    const wrapper = mountCard()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-delegation-disconnect"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toContain('stopped')
   })
 })

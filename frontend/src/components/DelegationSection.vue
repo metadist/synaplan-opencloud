@@ -18,7 +18,7 @@
       :disabled="busy"
       :show-spinner="busy"
       data-testid="synaplan-delegation-sign-in"
-      @click="run(signIn)"
+      @click="run(signIn, allowFailed)"
     >
       {{ $gettext('Sign in to allow') }}
     </oc-button>
@@ -29,7 +29,7 @@
       :disabled="busy"
       :show-spinner="busy"
       data-testid="synaplan-delegation-connect"
-      @click="run(connect)"
+      @click="run(connect, allowFailed)"
     >
       {{ $gettext('Allow') }}
     </oc-button>
@@ -39,7 +39,7 @@
       :disabled="busy"
       :show-spinner="busy"
       data-testid="synaplan-delegation-disconnect"
-      @click="run(disconnect)"
+      @click="run(disconnect, stopFailed)"
     >
       {{ $gettext('Stop') }}
     </oc-button>
@@ -52,20 +52,29 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { useDelegation } from '../composables/useDelegation'
+import { PopupBlockedError, useDelegation } from '../composables/useDelegation'
 
 const { $gettext } = useGettext()
 const { status, busy, needsSignIn, load, connect, signIn, disconnect } = useDelegation()
 const error = ref('')
 
-async function run(action: () => Promise<unknown>) {
+const allowFailed = () => $gettext('Synaplan could not be allowed to work for you. Try again.')
+const stopFailed = () =>
+  $gettext('Synaplan could not confirm that it stopped working for you. Try again.')
+
+async function run(action: () => Promise<unknown>, failed: () => string) {
   error.value = ''
   try {
     await action()
-  } catch {
-    error.value = $gettext('Synaplan could not be allowed to work for you. Try again.')
+  } catch (e) {
+    error.value =
+      e instanceof PopupBlockedError
+        ? $gettext(
+            'Your browser blocked the sign-in window. Allow pop-ups for this page and try again.'
+          )
+        : failed()
   }
 }
 
-onMounted(() => run(load))
+onMounted(() => run(load, allowFailed))
 </script>
