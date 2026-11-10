@@ -36,7 +36,9 @@ async function connected(request: APIRequestContext, token: string): Promise<boo
 }
 
 async function openSection(page: Page) {
-  await page.goto('/synaplan')
+  if (!new URL(page.url()).pathname.endsWith('/synaplan')) {
+    await page.goto('/synaplan')
+  }
   const connect = page.locator('[data-testid="synaplan-delegation-connect"]')
   const disconnect = page.locator('[data-testid="synaplan-delegation-disconnect"]')
   await expect(connect.or(disconnect)).toBeVisible({ timeout: 15_000 })
@@ -126,7 +128,8 @@ test('a refused permission shows one readable sentence', async ({ request }) => 
 // offline token. Crosses Synaplan's signed notification, its published
 // issuer and keys, and the inbound route. Runs as demo: Synaplan then
 // refuses that person through this OpenCloud, which the other journeys
-// must not inherit.
+// must not inherit, and never links them again, so it needs a fresh
+// Synaplan test stack, as CI starts one.
 test('ending the link in Synaplan ends work while away here', async ({ browser, request }) => {
   test.setTimeout(60_000)
   const demoPage = (await loginAsUser(browser, 'demo', 'demo')).page
