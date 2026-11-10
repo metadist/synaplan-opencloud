@@ -207,6 +207,7 @@ jobs:
           COMPOSE="docker compose \
             -f docker-compose.test.yml \
             -f docker-compose.test.ci.yml \
+            -f ../frontend/tests/e2e/synaplan-test-stack.yml \
             --profile oidc --profile integration"
           $COMPOSE up -d --wait
           echo "Waiting for Keycloak setup..."
