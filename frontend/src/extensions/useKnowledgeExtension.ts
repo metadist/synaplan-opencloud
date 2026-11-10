@@ -13,10 +13,10 @@ import { isSingleSupportedFile } from './supportedMimes'
 const KnowledgeDialog = defineAsyncComponent(() => import('../components/KnowledgeDialog.vue'))
 
 /**
- * Adds an "Add to Synaplan knowledge…" entry to the file context
- * menu. The dialog lets the user pick (or create) a knowledge
- * group, and the backend uploads the file to Synaplan with
- * process_level=vectorize for RAG-powered retrieval.
+ * Adds "Make searchable by AI…" to the file context menu. The dialog
+ * lets the person pick (or create) a knowledge folder, and the backend
+ * uploads the file to Synaplan with process_level=vectorize, so it is
+ * found when they ask a question, here or in Synaplan.
  */
 export const useKnowledgeExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
@@ -32,7 +32,7 @@ export const useKnowledgeExtension = (): ActionExtension => {
     }
 
     const modal: Omit<Modal, 'id'> = {
-      title: $gettext('Add to Synaplan knowledge'),
+      title: $gettext('Make searchable by AI'),
       hideActions: true,
       customComponent: KnowledgeDialog,
       customComponentAttrs: () => ({ resource })
@@ -47,7 +47,7 @@ export const useKnowledgeExtension = (): ActionExtension => {
       name: 'add-to-knowledge',
       icon: 'brain',
       iconFillType: 'line',
-      label: () => $gettext('Add to knowledge…'),
+      label: () => $gettext('Make searchable by AI…'),
       class: 'oc-files-actions-add-to-knowledge-trigger',
       handler,
       isVisible: (options: FileActionOptions) => isSingleSupportedFile(userStore.user, options)

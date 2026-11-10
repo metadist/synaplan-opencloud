@@ -84,7 +84,7 @@ describe('useKnowledgeExtension', () => {
 
       expect(dispatchModal).toHaveBeenCalledTimes(1)
       const modal = dispatchModal.mock.calls[0][0]
-      expect(modal.title).toBe('Add to Synaplan knowledge')
+      expect(modal.title).toBe('Make searchable by AI')
       expect(modal.hideActions).toBe(true)
       expect(modal.customComponentAttrs()).toEqual({ resource: r })
     })
