@@ -8,11 +8,7 @@
 package notify
 
 import (
-	"crypto/ed25519"
-	"encoding/base64"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -64,15 +60,12 @@ func Precheck(token, audience string, now time.Time) string {
 	return window(claims, now)
 }
 
-// Verify checks a notification against keys and returns its claims with
-// OK, or the reason it was refused. An empty issuer trusts no one.
-func Verify(token, issuer, audience string, keys []ed25519.PublicKey, now time.Time) (Claims, string) {
-	if issuer == "" || len(keys) == 0 {
+// Verify checks a notification with the key keys finds for it and returns
+// its claims with OK, or the reason it was refused. An empty issuer trusts
+// no one.
+func Verify(token, issuer, audience string, keys jwt.Keyfunc, now time.Time) (Claims, string) {
+	if issuer == "" || keys == nil {
 		return Claims{}, BadSignature
-	}
-	set := jwt.VerificationKeySet{Keys: make([]jwt.VerificationKey, 0, len(keys))}
-	for _, key := range keys {
-		set.Keys = append(set.Keys, key)
 	}
 	var claims Claims
 	_, err := jwt.NewParser(
@@ -85,7 +78,7 @@ func Verify(token, issuer, audience string, keys []ed25519.PublicKey, now time.T
 		if t.Header["typ"] != tokenType {
 			return nil, errWrongType
 		}
-		return set, nil
+		return keys(t)
 	})
 	switch {
 	case err == nil:
@@ -122,20 +115,6 @@ func audienceIs(claims Claims, audience string) bool {
 		}
 	}
 	return false
-}
-
-// PublicKey decodes an Ed25519 public key given as base64url, the x of an
-// OKP JSON Web Key, optionally prefixed "ed25519:" as in the contract
-// vectors.
-func PublicKey(encoded string) (ed25519.PublicKey, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(encoded, "ed25519:"))
-	if err != nil {
-		return nil, fmt.Errorf("decoding key: %w", err)
-	}
-	if len(raw) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("key has %d bytes, want %d", len(raw), ed25519.PublicKeySize)
-	}
-	return ed25519.PublicKey(raw), nil
 }
 
 // Seen remembers accepted notification ids until their tokens expire.

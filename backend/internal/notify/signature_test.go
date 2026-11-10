@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // vectors are copied from Synaplan's cloud-apps contract so a Go
@@ -31,21 +34,22 @@ func TestVerifyVectors(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	key, err := PublicKey(doc.PublicKey)
+	raw, err = base64.RawURLEncoding.DecodeString(strings.TrimPrefix(doc.PublicKey, "ed25519:"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	key := func(*jwt.Token) (any, error) { return ed25519.PublicKey(raw), nil }
 	now := time.Unix(doc.Now, 0)
 	for _, vector := range doc.Vectors {
-		if _, got := Verify(vector.Token, doc.Issuer, doc.Receiver, []ed25519.PublicKey{key}, now); got != vector.Expect {
+		if _, got := Verify(vector.Token, doc.Issuer, doc.Receiver, key, now); got != vector.Expect {
 			t.Errorf("%s: got %s, want %s", vector.Name, got, vector.Expect)
 		}
 	}
-	claims, reason := Verify(doc.Vectors[0].Token, doc.Issuer, doc.Receiver, []ed25519.PublicKey{key}, now)
+	claims, reason := Verify(doc.Vectors[0].Token, doc.Issuer, doc.Receiver, key, now)
 	if reason != OK || claims.Subject != "ada" || claims.Type != "delivery" || claims.ID != "9" {
 		t.Fatalf("claims = %+v (%s)", claims, reason)
 	}
-	if _, got := Verify(doc.Vectors[0].Token, "", doc.Receiver, []ed25519.PublicKey{key}, now); got != BadSignature {
+	if _, got := Verify(doc.Vectors[0].Token, "", doc.Receiver, key, now); got != BadSignature {
 		t.Fatalf("an unknown issuer was trusted: %s", got)
 	}
 }

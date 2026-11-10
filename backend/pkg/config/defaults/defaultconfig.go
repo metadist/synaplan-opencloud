@@ -47,7 +47,6 @@ func DefaultConfig() *config.Config {
 		OIDCExchangeClientID: "synaplan-opencloud",
 		OIDCExchangeSecret:   "synaplan-opencloud-secret",
 		OIDCTargetAudience:   "synaplan-app",
-		OIDCIssuer:           "https://host.docker.internal:8443/realms/synaplan",
 	}
 }
 

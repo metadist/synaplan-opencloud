@@ -12,6 +12,7 @@ import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authH
 const TEST_USER = 'testuser@synaplan.com'
 const TEST_PASSWORD = 'testpass123'
 const OC_API_URL = process.env.OC_API_URL ?? 'https://host.docker.internal:9200'
+const SYNAPLAN_API_URL = process.env.SYNAPLAN_API_URL ?? 'http://host.docker.internal:8000'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -97,4 +98,33 @@ test('a refused permission shows one readable sentence', async ({ request }) => 
   )
   expect(await connected(request, token)).toBe(false)
   await userPage.unroute('**/api/synaplan/delegation')
+})
+
+// Synaplan's side: the person ends the link in Synaplan, Synaplan sends
+// identity_revoked to this OpenCloud, and the service forgets the person's
+// offline token. Crosses Synaplan's signed notification, its published
+// issuer and keys, and the inbound route.
+test('ending the link in Synaplan ends work while away here', async ({ request }) => {
+  test.setTimeout(60_000)
+  const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)
+  await allow(userPage)
+  expect(await connected(request, token)).toBe(true)
+
+  const synaplanToken = await getAccessToken(request, TEST_USER, TEST_PASSWORD, {
+    clientId: 'synaplan-app',
+    clientSecret: 'test-oidc-secret'
+  })
+  const headers = { Authorization: `Bearer ${synaplanToken}` }
+  const list = await request.get(`${SYNAPLAN_API_URL}/api/v1/me/platform-links`, { headers })
+  expect(list.ok(), await list.text()).toBe(true)
+  const links = (await list.json()).links as { id: number; client: string; status: string }[]
+  const link = links.find((l) => l.client === 'opencloud' && l.status === 'active')
+  expect(link, JSON.stringify(links)).toBeDefined()
+
+  const ended = await request.delete(`${SYNAPLAN_API_URL}/api/v1/me/platform-links/${link?.id}`, {
+    headers
+  })
+  expect(ended.ok(), await ended.text()).toBe(true)
+
+  await expect.poll(() => connected(request, token), { timeout: 30_000 }).toBe(false)
 })

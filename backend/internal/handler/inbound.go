@@ -2,12 +2,15 @@ package handler
 
 import (
 	"context"
-	"crypto/ed25519"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/MicahParks/keyfunc/v2"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/metadist/synaplan-opencloud/internal/notify"
 )
@@ -18,27 +21,24 @@ import (
 const notificationAudience = "oidc-cloud"
 
 const (
-	// keyFetchTimeout bounds one fetch of Synaplan's keys, which runs under
-	// the cache lock.
-	keyFetchTimeout = 10 * time.Second
-	// keyCacheTTL is how long keys and issuer are trusted without asking
-	// Synaplan again.
-	keyCacheTTL = 10 * time.Minute
-	// keyRetryAfter spaces fetches after a failed one, so requests to the
-	// open inbound route cannot turn into a stream of requests to Synaplan.
-	keyRetryAfter = 30 * time.Second
+	// discoveryTimeout bounds reading Synaplan's configuration and first
+	// key set, which runs under the lock.
+	discoveryTimeout = 10 * time.Second
+	// discoveryRetryAfter spaces attempts after a failed one, so requests to
+	// the open inbound route cannot turn into a stream of requests to
+	// Synaplan.
+	discoveryRetryAfter = 30 * time.Second
 )
 
-// notifications verifies what Synaplan sends: the issuer and keys it
-// signs with, cached, and the ids already handled.
+// notifications verifies what Synaplan sends: the issuer it names, the
+// key set it signs with (refreshed by keyfunc hourly and when an unknown
+// key id shows up, at most once a minute), and the ids already handled.
 type notifications struct {
-	mu        sync.Mutex
-	seen      *notify.Seen
-	loaded    bool
-	fetchedAt time.Time
-	triedAt   time.Time
-	issuer    string
-	keys      []ed25519.PublicKey
+	mu      sync.Mutex
+	seen    *notify.Seen
+	issuer  string
+	keys    *keyfunc.JWKS
+	triedAt time.Time
 }
 
 // Inbound is the address Synaplan calls. Nothing is acted on until the
@@ -62,7 +62,7 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: reason})
 		return
 	}
-	issuer, keys := h.notifyKeys(r.Context())
+	issuer, keys := h.synaplanSigner(r.Context())
 	claims, reason := notify.Verify(token, issuer, notificationAudience, keys, now)
 	if reason != notify.OK {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: reason})
@@ -90,47 +90,46 @@ func (h *Handler) alreadyHandled(claims notify.Claims, now time.Time) bool {
 	return h.notifications.seen.AlreadySeen(claims.Type, claims.ID, now, claims.ExpiresAt.Time)
 }
 
-// notifyKeys returns the issuer Synaplan's notifications carry and the keys
-// they are signed with. Both are read through the address this service
+// synaplanSigner returns the issuer Synaplan's notifications carry and the
+// key function for its key set. Both come from the address this service
 // reaches Synaplan by, never from a URL inside a token: the issuer is
-// Synaplan's public URL, which this service is not configured with. A
-// successful answer is authoritative, an empty key list included, so a key
-// Synaplan dropped stops being trusted; a failed one keeps the cache and
-// holds off the next fetch for keyRetryAfter.
-func (h *Handler) notifyKeys(ctx context.Context) (string, []ed25519.PublicKey) {
+// Synaplan's public URL, which this service is not configured with. Until
+// both are known, nothing verifies.
+func (h *Handler) synaplanSigner(ctx context.Context) (string, jwt.Keyfunc) {
 	n := &h.notifications
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.loaded && time.Since(n.fetchedAt) < keyCacheTTL || time.Since(n.triedAt) < keyRetryAfter {
-		return n.issuer, n.keys
+	if n.keys != nil {
+		return n.issuer, n.keys.Keyfunc
+	}
+	if time.Since(n.triedAt) < discoveryRetryAfter {
+		return "", nil
 	}
 	n.triedAt = time.Now()
-	ctx, cancel := context.WithTimeout(anonymous(ctx), keyFetchTimeout)
+	ctx, cancel := context.WithTimeout(anonymous(ctx), discoveryTimeout)
 	defer cancel()
 	configuration, err := h.synaplanAPI.SynaplanConfigurationWithResponse(ctx)
 	if err != nil || configuration.JSON200 == nil || configuration.JSON200.Issuer == "" {
 		log.Printf("synaplan configuration: %v", answerOf(configuration, err))
-		return n.issuer, n.keys
+		return "", nil
 	}
-	set, err := h.synaplanAPI.JwksWithResponse(ctx)
-	if err != nil || set.JSON200 == nil {
-		log.Printf("synaplan keys: %v", answerOf(set, err))
-		return n.issuer, n.keys
+	keys, err := keyfunc.Get(strings.TrimRight(h.synaplanURL, "/")+"/.well-known/jwks.json", keyfunc.Options{
+		Ctx:               context.WithoutCancel(ctx),
+		Client:            h.httpClient,
+		RefreshInterval:   time.Hour,
+		RefreshRateLimit:  time.Minute,
+		RefreshTimeout:    discoveryTimeout,
+		RefreshUnknownKID: true,
+		RefreshErrorHandler: func(err error) {
+			log.Printf("synaplan keys: %v", err)
+		},
+	})
+	if err != nil {
+		log.Printf("synaplan keys: %v", err)
+		return "", nil
 	}
-	keys := make([]ed25519.PublicKey, 0, len(set.JSON200.Keys))
-	for _, jwk := range set.JSON200.Keys {
-		if jwk.Kty != "OKP" || jwk.Crv != "Ed25519" {
-			continue
-		}
-		if key, err := notify.PublicKey(jwk.X); err == nil {
-			keys = append(keys, key)
-		}
-	}
-	n.issuer = configuration.JSON200.Issuer
-	n.keys = keys
-	n.loaded = true
-	n.fetchedAt = time.Now()
-	return n.issuer, n.keys
+	n.issuer, n.keys = configuration.JSON200.Issuer, keys
+	return n.issuer, n.keys.Keyfunc
 }
 
 // answerOf describes a failed call for the log: the transport error, or

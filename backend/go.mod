@@ -13,6 +13,7 @@ replace github.com/go-micro/plugins/v4/store/nats-js-kv => github.com/opencloud-
 replace github.com/pablodz/inotifywaitgo v0.0.9 => github.com/opencloud-eu/inotifywaitgo v0.0.0-20251111171128-a390bae3c5e9
 
 require (
+	github.com/MicahParks/keyfunc/v2 v2.1.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9
 	github.com/go-chi/chi/v5 v5.4.0
@@ -35,7 +36,6 @@ require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/Masterminds/sprig v2.22.0+incompatible // indirect
-	github.com/MicahParks/keyfunc/v2 v2.1.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/ajg/form v1.5.1 // indirect

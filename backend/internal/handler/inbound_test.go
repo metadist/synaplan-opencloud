@@ -37,7 +37,7 @@ func newSignedSynaplan(t *testing.T) *signedSynaplan {
 		case "/.well-known/synaplan-configuration":
 			_, _ = fmt.Fprintf(w, `{"issuer":%q}`, synaplanIssuer)
 		case "/.well-known/jwks.json":
-			_, _ = fmt.Fprintf(w, `{"keys":[{"kty":"OKP","crv":"Ed25519","x":%q}]}`, base64.RawURLEncoding.EncodeToString(pub))
+			_, _ = fmt.Fprintf(w, `{"keys":[{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","kid":"k1","x":%q}]}`, base64.RawURLEncoding.EncodeToString(pub))
 		default:
 			http.NotFound(w, r)
 		}
@@ -54,6 +54,7 @@ func (s *signedSynaplan) notification(t *testing.T, claims map[string]any) strin
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, full)
 	token.Header["typ"] = "synaplan-notification+jwt"
+	token.Header["kid"] = "k1"
 	signed, err := token.SignedString(s.key)
 	if err != nil {
 		t.Fatal(err)
