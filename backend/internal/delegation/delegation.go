@@ -6,8 +6,7 @@
 // code lands here. The offline token it yields is refreshed on demand and
 // exchanged (RFC 8693) for the audience a call needs. Disconnecting revokes
 // it at the identity provider (RFC 7009). Nothing here can act for someone
-// who did not connect. Offline tokens live in this process and, with a
-// Store, survive a restart.
+// who did not connect. Offline tokens live in this process only.
 package delegation
 
 import (
@@ -36,12 +35,6 @@ type Config struct {
 	ClientID     string
 	ClientSecret string
 	HTTPClient   *http.Client
-	// Store keeps the offline tokens across restarts; nil keeps them in
-	// memory only.
-	Store Store
-	// StoreFailed hears a store that could not be read or written. The
-	// tokens in memory stay in use either way.
-	StoreFailed func(error)
 }
 
 // Delegation obtains tokens for connected people.
@@ -71,31 +64,12 @@ type tokenResponse struct {
 	Error        string `json:"error"`
 }
 
-// New returns a Delegation with the people the store kept connected, or
-// with no one.
+// New returns a Delegation with no one connected.
 func New(cfg Config) *Delegation {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 15 * time.Second}
 	}
-	d := &Delegation{cfg: cfg, offline: map[string]string{}, cache: map[string]cached{}, ops: map[string]*sync.Mutex{}}
-	if cfg.Store != nil {
-		kept, err := cfg.Store.Load()
-		if err != nil {
-			d.storeFailed(err)
-		}
-		for subject, offline := range kept {
-			if subject != "" && offline != "" {
-				d.offline[subject] = offline
-			}
-		}
-	}
-	return d
-}
-
-func (d *Delegation) storeFailed(err error) {
-	if d.cfg.StoreFailed != nil {
-		d.cfg.StoreFailed(err)
-	}
+	return &Delegation{cfg: cfg, offline: map[string]string{}, cache: map[string]cached{}, ops: map[string]*sync.Mutex{}}
 }
 
 // lock takes subject's operation lock and returns its unlock.
@@ -262,11 +236,6 @@ func (d *Delegation) swap(subject, offline string) (string, bool) {
 	for key := range d.cache {
 		if strings.HasPrefix(key, subject+"\x00") {
 			delete(d.cache, key)
-		}
-	}
-	if d.cfg.Store != nil && previous != offline {
-		if err := d.cfg.Store.Save(d.offline); err != nil {
-			d.storeFailed(err)
 		}
 	}
 	return previous, had

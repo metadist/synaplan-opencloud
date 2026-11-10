@@ -13,8 +13,6 @@ services:
     image: ${BACKEND_IMAGE:-}
     volumes: !reset []
     environment:
-      # The pre-built image has no volume here; tokens stay in memory.
-      SYNAPLAN_DELEGATION_FILE: ""
       SYNAPLAN_URL: "http://host.docker.internal:8001"
       SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8081/realms/synaplan/protocol/openid-connect/token"
       OC_OIDC_ISSUER: "https://host.docker.internal:8444/realms/synaplan"

@@ -91,7 +91,6 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
-      SYNAPLAN_DELEGATION_FILE: /var/lib/synaplan-opencloud/delegation
       GOPATH: /tmp/go-cache/gopath
       GOCACHE: /tmp/go-cache/build
     extra_hosts:
@@ -99,9 +98,7 @@ services:
     volumes:
       - ./backend:/app
       - go-cache:/tmp/go-cache
-      - synaplan-data:/var/lib/synaplan-opencloud
 
 volumes:
   opencloud-config:
   go-cache:
-  synaplan-data:
