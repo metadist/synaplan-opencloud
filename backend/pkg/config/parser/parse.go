@@ -33,10 +33,15 @@ func ParseConfig(cfg *config.Config) error {
 	return Validate(cfg)
 }
 
-// Validate validates the config. Exactly one outbound auth mode must
-// be configured: either a shared Synaplan API key (SYNAPLAN_API_KEY)
-// or the full set of OIDC token-exchange variables.
+// Validate validates the config. SYNAPLAN_URL is required, and exactly
+// one outbound auth mode must be configured: either a shared Synaplan API
+// key (SYNAPLAN_API_KEY) or the full set of OIDC token-exchange variables.
+// Nothing has a built-in default: a missing setting stops the service
+// instead of pointing it at a development host.
 func Validate(cfg *config.Config) error {
+	if cfg.SynaplanURL == "" {
+		return errors.New("synaplan-opencloud: SYNAPLAN_URL is not set")
+	}
 	hasAPIKey := cfg.SynaplanAPIKey != ""
 	hasTokenExchange := cfg.OIDCTokenEndpoint != "" &&
 		cfg.OIDCExchangeClientID != "" &&
