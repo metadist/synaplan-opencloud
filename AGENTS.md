@@ -26,7 +26,7 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
 | `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
-| `backend/internal/synaplanauth/`, `tokenexchange/`, `davfiles/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the person's files over WebDAV and Graph. |
+| `backend/internal/synaplanauth/`, `tokenexchange/`, `ocfiles/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the person's files over WebDAV and Graph. |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
@@ -121,7 +121,14 @@ server's copy of the same app id.
   hand-edit `client.gen.go`; never commit it. An endpoint missing from the
   client means the pin is too old — bump it (below), don't write the call by
   hand.
-- Handlers stay thin and read top-down: decode and validate → WebDAV read →
+- OpenCloud is reached through its public APIs only, in `internal/ocfiles`:
+  metadata (stat, listings, drives) through the generated libre-graph
+  client (`github.com/opencloud-eu/libre-graph-api-go`); plain WebDAV only
+  for what Graph does not serve (file content, `MKCOL`, `PUT`). No
+  hand-written `PROPFIND` and no WebDAV XML. A metadata call missing from
+  libre-graph is a reason to extend libre-graph or OpenCloud, not to parse
+  XML.
+- Handlers stay thin and read top-down: decode and validate → file read (`ocfiles`) →
   Synaplan call → `writeJSON`. Validation runs before any I/O so unit tests can
   exercise it against a bare `Handler{}`; everything past validation is
   covered by E2E. Per-call timeouts go on the request context (LLM calls take

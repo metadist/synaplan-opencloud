@@ -1,23 +1,23 @@
-// Package davfiles reads and writes a person's files through OpenCloud's
-// public APIs (WebDAV and Graph), with an OpenCloud token issued for that
-// person. It reaches exactly what the person can reach, needs no access to
-// OpenCloud's internal services, and works wherever OpenCloud's public URL
-// does.
-package davfiles
+// Package ocfiles reads and writes a person's files through OpenCloud's
+// public APIs, with an OpenCloud token issued for that person: metadata
+// through the Graph API (with the generated libre-graph client), content
+// and folders through plain WebDAV requests. It reaches exactly what the
+// person can reach, needs no access to OpenCloud's internal services, and
+// works wherever OpenCloud's URL does.
+package ocfiles
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
+
+	libregraph "github.com/opencloud-eu/libre-graph-api-go"
 )
 
 // File is a file as the person sees it. The caller closes Body when it is
@@ -37,7 +37,7 @@ type File struct {
 
 // ErrNotFound means the resource does not exist or the person cannot see
 // it.
-var ErrNotFound = errors.New("davfiles: not found")
+var ErrNotFound = errors.New("ocfiles: not found")
 
 // TokenFunc returns an OpenCloud access token for the person the request
 // is made for.
@@ -47,12 +47,17 @@ type TokenFunc func(ctx context.Context) (string, error)
 type Client struct {
 	base  string
 	http  *http.Client
+	graph *libregraph.APIClient
 	token TokenFunc
 }
 
 // New returns a Client for the OpenCloud at base (its URL without a path).
 func New(base string, httpClient *http.Client, token TokenFunc) *Client {
-	return &Client{base: strings.TrimRight(base, "/"), http: httpClient, token: token}
+	base = strings.TrimRight(base, "/")
+	cfg := libregraph.NewConfiguration()
+	cfg.Servers = libregraph.ServerConfigurations{{URL: base + "/graph"}}
+	cfg.HTTPClient = httpClient
+	return &Client{base: base, http: httpClient, graph: libregraph.NewAPIClient(cfg), token: token}
 }
 
 const (
@@ -60,57 +65,34 @@ const (
 	maxNameTries = 50
 )
 
-const propfindBody = `<?xml version="1.0"?>
-<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop>
-<oc:name/><d:getetag/><d:resourcetype/><d:getcontenttype/><d:getcontentlength/>
-</d:prop></d:propfind>`
-
-const metaPathBody = `<?xml version="1.0"?>
-<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop>
-<oc:meta-path-for-user/>
-</d:prop></d:propfind>`
-
-type props struct {
-	Name          string `xml:"name"`
-	Etag          string `xml:"getetag"`
-	ContentType   string `xml:"getcontenttype"`
-	ContentLength string `xml:"getcontentlength"`
-	MetaPath      string `xml:"meta-path-for-user"`
-	ResourceType  struct {
-		Collection *struct{} `xml:"collection"`
-	} `xml:"resourcetype"`
-}
-
-type multistatus struct {
-	Responses []struct {
-		Propstat []struct {
-			Status string `xml:"status"`
-			Prop   props  `xml:"prop"`
-		} `xml:"propstat"`
-	} `xml:"response"`
-}
-
 // Stat returns what the person sees of the file resourceID, without its
 // content.
 func (c *Client) Stat(ctx context.Context, resourceID string) (*File, error) {
-	found, err := c.propfind(ctx, c.byID(resourceID), propfindBody)
+	driveID, _, ok := strings.Cut(resourceID, "!")
+	if !ok {
+		return nil, errors.New("ocfiles: resource is not a file")
+	}
+	ctx, err := c.authorized(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if found.ResourceType.Collection != nil {
-		return nil, errors.New("davfiles: resource is not a file")
-	}
-	meta, err := c.propfind(ctx, c.base+"/dav/meta/"+url.PathEscape(resourceID), metaPathBody)
+	item, res, err := c.graph.DriveItemApi.GetDriveItemV1(ctx, driveID, resourceID).Execute()
 	if err != nil {
-		return nil, err
+		return nil, graphError("stat", res, err)
 	}
-	size, _ := strconv.ParseUint(found.ContentLength, 10, 64)
+	if item.Folder != nil || item.File == nil {
+		return nil, errors.New("ocfiles: resource is not a file")
+	}
+	parent := ""
+	if item.ParentReference != nil {
+		parent = item.ParentReference.GetPath()
+	}
 	return &File{
-		Name:     found.Name,
-		MimeType: found.ContentType,
-		Size:     size,
-		Etag:     found.Etag,
-		Path:     strings.Trim(meta.MetaPath, "/"),
+		Name:     item.GetName(),
+		MimeType: item.File.GetMimeType(),
+		Size:     uint64(max(item.GetSize(), 0)),
+		Etag:     item.GetETag(),
+		Path:     strings.Trim(path.Join(parent, item.GetName()), "/"),
 	}, nil
 }
 
@@ -120,13 +102,13 @@ func (c *Client) Open(ctx context.Context, resourceID string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := c.do(ctx, http.MethodGet, c.byID(resourceID), nil, nil)
+	res, err := c.do(ctx, http.MethodGet, c.base+"/dav/spaces/"+url.PathEscape(resourceID), nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	if res.StatusCode != http.StatusOK {
 		_ = res.Body.Close()
-		return nil, fmt.Errorf("davfiles: download answered %d", res.StatusCode)
+		return nil, fmt.Errorf("ocfiles: download answered %d", res.StatusCode)
 	}
 	file.Body = res.Body
 	return file, nil
@@ -138,7 +120,7 @@ func (c *Client) Open(ctx context.Context, resourceID string) (*File, error) {
 func (c *Client) Save(ctx context.Context, filename string, content []byte) (string, error) {
 	name := path.Base(strings.TrimSpace(filename))
 	if name == "" || name == "." || name == ".." || name == "/" {
-		return "", errors.New("davfiles: invalid filename")
+		return "", errors.New("ocfiles: invalid filename")
 	}
 	space, err := c.personalSpace(ctx)
 	if err != nil {
@@ -181,18 +163,47 @@ func kindFolder(filename string) string {
 	}
 }
 
-func (c *Client) byID(resourceID string) string {
-	return c.base + "/dav/spaces/" + url.PathEscape(resourceID)
+func (c *Client) authorized(ctx context.Context) (context.Context, error) {
+	token, err := c.token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ocfiles: %w", err)
+	}
+	return context.WithValue(ctx, libregraph.ContextAccessToken, token), nil
+}
+
+func graphError(op string, res *http.Response, err error) error {
+	if res != nil && res.StatusCode == http.StatusNotFound {
+		return ErrNotFound
+	}
+	if res != nil && res.StatusCode >= 300 {
+		return fmt.Errorf("ocfiles: %s answered %d", op, res.StatusCode)
+	}
+	return fmt.Errorf("ocfiles: %s: %w", op, err)
+}
+
+func (c *Client) personalSpace(ctx context.Context) (string, error) {
+	ctx, err := c.authorized(ctx)
+	if err != nil {
+		return "", err
+	}
+	drive, res, err := c.graph.MeDriveApi.GetHome(ctx).Execute()
+	if err != nil {
+		return "", graphError("personal space", res, err)
+	}
+	if drive.GetId() == "" {
+		return "", errors.New("ocfiles: no personal space")
+	}
+	return drive.GetId(), nil
 }
 
 func (c *Client) do(ctx context.Context, method, target string, body io.Reader, header http.Header) (*http.Response, error) {
 	token, err := c.token(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("davfiles: %w", err)
+		return nil, fmt.Errorf("ocfiles: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
-		return nil, fmt.Errorf("davfiles: %w", err)
+		return nil, fmt.Errorf("ocfiles: %w", err)
 	}
 	for k, v := range header {
 		req.Header[k] = v
@@ -200,63 +211,9 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader, 
 	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("davfiles: %s %s: %w", method, req.URL.Path, err)
+		return nil, fmt.Errorf("ocfiles: %s %s: %w", method, req.URL.Path, err)
 	}
 	return res, nil
-}
-
-// propfind asks for the properties in body of the resource at target and
-// returns the first set the server found.
-func (c *Client) propfind(ctx context.Context, target, body string) (props, error) {
-	var prop props
-	res, err := c.do(ctx, "PROPFIND", target, strings.NewReader(body), http.Header{
-		"Depth":        {"0"},
-		"Content-Type": {"application/xml"},
-	})
-	if err != nil {
-		return prop, err
-	}
-	defer func() { _ = res.Body.Close() }()
-	switch res.StatusCode {
-	case http.StatusMultiStatus:
-	case http.StatusNotFound:
-		return prop, ErrNotFound
-	default:
-		return prop, fmt.Errorf("davfiles: propfind answered %d", res.StatusCode)
-	}
-	var parsed multistatus
-	if err := xml.NewDecoder(res.Body).Decode(&parsed); err != nil {
-		return prop, fmt.Errorf("davfiles: propfind: %w", err)
-	}
-	for _, r := range parsed.Responses {
-		for _, ps := range r.Propstat {
-			if strings.Contains(ps.Status, " 200 ") {
-				return ps.Prop, nil
-			}
-		}
-	}
-	return prop, ErrNotFound
-}
-
-func (c *Client) personalSpace(ctx context.Context) (string, error) {
-	res, err := c.do(ctx, http.MethodGet, c.base+"/graph/v1.0/me/drive", nil, nil)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("davfiles: personal space answered %d", res.StatusCode)
-	}
-	var drive struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&drive); err != nil {
-		return "", fmt.Errorf("davfiles: personal space: %w", err)
-	}
-	if drive.ID == "" {
-		return "", errors.New("davfiles: no personal space")
-	}
-	return drive.ID, nil
 }
 
 func (c *Client) mkcol(ctx context.Context, target string) error {
@@ -266,7 +223,7 @@ func (c *Client) mkcol(ctx context.Context, target string) error {
 	}
 	_ = res.Body.Close()
 	if res.StatusCode != http.StatusCreated && res.StatusCode != http.StatusMethodNotAllowed {
-		return fmt.Errorf("davfiles: creating a folder answered %d", res.StatusCode)
+		return fmt.Errorf("ocfiles: creating a folder answered %d", res.StatusCode)
 	}
 	return nil
 }
@@ -296,8 +253,8 @@ func (c *Client) putFree(ctx context.Context, dir, name string, content []byte) 
 		case http.StatusPreconditionFailed:
 			continue
 		default:
-			return "", fmt.Errorf("davfiles: upload answered %d", res.StatusCode)
+			return "", fmt.Errorf("ocfiles: upload answered %d", res.StatusCode)
 		}
 	}
-	return "", errors.New("davfiles: no free filename")
+	return "", errors.New("ocfiles: no free filename")
 }

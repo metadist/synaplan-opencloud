@@ -18,8 +18,8 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/version"
 	"github.com/opencloud-eu/reva/v2/pkg/rhttp"
 
-	"github.com/metadist/synaplan-opencloud/internal/davfiles"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
+	"github.com/metadist/synaplan-opencloud/internal/ocfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
@@ -46,7 +46,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			}
 			ctx := cfg.Context
 
-			files := davfiles.New(
+			files := ocfiles.New(
 				cfg.OpenCloudURL,
 				rhttp.GetHTTPClient(rhttp.Insecure(cfg.Insecure)),
 				func(ctx context.Context) (string, error) {

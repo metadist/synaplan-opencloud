@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/metadist/synaplan-opencloud/internal/davfiles"
+	"github.com/metadist/synaplan-opencloud/internal/ocfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -40,7 +40,7 @@ type Handler struct {
 	synaplanAPI *synaplanapi.ClientWithResponses
 	editor      synaplanapi.RequestEditorFn
 	httpClient  *http.Client
-	files       *davfiles.Client
+	files       *ocfiles.Client
 	assetProxy  *httputil.ReverseProxy
 }
 
@@ -48,7 +48,7 @@ type Handler struct {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, files *davfiles.Client) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, files *ocfiles.Client) (*Handler, error) {
 	apiClient, err := synaplanapi.NewClientWithResponses(
 		synaplanURL,
 		synaplanapi.WithHTTPClient(&http.Client{}),

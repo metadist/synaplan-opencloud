@@ -2,7 +2,7 @@
 // between the OpenCloud client and the Synaplan backend.
 //
 // The end-user's OIDC access token arrives in the Authorization header.
-// It was issued for OpenCloud: it goes to OpenCloud's own APIs (davfiles
+// It was issued for OpenCloud: it goes to OpenCloud's own APIs (ocfiles
 // reads and writes files with it) and into RFC 8693 token exchange as the
 // subject token when the backend calls the Synaplan API on the user's
 // behalf. OpenCloud's proxy also identifies the user to this service

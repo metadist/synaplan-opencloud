@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metadist/synaplan-opencloud/internal/davfiles"
+	"github.com/metadist/synaplan-opencloud/internal/ocfiles"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
@@ -62,8 +62,8 @@ var supportedSummaryTypes = map[synaplanapi.PostApiSummaryGenerateJSONBodySummar
 }
 
 // summaryPipelineFn is the per-handler body of work that runs with a
-// file opened over WebDAV and returns the summary text (or translation).
-type summaryPipelineFn func(ctx context.Context, file *davfiles.File) (string, error)
+// file opened from OpenCloud and returns the summary text (or translation).
+type summaryPipelineFn func(ctx context.Context, file *ocfiles.File) (string, error)
 
 // runSummaryPipeline handles the boilerplate around every summary-
 // backed handler: creates the bounded ctx, opens the file, runs
@@ -150,7 +150,7 @@ type uploadedFile struct {
 // Exactly one of (text, fileID) will be non-nil on success.
 func (h *Handler) prepareSummaryInput(
 	ctx context.Context,
-	file *davfiles.File,
+	file *ocfiles.File,
 ) (text *string, fileID *int, cleanup func(), err error) {
 	cleanup = func() {}
 
@@ -204,7 +204,7 @@ type uploadProvenance struct {
 	Overwrite    bool
 }
 
-func writeProvenance(mw *multipart.Writer, file *davfiles.File, prov *uploadProvenance) error {
+func writeProvenance(mw *multipart.Writer, file *ocfiles.File, prov *uploadProvenance) error {
 	if err := mw.WriteField("source", "opencloud"); err != nil {
 		return fmt.Errorf("write source: %w", err)
 	}
@@ -241,7 +241,7 @@ func writeProvenance(mw *multipart.Writer, file *davfiles.File, prov *uploadProv
 
 func (h *Handler) upload(
 	ctx context.Context,
-	file *davfiles.File,
+	file *ocfiles.File,
 	groupKey string,
 	processLevel synaplanapi.PostApiFilesUploadMultipartBodyProcessLevel,
 	prov *uploadProvenance,

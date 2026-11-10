@@ -15,6 +15,7 @@ replace github.com/pablodz/inotifywaitgo v0.0.9 => github.com/opencloud-eu/inoti
 require (
 	github.com/go-chi/chi/v5 v5.4.0
 	github.com/oapi-codegen/runtime v1.7.0
+	github.com/opencloud-eu/libre-graph-api-go v1.0.8
 	github.com/opencloud-eu/opencloud v1.1.1-0.20260309132930-a8430384a1b7
 	github.com/opencloud-eu/reva/v2 v2.49.0
 	github.com/spf13/cobra v1.10.2
@@ -154,7 +155,6 @@ require (
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/oklog/run v1.2.0 // indirect
-	github.com/opencloud-eu/libre-graph-api-go v1.0.8-0.20260204102724-10bcda1b3068 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pablodz/inotifywaitgo v0.0.12 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect

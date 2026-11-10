@@ -1,4 +1,4 @@
-package davfiles
+package ocfiles
 
 import (
 	"context"
@@ -10,26 +10,12 @@ import (
 	"testing"
 )
 
-const fileProps = `<?xml version="1.0"?>
-<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
-<d:response><d:href>/dav/spaces/s%21a</d:href><d:propstat><d:prop>
-<oc:name>a.txt</oc:name><d:getetag>"e1"</d:getetag><d:getcontenttype>text/plain</d:getcontenttype><d:getcontentlength>5</d:getcontentlength><d:resourcetype/>
-</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
-</d:multistatus>`
+const fileItem = `{"id":"s!a","name":"a.txt","eTag":"\"e1\"","size":5,"file":{"mimeType":"text/plain"},"parentReference":{"driveId":"s","path":"/Projects"}}`
 
-const folderProps = `<?xml version="1.0"?>
-<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
-<d:response><d:href>/dav/spaces/s%21f</d:href><d:propstat><d:prop>
-<oc:name>Projects</oc:name><d:getetag>"e0"</d:getetag><d:resourcetype><d:collection/></d:resourcetype>
-</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
-</d:multistatus>`
+const folderItem = `{"id":"s!f","name":"Projects","eTag":"\"e0\"","folder":{},"parentReference":{"driveId":"s","path":"/"}}`
 
-const metaPath = `<?xml version="1.0"?>
-<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:response><d:propstat><d:prop>
-<oc:meta-path-for-user>/Projects/a.txt</oc:meta-path-for-user></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`
-
-// fakeCloud answers like OpenCloud for the file s!a, the folder s!f and
-// the personal space home. Paths in taken already exist; created collects
+// fakeCloud answers like OpenCloud (Graph and WebDAV) for the file s!a,
+// the folder s!f and the personal space home. Paths in taken already exist; created collects
 // the folders and files written.
 func fakeCloud(t *testing.T, taken map[string]bool, created *[]string) *httptest.Server {
 	t.Helper()
@@ -39,21 +25,19 @@ func fakeCloud(t *testing.T, taken map[string]bool, created *[]string) *httptest
 			return
 		}
 		switch {
-		case r.Method == "PROPFIND" && r.URL.Path == "/dav/meta/s!a":
-			w.WriteHeader(http.StatusMultiStatus)
-			_, _ = io.WriteString(w, metaPath)
-		case r.Method == "PROPFIND" && r.URL.Path == "/dav/spaces/s!a":
-			w.WriteHeader(http.StatusMultiStatus)
-			_, _ = io.WriteString(w, fileProps)
-		case r.Method == "PROPFIND" && r.URL.Path == "/dav/spaces/s!f":
-			w.WriteHeader(http.StatusMultiStatus)
-			_, _ = io.WriteString(w, folderProps)
-		case r.Method == "PROPFIND":
+		case r.Method == http.MethodGet && r.URL.Path == "/graph/v1.0/drives/s/items/s!a":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fileItem)
+		case r.Method == http.MethodGet && r.URL.Path == "/graph/v1.0/drives/s/items/s!f":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, folderItem)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/graph/v1.0/drives/"):
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/dav/spaces/s!a":
 			_, _ = io.WriteString(w, "hello")
 		case r.Method == http.MethodGet && r.URL.Path == "/graph/v1.0/me/drive":
-			_, _ = io.WriteString(w, `{"id":"home","driveType":"personal"}`)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"home","name":"Personal","driveType":"personal"}`)
 		case r.Method == "MKCOL":
 			if taken[r.URL.Path] {
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -107,6 +91,7 @@ func TestStatRefuses(t *testing.T) {
 		want func(error) bool
 	}{
 		{"a missing resource as not found", "s!gone", func(err error) bool { return errors.Is(err, ErrNotFound) }},
+		{"a space root", "s", func(err error) bool { return err != nil && strings.Contains(err.Error(), "not a file") }},
 		{"a folder", "s!f", func(err error) bool { return err != nil && strings.Contains(err.Error(), "not a file") }},
 	}
 	for _, tc := range cases {
