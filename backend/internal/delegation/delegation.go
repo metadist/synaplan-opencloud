@@ -41,14 +41,15 @@ type Config struct {
 type Delegation struct {
 	cfg Config
 
-	// ops serialises connecting, refreshing and disconnecting, so a rotated
-	// offline token is never written back over a disconnect and two
-	// refreshes never race on the same rotating token.
-	ops sync.Mutex
-
 	mu      sync.Mutex
 	offline map[string]string
 	cache   map[string]cached
+	// ops serialises connecting, refreshing and disconnecting per person,
+	// so a rotated offline token is never written back over a disconnect
+	// and two refreshes never race on the same rotating token, while a
+	// slow identity provider answer for one person does not hold up the
+	// others.
+	ops map[string]*sync.Mutex
 }
 
 type cached struct {
@@ -68,7 +69,20 @@ func New(cfg Config) *Delegation {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 15 * time.Second}
 	}
-	return &Delegation{cfg: cfg, offline: map[string]string{}, cache: map[string]cached{}}
+	return &Delegation{cfg: cfg, offline: map[string]string{}, cache: map[string]cached{}, ops: map[string]*sync.Mutex{}}
+}
+
+// lock takes subject's operation lock and returns its unlock.
+func (d *Delegation) lock(subject string) func() {
+	d.mu.Lock()
+	op, ok := d.ops[subject]
+	if !ok {
+		op = &sync.Mutex{}
+		d.ops[subject] = op
+	}
+	d.mu.Unlock()
+	op.Lock()
+	return op.Unlock
 }
 
 // Configured reports whether this service's client and the identity
@@ -96,8 +110,7 @@ func (d *Delegation) Connect(ctx context.Context, code, verifier, redirectURI, s
 	if subject == "" {
 		return errors.New("delegation: no subject")
 	}
-	d.ops.Lock()
-	defer d.ops.Unlock()
+	defer d.lock(subject)()
 	resp, err := d.tokenRequest(ctx, url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -139,8 +152,7 @@ func (d *Delegation) Disconnect(ctx context.Context, subject string) error {
 	if d == nil || subject == "" {
 		return nil
 	}
-	d.ops.Lock()
-	defer d.ops.Unlock()
+	defer d.lock(subject)()
 	previous, had := d.swap(subject, "")
 	if !had {
 		return nil
@@ -159,8 +171,7 @@ func (d *Delegation) Token(ctx context.Context, subject, audience string) (strin
 	if token, ok := d.cachedToken(key); ok {
 		return token, nil
 	}
-	d.ops.Lock()
-	defer d.ops.Unlock()
+	defer d.lock(subject)()
 	if token, ok := d.cachedToken(key); ok {
 		return token, nil
 	}
@@ -230,6 +241,10 @@ func (d *Delegation) swap(subject, offline string) (string, bool) {
 	return previous, had
 }
 
+// rejectedError is the identity provider refusing the grant itself
+// (invalid_grant: expired, revoked or unknown). Any other refusal, such as
+// invalid_client after a changed secret, is this service's configuration
+// and must not make people allow again.
 type rejectedError struct{ status int }
 
 func (e *rejectedError) Error() string {
@@ -247,7 +262,7 @@ func (d *Delegation) tokenRequest(ctx context.Context, form url.Values) (*tokenR
 	}
 	var parsed tokenResponse
 	_ = json.Unmarshal(body, &parsed)
-	if status == http.StatusBadRequest || status == http.StatusUnauthorized {
+	if status == http.StatusBadRequest && parsed.Error == "invalid_grant" {
 		return nil, &rejectedError{status: status}
 	}
 	if status != http.StatusOK || parsed.AccessToken == "" {

@@ -43,13 +43,13 @@ func Validate(cfg *config.Config) error {
 		return errors.New("synaplan-opencloud: SYNAPLAN_URL is not set")
 	}
 	hasAPIKey := cfg.SynaplanAPIKey != ""
-	hasTokenExchange := cfg.OIDCTokenEndpoint != "" &&
+	hasTokenExchange := (cfg.OIDCIssuer != "" || cfg.OIDCTokenEndpoint != "") &&
 		cfg.OIDCExchangeClientID != "" &&
 		cfg.OIDCExchangeSecret != "" &&
 		cfg.OIDCTargetAudience != ""
 
 	if !hasAPIKey && !hasTokenExchange {
-		return errors.New("synaplan-opencloud: no auth mode configured — set either SYNAPLAN_API_KEY or the SYNAPLAN_OIDC_* token-exchange variables")
+		return errors.New("synaplan-opencloud: no auth mode configured — set either SYNAPLAN_API_KEY or OC_OIDC_ISSUER (or SYNAPLAN_OIDC_TOKEN_ENDPOINT) and the SYNAPLAN_OIDC_* token-exchange variables")
 	}
 	if hasAPIKey && !strings.HasPrefix(cfg.SynaplanAPIKey, "sk_") {
 		return errors.New("synaplan-opencloud: SYNAPLAN_API_KEY must start with 'sk_' (Synaplan API key format)")

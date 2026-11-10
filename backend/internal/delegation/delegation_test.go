@@ -196,6 +196,23 @@ func TestNoToken(t *testing.T) {
 	}
 }
 
+func TestAClientRefusalKeepsTheOfflineToken(t *testing.T) {
+	idp := newIdP(t, "ada", false)
+	d := newDelegation(idp)
+	if err := connect(t, d, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	d.cfg.ClientSecret = "rotated"
+
+	_, err := d.Token(context.Background(), "ada", "synaplan-app")
+	if err == nil || errors.Is(err, ErrNotConnected) {
+		t.Fatalf("err = %v, want a configuration error", err)
+	}
+	if !d.Connected("ada") {
+		t.Fatal("a refused client forgot the person's offline token")
+	}
+}
+
 func TestDisconnectRevokesTheOfflineToken(t *testing.T) {
 	idp := newIdP(t, "ada", false)
 	d := newDelegation(idp)
