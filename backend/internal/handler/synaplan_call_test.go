@@ -83,6 +83,8 @@ func TestOpenDocumentsCarryNoCredential(t *testing.T) {
 	got := "unset"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("Authorization") + r.Header.Get("X-API-Key")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"https://synaplan.example"}`))
 	}))
 	defer upstream.Close()
 	h, err := New(func(_ context.Context, req *http.Request) error {
@@ -93,10 +95,19 @@ func TestOpenDocumentsCarryNoCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := h.synaplanAPI.JwksWithResponse(anonymous(context.Background())); err != nil {
+	// An open document goes through the generated client with no credential,
+	// and the configuration document is read directly, the same way.
+	if _, err := h.synaplanAPI.GetApiAuthMeWithResponse(anonymous(context.Background())); got == "unset" {
 		t.Fatal(err)
 	}
 	if got != "" {
 		t.Fatalf("credential %q sent with an open document", got)
+	}
+	got = "unset"
+	if _, err := h.synaplanIssuer(context.Background()); err != nil || got == "unset" {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("credential %q sent while reading the configuration", got)
 	}
 }

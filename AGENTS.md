@@ -136,9 +136,10 @@ server's copy of the same app id.
   (`onBehalfOf(ctx, sub)`, `internal/delegation`). The shared API key
   of Mode B replaces both; Synaplan's open documents carry none
   (`anonymous(ctx)`). There is no service or machine credential. The
-  generated client is the only HTTP path to Synaplan's API (only its key
-  set is read by keyfunc, without a credential): its editors pick the
-  credential (`Handler.authenticate`) and end with `refuseOpenCloudToken`,
+  generated client is the only HTTP path to Synaplan's API. Its open
+  configuration document and its key set (keyfunc) are read directly,
+  without a credential. Its editors pick the credential
+  (`Handler.authenticate`) and end with `refuseOpenCloudToken`,
   which refuses a request whose bearer equals the incoming OpenCloud token.
   Do not call Synaplan by hand.
 - Notifications from Synaplan are verified in `internal/notify` before
