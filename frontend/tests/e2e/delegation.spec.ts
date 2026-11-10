@@ -103,19 +103,21 @@ test('a refused permission shows one readable sentence', async ({ request }) => 
 // Synaplan's side: the person ends the link in Synaplan, Synaplan sends
 // identity_revoked to this OpenCloud, and the service forgets the person's
 // offline token. Crosses Synaplan's signed notification, its published
-// issuer and keys, and the inbound route.
-test('ending the link in Synaplan ends work while away here', async ({ request }) => {
+// issuer and keys, and the inbound route. Runs as demo: Synaplan then
+// refuses that person through this OpenCloud, which the other journeys
+// must not inherit.
+test('ending the link in Synaplan ends work while away here', async ({ browser, request }) => {
   test.setTimeout(60_000)
-  const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)
-  // Synaplan links the person on their first call through this OpenCloud.
+  const demoPage = (await loginAsUser(browser, 'demo', 'demo')).page
+  const token = await getAccessToken(request, 'demo', 'demo')
   const me = await request.get(`${OC_API_URL}/api/synaplan/me`, {
     headers: { Authorization: `Bearer ${token}` }
   })
   expect(me.ok(), await me.text()).toBe(true)
-  await allow(userPage)
+  await allow(demoPage)
   expect(await connected(request, token)).toBe(true)
 
-  const synaplanToken = await getAccessToken(request, TEST_USER, TEST_PASSWORD, {
+  const synaplanToken = await getAccessToken(request, 'demo', 'demo', {
     clientId: 'synaplan-app',
     clientSecret: 'test-oidc-secret'
   })
@@ -132,4 +134,5 @@ test('ending the link in Synaplan ends work while away here', async ({ request }
   expect(ended.ok(), await ended.text()).toBe(true)
 
   await expect.poll(() => connected(request, token), { timeout: 30_000 }).toBe(false)
+  await logout(demoPage).catch(() => {})
 })

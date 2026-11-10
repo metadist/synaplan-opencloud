@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
-import { buildUrl, useClientService, useRouter } from '@opencloud-eu/web-pkg'
+import { useClientService } from '@opencloud-eu/web-pkg'
+import callbackUrl from '../callback.html?url'
 import { z } from 'zod'
 
 /**
@@ -10,12 +11,15 @@ import { z } from 'zod'
  * service may only use while a request is running. For later work the
  * service needs an offline token of its own confidential client. The
  * browser obtains an authorization code for that client from the same
- * identity provider: first silently in a hidden iframe (the person is
- * signed in there already), and only when the provider needs the person
- * (consent, a new login) by a full-page redirect. The callback page the
- * provider returns to ships with this extension (public/callback.html).
- * The service redeems the code with its secret; the browser never sees a
- * token.
+ * identity provider: silently in a hidden iframe (the person is signed in
+ * there already), or, when the provider needs the person (consent, a new
+ * login), in a popup the person opens with a second click (browsers allow
+ * popups only from a click). Either way the provider returns to a static
+ * page that ships with this extension (callback.html, wherever the
+ * extension is served from) and that page posts the answer back. It is
+ * accepted only from that window, from the callback's origin and with the
+ * state sent. The service redeems the code with its secret; the browser
+ * never sees a token.
  */
 
 const statusSchema = z.object({
@@ -27,26 +31,17 @@ const statusSchema = z.object({
 export type DelegationStatus = z.infer<typeof statusSchema>
 
 const answerSchema = z.object({
+  type: z.literal('synaplan-connect'),
   code: z.string().nullable(),
   state: z.string().nullable(),
   error: z.string().nullable()
 })
 type Answer = z.infer<typeof answerSchema>
-const pendingSchema = z.object({ state: z.string(), verifier: z.string() })
 
-function parseStored<T>(schema: z.ZodType<T>, raw: string): T | null {
-  try {
-    const result = schema.safeParse(JSON.parse(raw))
-    return result.success ? result.data : null
-  } catch {
-    return null
-  }
-}
-
-const ANSWER_KEY = 'synaplan-connect-answer'
-const RETURN_KEY = 'synaplan-connect-return'
-const PENDING_KEY = 'synaplan-connect-pending'
 const SILENT_TIMEOUT_MS = 10_000
+const POPUP_POLL_MS = 500
+
+const callback = new URL(callbackUrl, import.meta.url)
 
 function base64url(bytes: ArrayBuffer | Uint8Array): string {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
@@ -63,20 +58,46 @@ async function challengeFor(verifier: string): Promise<string> {
   return base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
 }
 
+/**
+ * The answer callback.html posts from source, or null when it does not
+ * come: the timeout passed, or stillOpen says the window is gone.
+ */
+function answerFrom(
+  source: () => Window | null,
+  stillOpen: () => boolean,
+  timeoutMs: number | null
+): Promise<Answer | null> {
+  return new Promise((resolve) => {
+    const finish = (answer: Answer | null) => {
+      window.removeEventListener('message', onMessage)
+      clearInterval(poll)
+      clearTimeout(timer)
+      resolve(answer)
+    }
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== source() || event.origin !== callback.origin) return
+      const parsed = answerSchema.safeParse(event.data)
+      if (parsed.success) finish(parsed.data)
+    }
+    const poll = setInterval(() => stillOpen() || finish(null), POPUP_POLL_MS)
+    const timer = timeoutMs === null ? undefined : setTimeout(() => finish(null), timeoutMs)
+    window.addEventListener('message', onMessage)
+  })
+}
+
 export function useDelegation(): {
   status: Ref<DelegationStatus | null>
   busy: Ref<boolean>
+  needsSignIn: Ref<boolean>
   load: () => Promise<void>
   connect: () => Promise<void>
+  signIn: () => Promise<void>
   disconnect: () => Promise<void>
-  resumeRedirect: () => Promise<boolean>
 } {
   const { httpAuthenticated } = useClientService()
-  const router = useRouter()
   const status = ref<DelegationStatus | null>(null)
   const busy = ref(false)
-
-  const redirectUri = () => buildUrl(router, 'assets/apps/synaplan/callback.html')
+  const needsSignIn = ref(false)
 
   async function load() {
     const res = await httpAuthenticated.get('/api/synaplan/delegation', { schema: statusSchema })
@@ -95,7 +116,7 @@ export function useDelegation(): {
       client_id: current.clientId,
       response_type: 'code',
       scope: 'openid offline_access',
-      redirect_uri: redirectUri(),
+      redirect_uri: callback.href,
       state,
       code_challenge: await challengeFor(verifier),
       code_challenge_method: 'S256',
@@ -104,75 +125,58 @@ export function useDelegation(): {
     return { url: url.toString(), verifier, state }
   }
 
-  function silently(url: string): Promise<Answer | null> {
-    return new Promise((resolve) => {
-      const frame = document.createElement('iframe')
-      frame.style.display = 'none'
-      frame.setAttribute('data-testid', 'synaplan-connect-frame')
-      const finish = (answer: Answer | null) => {
-        window.removeEventListener('message', onMessage)
-        clearTimeout(timer)
-        frame.remove()
-        resolve(answer)
-      }
-      const onMessage = (event: MessageEvent) => {
-        if (event.origin === window.location.origin && event.data?.type === 'synaplan-connect') {
-          finish(answerSchema.safeParse(event.data).data ?? null)
-        }
-      }
-      const timer = setTimeout(() => finish(null), SILENT_TIMEOUT_MS)
-      window.addEventListener('message', onMessage)
-      frame.src = url
-      document.body.appendChild(frame)
-    })
-  }
-
-  async function redeem(code: string, verifier: string) {
+  async function redeem(answer: Answer | null, sent: { state: string; verifier: string }) {
+    if (!answer?.code || answer.state !== sent.state) return false
     await httpAuthenticated.post(
       '/api/synaplan/delegation',
-      { code, verifier, redirectUri: redirectUri() },
+      { code: answer.code, verifier: sent.verifier, redirectUri: callback.href },
       { schema: z.object({ connected: z.boolean() }) }
     )
     await load()
+    return true
   }
 
   async function connect() {
     busy.value = true
     try {
       if (!status.value) await load()
-      const silent = await authorizeUrl('none')
-      const answer = await silently(silent.url)
-      if (answer?.code && answer.state === silent.state) {
-        await redeem(answer.code, silent.verifier)
-        return
-      }
-      const interactive = await authorizeUrl(undefined)
-      sessionStorage.setItem(
-        PENDING_KEY,
-        JSON.stringify({ state: interactive.state, verifier: interactive.verifier })
+      const request = await authorizeUrl('none')
+      const frame = document.createElement('iframe')
+      frame.style.display = 'none'
+      frame.setAttribute('data-testid', 'synaplan-connect-frame')
+      const answer = answerFrom(
+        () => frame.contentWindow,
+        () => true,
+        SILENT_TIMEOUT_MS
       )
-      sessionStorage.setItem(RETURN_KEY, window.location.href)
-      window.location.assign(interactive.url)
+      frame.src = request.url
+      document.body.appendChild(frame)
+      const done = await redeem(await answer, request).finally(() => frame.remove())
+      needsSignIn.value = !done
     } finally {
       busy.value = false
     }
   }
 
-  async function resumeRedirect(): Promise<boolean> {
-    const raw = sessionStorage.getItem(ANSWER_KEY)
-    const pending = sessionStorage.getItem(PENDING_KEY)
-    sessionStorage.removeItem(ANSWER_KEY)
-    sessionStorage.removeItem(PENDING_KEY)
-    sessionStorage.removeItem(RETURN_KEY)
-    if (!raw || !pending) return false
-    const answer = parseStored(answerSchema, raw)
-    const expected = parseStored(pendingSchema, pending)
-    if (!answer?.code || !expected || answer.state !== expected.state) return false
+  async function signIn() {
+    const popup = window.open('about:blank', 'synaplan-connect', 'popup,width=520,height=680')
+    if (!popup) {
+      throw new Error('the sign-in window was blocked')
+    }
     busy.value = true
     try {
-      await redeem(answer.code, expected.verifier)
-      return true
+      const request = await authorizeUrl(undefined)
+      const answer = answerFrom(
+        () => popup,
+        () => !popup.closed,
+        null
+      )
+      popup.location.href = request.url
+      if (await redeem(await answer, request)) {
+        needsSignIn.value = false
+      }
     } finally {
+      popup.close()
       busy.value = false
     }
   }
@@ -189,5 +193,5 @@ export function useDelegation(): {
     }
   }
 
-  return { status, busy, load, connect, disconnect, resumeRedirect }
+  return { status, busy, needsSignIn, load, connect, signIn, disconnect }
 }

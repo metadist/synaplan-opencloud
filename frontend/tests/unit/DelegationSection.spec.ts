@@ -5,10 +5,11 @@ import { defineComponent, h, ref } from 'vue'
 const access = {
   status: ref<{ available: boolean; connected: boolean } | null>(null),
   busy: ref(false),
+  needsSignIn: ref(false),
   load: vi.fn(),
   connect: vi.fn(),
-  disconnect: vi.fn(),
-  resumeRedirect: vi.fn()
+  signIn: vi.fn(),
+  disconnect: vi.fn()
 }
 
 vi.mock('../../src/composables/useDelegation', () => ({
@@ -38,7 +39,18 @@ describe('DelegationSection', () => {
     access.load.mockReset().mockResolvedValue(undefined)
     access.connect.mockReset().mockResolvedValue(undefined)
     access.disconnect.mockReset().mockResolvedValue(undefined)
-    access.resumeRedirect.mockReset().mockResolvedValue(false)
+    access.signIn.mockReset().mockResolvedValue(undefined)
+    access.needsSignIn.value = false
+  })
+
+  it('offers to sign in in a window when the sign-in service needs the person', async () => {
+    access.status.value = { available: true, connected: false }
+    access.needsSignIn.value = true
+    const wrapper = mountCard()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-delegation-connect"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="synaplan-delegation-sign-in"]').trigger('click')
+    expect(access.signIn).toHaveBeenCalled()
   })
 
   it('shows nothing when working while away is not available (shared key)', async () => {

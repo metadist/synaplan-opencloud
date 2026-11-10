@@ -13,11 +13,9 @@
         state: params.get('state'),
         error: params.get('error')
       }
-      if (window.parent !== window) {
-        window.parent.postMessage(answer, location.origin)
-      } else {
-        sessionStorage.setItem('synaplan-connect-answer', JSON.stringify(answer))
-        location.replace(sessionStorage.getItem('synaplan-connect-return') || '/')
+      const target = window.opener || (window.parent !== window ? window.parent : null)
+      if (target) {
+        target.postMessage(answer, '*')
       }
     </script>
   </body>

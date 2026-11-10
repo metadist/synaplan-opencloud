@@ -8,8 +8,22 @@
           : $gettext('Synaplan works for you only while you use OpenCloud.')
       }}
     </p>
+    <p v-if="!status.connected && needsSignIn" class="ext:text-sm">
+      {{ $gettext('The sign-in service needs you once. It opens in a new window.') }}
+    </p>
     <oc-button
-      v-if="!status.connected"
+      v-if="!status.connected && needsSignIn"
+      appearance="filled"
+      color-role="primary"
+      :disabled="busy"
+      :show-spinner="busy"
+      data-testid="synaplan-delegation-sign-in"
+      @click="run(signIn)"
+    >
+      {{ $gettext('Sign in to allow') }}
+    </oc-button>
+    <oc-button
+      v-else-if="!status.connected"
       appearance="filled"
       color-role="primary"
       :disabled="busy"
@@ -41,7 +55,7 @@ import { useGettext } from 'vue3-gettext'
 import { useDelegation } from '../composables/useDelegation'
 
 const { $gettext } = useGettext()
-const { status, busy, load, connect, disconnect, resumeRedirect } = useDelegation()
+const { status, busy, needsSignIn, load, connect, signIn, disconnect } = useDelegation()
 const error = ref('')
 
 async function run(action: () => Promise<unknown>) {
@@ -53,5 +67,5 @@ async function run(action: () => Promise<unknown>) {
   }
 }
 
-onMounted(() => run(async () => (await resumeRedirect()) || load()))
+onMounted(() => run(load))
 </script>
