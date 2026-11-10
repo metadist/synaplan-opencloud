@@ -125,6 +125,39 @@ test('add a PDF file to a knowledge group end-to-end', async ({ request }) => {
   await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
 })
 
+test('a searchable file carries the Synaplan bird in its folder', async ({ request }) => {
+  test.setTimeout(60_000)
+
+  const baseName = `bird-${Date.now()}.txt`
+  const remotePath = `${TESTS_DIR}/${baseName}`
+  await uploadTextFile(
+    request,
+    webDavUrl,
+    accessToken,
+    remotePath,
+    'The bird marks a file Synaplan can search.'
+  )
+  filesToCleanup.push(remotePath)
+
+  // The indicators sit beside the name in the same row: a table row, or a
+  // list item in the tiles view.
+  const bird = () =>
+    userPage
+      .locator('tr, li')
+      .filter({ has: userPage.locator(`[data-test-resource-name="${baseName}"]`) })
+      .locator('[data-test-indicator-type="synaplan-searchable"]')
+
+  await navigateToTestsFolder(userPage)
+  await findFileRow(userPage, baseName)
+  await expect(bird()).toHaveCount(0)
+
+  await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
+
+  await userPage.reload({ waitUntil: 'domcontentloaded' })
+  await findFileRow(userPage, baseName)
+  await expect(bird()).toBeVisible({ timeout: 30_000 })
+})
+
 async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) {
   const row = await findFileRow(page, fileName)
   await openSynaplanMenu(row)

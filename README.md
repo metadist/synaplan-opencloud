@@ -8,6 +8,8 @@ OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/s
 
 From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). A summary or translation can be saved into your personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
 
+A file Synaplan can search carries the Synaplan bird in the file list, with its state (searchable, being made searchable, changed since, failed) as the label. The bird needs Synaplan's cloud file state (`CLOUD_FILES_ENABLED` on Synaplan); without it the file list shows no bird.
+
 ![Screenshot](docs/screenshot.png)
 
 **Requires OpenCloud 8.1.0 or later.**

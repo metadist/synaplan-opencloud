@@ -9,6 +9,9 @@
 # the one cloud behind that identity provider from these variables (the
 # `oidc-cloud` row); without them nobody is ever linked through this
 # OpenCloud and Synaplan has no address for its notifications.
+#
+# CLOUD_FILES_ENABLED turns on Synaplan's state of cloud files, which the
+# bird on a searchable file shows.
 
 services:
   app_test:
@@ -17,3 +20,4 @@ services:
       PLATFORM_LINKS_OIDC_CLOUD_URL: https://host.docker.internal:9200
       PLATFORM_LINKS_OIDC_CLOUD_CLIENT_ID: synaplan-opencloud
       PLATFORM_LINKS_OIDC_CLOUD_INTERNAL_URL: http://host.docker.internal:9106
+      CLOUD_FILES_ENABLED: 'true'

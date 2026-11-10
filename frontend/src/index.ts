@@ -11,6 +11,7 @@ import { useGettext } from 'vue3-gettext'
 import { computed } from 'vue'
 import Synaplan from './views/Synaplan.vue'
 import { useSynaplanActionsExtension } from './extensions/useSynaplanActionsExtension'
+import { useBirdIndicator } from './extensions/useBirdIndicator'
 import { useSynaplanBrandIcon } from './composables/useSynaplanBrandIcon'
 
 const appId = 'synaplan'
@@ -44,6 +45,7 @@ export default defineWebApplication({
     } satisfies ApplicationInformation
 
     const actionsExtension = useSynaplanActionsExtension()
+    const birdExtension = useBirdIndicator()
 
     const menuItem: AppMenuItemExtension = {
       id: `app.${appInfo.id}.menuItem`,
@@ -55,7 +57,7 @@ export default defineWebApplication({
       ...(synaplanUrl ? { url: synaplanUrl } : { path: urlJoin(appInfo.id) })
     }
 
-    const extensions = computed<Extension[]>(() => [menuItem, actionsExtension])
+    const extensions = computed<Extension[]>(() => [menuItem, actionsExtension, birdExtension])
 
     return {
       appInfo,
