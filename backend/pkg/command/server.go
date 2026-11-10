@@ -2,9 +2,11 @@ package command
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	stdhttp "net/http"
 	"os/signal"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -18,7 +20,9 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
+	"github.com/metadist/synaplan-opencloud/internal/idp"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
@@ -61,20 +65,36 @@ func Server(cfg *config.Config) *cobra.Command {
 			cs3 := cs3reader.New(gws, cfg.Insecure)
 
 			var editor synaplanapi.RequestEditorFn
+			var delegated *handler.Delegated
 			if cfg.SynaplanAPIKey != "" {
 				logger.Warn().Msg("synaplan-opencloud: using shared API key auth — all calls will appear to Synaplan as a single user")
 				editor = synaplanauth.NewAPIKeyRequestEditor(cfg.SynaplanAPIKey)
 			} else {
+				provider := idp.New(cfg.OIDCIssuer, idp.Endpoints{
+					Authorization: cfg.OIDCAuthorizationEndpoint,
+					Token:         cfg.OIDCTokenEndpoint,
+					Revocation:    cfg.OIDCRevocationEndpoint,
+				}, identityProviderClient(cfg.Insecure))
 				exchanger := tokenexchange.New(
-					cfg.OIDCTokenEndpoint,
+					provider.TokenEndpoint,
 					cfg.OIDCExchangeClientID,
 					cfg.OIDCExchangeSecret,
 					cfg.OIDCTargetAudience,
 				)
 				editor = synaplanauth.NewRequestEditor(exchanger)
+				delegated = &handler.Delegated{
+					Tokens: delegation.New(delegation.Config{
+						Provider:     provider,
+						ClientID:     cfg.OIDCExchangeClientID,
+						ClientSecret: cfg.OIDCExchangeSecret,
+						HTTPClient:   identityProviderClient(cfg.Insecure),
+					}),
+					Exchanger: exchanger,
+					Audience:  cfg.OIDCTargetAudience,
+				}
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3)
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated)
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
@@ -103,6 +123,8 @@ func Server(cfg *config.Config) *cobra.Command {
 			// Public — <img> can't send a Bearer header.
 			mux.Get("/api/synaplan/assets/brand-icon", h.BrandIcon)
 			mux.Get("/api/synaplan/assets/{name}", h.Asset)
+			// Public: Synaplan calls it, and a notification is a signed token.
+			mux.Post("/api/synaplan/inbound", h.Inbound)
 
 			mux.Group(func(r chi.Router) {
 				r.Use(synaplanauth.Middleware)
@@ -114,6 +136,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
+				r.Get("/api/synaplan/delegation", h.DelegationStatus)
+				r.Post("/api/synaplan/delegation", h.DelegationConnect)
+				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
 			})
 
 			server := &stdhttp.Server{
@@ -139,4 +164,15 @@ func Server(cfg *config.Config) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// identityProviderClient talks to the identity provider. insecure accepts
+// a self-signed certificate, as OC_INSECURE does for the rest of OpenCloud
+// (development only).
+func identityProviderClient(insecure bool) *stdhttp.Client {
+	transport := stdhttp.DefaultTransport.(*stdhttp.Transport).Clone()
+	if insecure {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // OC_INSECURE, development only
+	}
+	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
 }

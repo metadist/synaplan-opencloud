@@ -2,11 +2,12 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
 type knowledgeLookupError struct {
@@ -51,44 +52,41 @@ func (h *Handler) knowledgeStatusFor(ctx context.Context, resourceID string) (kn
 		return knowledgeStatusResponse{}, &knowledgeLookupError{code: http.StatusBadGateway, msg: "could not read file: " + err.Error()}
 	}
 
-	status, body, err := h.synaplanCall(ctx, http.MethodPost, "/api/v1/files/check-stale", map[string]any{
-		"source": "opencloud",
-		"items": []map[string]string{{
-			"source_id":   resourceID,
-			"source_etag": file.Etag,
-		}},
-	})
+	source, etag := "opencloud", file.Etag
+	body := synaplanapi.PostApiFilesCheckStaleJSONRequestBody{Source: &source}
+	body.Items = append(body.Items, struct {
+		SourceEtag *string `json:"source_etag,omitempty"`
+		SourceId   *string `json:"source_id,omitempty"`
+	}{SourceEtag: &etag, SourceId: &resourceID})
+	checked, err := h.synaplanAPI.PostApiFilesCheckStaleWithResponse(ctx, body)
 	if err != nil {
 		return knowledgeStatusResponse{}, &knowledgeLookupError{code: http.StatusBadGateway, msg: "could not check knowledge status: " + err.Error()}
 	}
 	// Older Synaplan builds have no check-stale route. Treat that as
 	// "not indexed yet" so Add still works.
-	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
+	if status := checked.StatusCode(); status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
 		return knowledgeStatusResponse{}, nil
 	}
-	if status != http.StatusOK {
+	if checked.JSON200 == nil {
 		return knowledgeStatusResponse{}, &knowledgeLookupError{
 			code: http.StatusBadGateway,
-			msg:  fmt.Sprintf("knowledge status %d: %s", status, truncate(string(body), 300)),
+			msg:  fmt.Sprintf("knowledge status %d: %s", checked.StatusCode(), truncate(string(checked.Body), 300)),
 		}
 	}
-
-	var parsed struct {
-		Results []struct {
-			Status string `json:"status"`
-			FileID *int   `json:"file_id"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.Results) == 0 {
+	if checked.JSON200.Results == nil || len(*checked.JSON200.Results) == 0 {
 		return knowledgeStatusResponse{}, nil
 	}
-	row := parsed.Results[0]
-	resp := knowledgeStatusResponse{
-		InKnowledge: row.Status != "" && row.Status != "missing",
-		Stale:       row.Status == "stale",
+	row := (*checked.JSON200.Results)[0]
+	state := ""
+	if row.Status != nil {
+		state = string(*row.Status)
 	}
-	if row.FileID != nil {
-		resp.SynaplanFileID = *row.FileID
+	resp := knowledgeStatusResponse{
+		InKnowledge: state != "" && state != "missing",
+		Stale:       state == "stale",
+	}
+	if row.FileId != nil {
+		resp.SynaplanFileID = *row.FileId
 	}
 	return resp, nil
 }
@@ -120,15 +118,15 @@ func (h *Handler) RemoveFromKnowledge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "this file is not in the knowledge base"})
 		return
 	}
-	code, body, err := h.synaplanCall(r.Context(), http.MethodDelete, fmt.Sprintf("/api/v1/files/%d", status.SynaplanFileID), nil)
+	removed, err := h.synaplanAPI.DeleteApiFilesDeleteWithResponse(r.Context(), status.SynaplanFileID)
 	if err != nil {
 		log.Printf("knowledge remove: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not remove from knowledge: " + err.Error()})
 		return
 	}
-	if code != http.StatusOK && code != http.StatusNoContent {
+	if code := removed.StatusCode(); code != http.StatusOK && code != http.StatusNoContent {
 		writeJSON(w, http.StatusBadGateway, errorResponse{
-			Error: fmt.Sprintf("remove status %d: %s", code, truncate(string(body), 300)),
+			Error: fmt.Sprintf("remove status %d: %s", code, truncate(string(removed.Body), 300)),
 		})
 		return
 	}

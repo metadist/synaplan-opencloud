@@ -16,19 +16,35 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/delegation"
+	"github.com/metadist/synaplan-opencloud/internal/notify"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
+	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
+
+// Delegated is what acting for a person while they are away needs: their
+// offline tokens, the exchange that proves who the signed-in person is,
+// and the Synaplan client their tokens are exchanged for. It is nil with
+// the shared API key.
+type Delegated struct {
+	Tokens    *delegation.Delegation
+	Exchanger synaplanauth.TokenExchanger
+	Audience  string
+}
 
 // Handler holds the state shared by all endpoints:
 //
-//   - synaplanAPI is the generated Synaplan client with an outbound
-//     auth editor registered (either OIDC token exchange or a shared
-//     API key, picked at startup in pkg/command/server.go), so every
+//   - synaplanAPI is the generated Synaplan client, the one way to
+//     Synaplan's API. Its editors pick the credential (see
+//     authenticate) and refuse the incoming OpenCloud token, so every
 //     call is authenticated without per-handler boilerplate.
 //   - cs3 reads file bytes from OpenCloud storage via the reva
 //     gateway for file-based operations like /translate.
 //   - assetProxy streams whitelisted brand assets from the paired
 //     Synaplan install for the public /api/synaplan/assets endpoint.
+//   - delegation holds the offline tokens of people who allowed this
+//     service to act for them while they are away.
+//   - notifications verifies what Synaplan sends to /inbound.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -42,22 +58,18 @@ type Handler struct {
 	httpClient  *http.Client
 	cs3         *cs3reader.Reader
 	assetProxy  *httputil.ReverseProxy
+	delegation  *delegation.Delegation
+	exchanger   synaplanauth.TokenExchanger
+	audience    string
+
+	notifications notifications
 }
 
 // New creates a new Handler. The editor is the synaplanapi
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader) (*Handler, error) {
-	apiClient, err := synaplanapi.NewClientWithResponses(
-		synaplanURL,
-		synaplanapi.WithHTTPClient(&http.Client{}),
-		synaplanapi.WithRequestEditorFn(editor),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("creating synaplan API client: %w", err)
-	}
-
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated) (*Handler, error) {
 	target, err := url.Parse(synaplanURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing synaplan url: %w", err)
@@ -73,14 +85,29 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		},
 	}
 
-	return &Handler{
+	h := &Handler{
 		synaplanURL: synaplanURL,
-		synaplanAPI: apiClient,
 		editor:      editor,
 		httpClient:  &http.Client{},
 		cs3:         cs3,
 		assetProxy:  assetProxy,
-	}, nil
+	}
+	h.notifications.seen = notify.NewSeen()
+	if delegated != nil {
+		h.delegation = delegated.Tokens
+		h.exchanger = delegated.Exchanger
+		h.audience = delegated.Audience
+	}
+	h.synaplanAPI, err = synaplanapi.NewClientWithResponses(
+		synaplanURL,
+		synaplanapi.WithHTTPClient(&http.Client{}),
+		synaplanapi.WithRequestEditorFn(h.authenticate),
+		synaplanapi.WithRequestEditorFn(refuseOpenCloudToken),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating synaplan API client: %w", err)
+	}
+	return h, nil
 }
 
 // writeJSON serialises v as JSON to w with the given HTTP status.

@@ -80,3 +80,23 @@ func TestValidate_APIKeyBadFormat(t *testing.T) {
 		t.Errorf("error should mention sk_ prefix, got: %v", err)
 	}
 }
+
+func TestValidate_IssuerInsteadOfTokenEndpoint(t *testing.T) {
+	cfg := fullOIDCConfig()
+	cfg.OIDCTokenEndpoint = ""
+	cfg.OIDCIssuer = "https://kc.example/realms/x"
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("an issuer should stand in for the token endpoint, got: %v", err)
+	}
+}
+
+func TestValidate_NoSynaplanURL(t *testing.T) {
+	// No built-in default: a missing SYNAPLAN_URL stops the service instead
+	// of pointing it at a development host.
+	cfg := fullOIDCConfig()
+	cfg.SynaplanURL = ""
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "SYNAPLAN_URL") {
+		t.Fatalf("a config without SYNAPLAN_URL should fail naming it, got: %v", err)
+	}
+}

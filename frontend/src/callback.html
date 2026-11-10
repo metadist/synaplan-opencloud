@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Synaplan</title>
+  </head>
+  <body>
+    <script>
+      const params = new URLSearchParams(location.search)
+      const answer = {
+        type: 'synaplan-connect',
+        code: params.get('code'),
+        state: params.get('state'),
+        error: params.get('error')
+      }
+      const target = window.opener || (window.parent !== window ? window.parent : null)
+      // The page that asked may sit on another origin than this file (the
+      // extension's dev server), so the target origin cannot be named. A
+      // code that reaches another window is useless there: only the
+      // service can redeem it (confidential client), and only for the
+      // person it was issued to.
+      if (target) {
+        target.postMessage(answer, '*')
+      }
+    </script>
+  </body>
+</html>

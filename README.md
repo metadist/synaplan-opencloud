@@ -56,9 +56,20 @@ Each call to Synaplan rides on the logged-in OpenCloud user's identity, exchange
 | Var | Purpose |
 |-----|---------|
 | `SYNAPLAN_URL` | Base URL of the Synaplan instance the backend talks to. |
-| `SYNAPLAN_OIDC_TOKEN_ENDPOINT` | Keycloak token endpoint, used for token exchange. |
+| `OC_OIDC_ISSUER` | Issuer of the Keycloak realm OpenCloud and Synaplan share (usually already set for OpenCloud). The authorization, token and revocation endpoints are read from its discovery document unless set below. |
+| `SYNAPLAN_OIDC_AUTHORIZATION_ENDPOINT` / `SYNAPLAN_OIDC_TOKEN_ENDPOINT` / `SYNAPLAN_OIDC_REVOCATION_ENDPOINT` | Optional. Set an endpoint instead of the published one: for a provider without discovery (then set all three, no issuer needed), or one the backend reaches by an internal address. |
 | `SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID` / `SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET` | Confidential client credentials that perform the exchange. |
 | `SYNAPLAN_OIDC_TARGET_AUDIENCE` | Audience (Synaplan client ID) baked into the exchanged token. |
+
+#### Working while a person is away
+
+A person can allow Synaplan to work for them while they are not using OpenCloud. On the Synaplan page, *Allow* runs an authorization code flow with PKCE and `offline_access` for the exchange client, silently in a hidden frame when the person is signed in at Keycloak; when Keycloak needs the person (a login, a consent), *Sign in to allow* opens it in a popup. Keycloak returns to `callback.html`, a static page that ships with the extension, which hands the answer back to the Synaplan page; the page accepts it only from its own frame or popup and with the state it sent. The backend redeems the code for an offline token, checks it belongs to the signed-in person (as Keycloak's token exchange names them, never as the bearer alone claims), and keeps it in memory; *Stop* revokes it at Keycloak. While the person is away, each call to Synaplan carries a token exchanged from that offline token, so Synaplan still sees the person and nothing more. A restart forgets the tokens; people allow again.
+
+This needs, on the exchange client in Keycloak: the standard flow with PKCE (S256), a redirect URI covering where the extension is served from (the callback is built into its assets with a content hash, so `<that URL>/*`; with OpenCloud serving it, `<OpenCloud URL>/*`), and the `offline_access` scope. OpenCloud's content security policy must let its pages frame that callback and Keycloak: `frame-ancestors 'self'` and Keycloak's origin in `frame-src` (see `dev/docker/opencloud.csp.config.yaml`). The development server of the extension always runs on port 9210 (`strictPort`), so the realm can allow it.
+
+#### Notifications from Synaplan
+
+Synaplan tells this OpenCloud about changes by calling `POST /api/synaplan/inbound` with a signed JWT (EdDSA, type `synaplan-notification+jwt`). Synaplan must be configured for this OpenCloud (`PLATFORM_LINKS_OIDC_CLOUD_*` on Synaplan) and reach the backend at that route, usually directly rather than through OpenCloud's proxy. The backend reads Synaplan's issuer and keys from `/.well-known/synaplan-configuration` and `/.well-known/jwks.json` at `SYNAPLAN_URL`, never from a URL inside a token, and accepts a notification only for this instance, within its time window and once. `identity_revoked` (the person ended their link in Synaplan) names the person by their Keycloak subject and revokes their offline token here.
 
 ### Mode B: shared API key (simple, discouraged)
 

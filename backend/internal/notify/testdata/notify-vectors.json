@@ -1,0 +1,38 @@
+{
+    "issuer": "https://synaplan.example",
+    "receiver_instance_id": "pi_abc",
+    "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+    "now": 1700000000,
+    "vectors": [
+        {
+            "name": "valid",
+            "expect": "ok",
+            "token": "eyJhbGciOiJFZERTQSIsInR5cCI6InN5bmFwbGFuLW5vdGlmaWNhdGlvbitqd3QiLCJraWQiOiJ2ZWN0b3Ita2V5In0.eyJpc3MiOiJodHRwczovL3N5bmFwbGFuLmV4YW1wbGUiLCJhdWQiOiJwaV9hYmMiLCJ0eXBlIjoiZGVsaXZlcnkiLCJpZCI6IjkiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMDMwMCwianRpIjoidmVjdG9yLXBpX2FiYy0xNzAwMDAwMDAwIiwic3ViIjoiYWRhIn0.lK5vl3s1UhY-HL05ejSRoPEHbudkJ2mzuS8Qdg3Qsx-qHXCrxu7my_t8Qyfs5H6syV5piEkVFu96QqF-sAGcAg"
+        },
+        {
+            "name": "wrong_key",
+            "expect": "bad_signature",
+            "token": "eyJhbGciOiJFZERTQSIsInR5cCI6InN5bmFwbGFuLW5vdGlmaWNhdGlvbitqd3QiLCJraWQiOiJ2ZWN0b3Ita2V5In0.eyJpc3MiOiJodHRwczovL3N5bmFwbGFuLmV4YW1wbGUiLCJhdWQiOiJwaV9hYmMiLCJ0eXBlIjoiZGVsaXZlcnkiLCJpZCI6IjkiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMDMwMCwianRpIjoidmVjdG9yLXBpX2FiYy0xNzAwMDAwMDAwIiwic3ViIjoiYWRhIn0.Rb7TSwH36ZLgan5tsyUiWygFip0kXUgygijUKVjFPRmf2hBXHrNp3Mps7x8Vl3bls75fqfkU4XS9pnuSjSJpCw"
+        },
+        {
+            "name": "wrong_instance",
+            "expect": "wrong_instance",
+            "token": "eyJhbGciOiJFZERTQSIsInR5cCI6InN5bmFwbGFuLW5vdGlmaWNhdGlvbitqd3QiLCJraWQiOiJ2ZWN0b3Ita2V5In0.eyJpc3MiOiJodHRwczovL3N5bmFwbGFuLmV4YW1wbGUiLCJhdWQiOiJwaV9vdGhlciIsInR5cGUiOiJkZWxpdmVyeSIsImlkIjoiOSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwMzAwLCJqdGkiOiJ2ZWN0b3ItcGlfb3RoZXItMTcwMDAwMDAwMCIsInN1YiI6ImFkYSJ9.yw5PNo5CvnB7WVoILDBW44tRhrjUzn931RolMbvPL2pnX5F8Ayi41hiF_diG_o_UHtElg0KlG0EZxvaJkrxKBA"
+        },
+        {
+            "name": "wrong_issuer",
+            "expect": "wrong_issuer",
+            "token": "eyJhbGciOiJFZERTQSIsInR5cCI6InN5bmFwbGFuLW5vdGlmaWNhdGlvbitqd3QiLCJraWQiOiJ2ZWN0b3Ita2V5In0.eyJpc3MiOiJodHRwczovL290aGVyLmV4YW1wbGUiLCJhdWQiOiJwaV9hYmMiLCJ0eXBlIjoiZGVsaXZlcnkiLCJpZCI6IjkiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMDMwMCwianRpIjoidmVjdG9yLXBpX2FiYy0xNzAwMDAwMDAwIiwic3ViIjoiYWRhIn0.S2gSIx0XVq3fX6Lala3Lp2Q4cqJ2cRSSUF25qWp-JUrFLvCuErnxLaJu0hSral7AJnbOpnrPEzHgSYhSShR3Cw"
+        },
+        {
+            "name": "stale",
+            "expect": "stale",
+            "token": "eyJhbGciOiJFZERTQSIsInR5cCI6InN5bmFwbGFuLW5vdGlmaWNhdGlvbitqd3QiLCJraWQiOiJ2ZWN0b3Ita2V5In0.eyJpc3MiOiJodHRwczovL3N5bmFwbGFuLmV4YW1wbGUiLCJhdWQiOiJwaV9hYmMiLCJ0eXBlIjoiZGVsaXZlcnkiLCJpZCI6IjkiLCJpYXQiOjE2OTk5OTk0MDAsImV4cCI6MTY5OTk5OTcwMCwianRpIjoidmVjdG9yLXBpX2FiYy0xNjk5OTk5NDAwIiwic3ViIjoiYWRhIn0.oFD4TEUgxDVSznD9FTnSNkn25OtO-zOqgZVbZRCUFotyGl6LUt06vfJtI-_Mk2wVolx-L1Kuraq-Zd_Lalm4Dw"
+        },
+        {
+            "name": "tampered",
+            "expect": "bad_signature",
+            "token": "eyJhbGciOiJFZERTQSIsInR5cCI6InN5bmFwbGFuLW5vdGlmaWNhdGlvbitqd3QiLCJraWQiOiJ2ZWN0b3Ita2V5In0.eyJpc3MiOiJodHRwczovL3N5bmFwbGFuLmV4YW1wbGUiLCJhdWQiOiJwaV9hYmMiLCJ0eXBlIjoiZGVsaXZlcnkiLCJpZCI6IjEwIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDAzMDAsImp0aSI6InZlY3Rvci1waV9hYmMtMTcwMDAwMDAwMCIsInN1YiI6ImFkYSJ9.lK5vl3s1UhY-HL05ejSRoPEHbudkJ2mzuS8Qdg3Qsx-qHXCrxu7my_t8Qyfs5H6syV5piEkVFu96QqF-sAGcAg"
+        }
+    ]
+}

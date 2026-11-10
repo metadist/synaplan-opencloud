@@ -86,6 +86,7 @@ services:
       OC_JWT_SECRET: "synaplan-dev-secret"
       OC_INSECURE: "true"
       SYNAPLAN_URL: "http://host.docker.internal:8000"
+      OC_OIDC_ISSUER: "https://host.docker.internal:8443/realms/synaplan"
       SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8080/realms/synaplan/protocol/openid-connect/token"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
