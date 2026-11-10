@@ -103,6 +103,27 @@ test('when the silent attempt fails, a popup the person opens allows it', async 
   await userPage.unrouteAll()
 })
 
+test('closing the sign-in window says so and allows nothing', async ({ request }) => {
+  test.setTimeout(60_000)
+  const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)
+  await stop(userPage)
+  await userPage.route(/\/protocol\/openid-connect\/auth\?.*prompt=none/, (route) => route.abort())
+  const { connect } = await openSection(userPage)
+
+  await connect.click()
+  const signIn = userPage.locator('[data-testid="synaplan-delegation-sign-in"]')
+  const [popup] = await Promise.all([userPage.waitForEvent('popup'), signIn.click()])
+  await popup.close()
+
+  await expect(userPage.locator('[data-testid="synaplan-delegation-error"]')).toHaveText(
+    'The sign-in window closed before Synaplan was allowed. If it showed an error, ask your administrator.'
+  )
+  await expect(signIn).toBeVisible()
+  expect(await connected(request, token)).toBe(false)
+  await userPage.unrouteAll()
+  await userPage.reload()
+})
+
 test('a refused permission shows one readable sentence', async ({ request }) => {
   test.setTimeout(60_000)
   const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)

@@ -11,7 +11,12 @@ vi.mock('../../src/callback.html?url', () => ({
   default: 'https://apps.example.com/synaplan/assets/callback-abc.html'
 }))
 
-import { useDelegation } from '../../src/composables/useDelegation'
+import {
+  SignInClosedError,
+  SignInDeclinedError,
+  SignInRefusedError,
+  useDelegation
+} from '../../src/composables/useDelegation'
 
 const CALLBACK = 'https://apps.example.com/synaplan/assets/callback-abc.html'
 const CALLBACK_ORIGIN = 'https://apps.example.com'
@@ -23,7 +28,12 @@ const available = {
   authorizeEndpoint: 'https://idp.example.com/auth'
 }
 
-type Reply = { from?: 'frame' | 'elsewhere'; origin?: string; state?: (sent: string) => string }
+type Reply = {
+  from?: 'frame' | 'elsewhere'
+  origin?: string
+  state?: (sent: string) => string
+  error?: string
+}
 
 function post_(source: MessageEventSource | null, origin: string, data: unknown) {
   window.dispatchEvent(new MessageEvent('message', { source, origin, data }))
@@ -43,9 +53,9 @@ function answerFrame(reply: Reply = {}) {
       reply.origin ?? CALLBACK_ORIGIN,
       {
         type: 'synaplan-connect',
-        code: 'the-code',
+        code: reply.error ? null : 'the-code',
         state: reply.state ? reply.state(sent) : sent,
-        error: null
+        error: reply.error ?? null
       }
     )
   })
@@ -98,6 +108,59 @@ describe('useDelegation', () => {
     expect(delegation.needsSignIn.value).toBe(true)
   })
 
+  it('asks the person to sign in when the sign-in service needs them', async () => {
+    answerFrame({ error: 'consent_required' })
+    const delegation = useDelegation()
+    await delegation.connect()
+
+    expect(post).not.toHaveBeenCalled()
+    expect(delegation.needsSignIn.value).toBe(true)
+  })
+
+  it('names a refusal only an administrator can fix', async () => {
+    answerFrame({ error: 'unauthorized_client' })
+    const delegation = useDelegation()
+
+    await expect(delegation.connect()).rejects.toBeInstanceOf(SignInRefusedError)
+    expect(post).not.toHaveBeenCalled()
+    expect(delegation.needsSignIn.value).toBe(false)
+  })
+
+  it('does not take a refusal with another state for real', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] })
+    answerFrame({ error: 'unauthorized_client', state: () => 'forged' })
+    const delegation = useDelegation()
+    let finished = false
+    const done = delegation.connect().finally(() => (finished = true))
+    while (!finished && !document.querySelector('[data-testid="synaplan-connect-frame"]')) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    await vi.advanceTimersByTimeAsync(10_000)
+    await done
+
+    expect(delegation.needsSignIn.value).toBe(true)
+  })
+
+  it('stops waiting soon after the sign-in service shows its own page', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'Date']
+    })
+    const delegation = useDelegation()
+    let finished = false
+    const done = delegation.connect().finally(() => (finished = true))
+    let frame: HTMLIFrameElement | null = null
+    while (!finished && !frame) {
+      await new Promise((resolve) => setImmediate(resolve))
+      frame = document.querySelector('[data-testid="synaplan-connect-frame"]')
+    }
+    frame?.dispatchEvent(new Event('load'))
+    await vi.advanceTimersByTimeAsync(1_500)
+
+    expect(finished).toBe(true)
+    await done
+    expect(delegation.needsSignIn.value).toBe(true)
+  })
+
   it('signs in through a popup the person opened', async () => {
     const popup = { closed: false, location: { href: '' }, close: vi.fn() }
     vi.stubGlobal(
@@ -125,6 +188,45 @@ describe('useDelegation', () => {
       expect.objectContaining({ code: 'popup-code' }),
       expect.anything()
     )
+    expect(popup.close).toHaveBeenCalled()
+  })
+
+  it('says so when the sign-in window closes without an answer', async () => {
+    const popup = { closed: false, location: { href: '' }, close: vi.fn() }
+    vi.stubGlobal(
+      'open',
+      vi.fn(() => popup)
+    )
+    const delegation = useDelegation()
+    await delegation.load()
+
+    const done = delegation.signIn()
+    await vi.waitFor(() => expect(popup.location.href).toContain('https://idp.example.com/auth'))
+    popup.closed = true
+
+    await expect(done).rejects.toBeInstanceOf(SignInClosedError)
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('says so when the person declines in the sign-in window', async () => {
+    const popup = { closed: false, location: { href: '' }, close: vi.fn() }
+    vi.stubGlobal(
+      'open',
+      vi.fn(() => popup)
+    )
+    const delegation = useDelegation()
+    await delegation.load()
+
+    const done = delegation.signIn()
+    await vi.waitFor(() => expect(popup.location.href).toContain('https://idp.example.com/auth'))
+    post_(popup as unknown as Window, CALLBACK_ORIGIN, {
+      type: 'synaplan-connect',
+      code: null,
+      state: new URL(popup.location.href).searchParams.get('state'),
+      error: 'access_denied'
+    })
+
+    await expect(done).rejects.toBeInstanceOf(SignInDeclinedError)
     expect(popup.close).toHaveBeenCalled()
   })
 

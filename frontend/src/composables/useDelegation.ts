@@ -41,8 +41,33 @@ type Answer = z.infer<typeof answerSchema>
 /** The browser refused to open the sign-in window. */
 export class PopupBlockedError extends Error {}
 
+/** The sign-in window closed without an answer. */
+export class SignInClosedError extends Error {}
+
+/** The person said no in the sign-in window. */
+export class SignInDeclinedError extends Error {}
+
+/** The sign-in service refused for a reason only an administrator can fix. */
+export class SignInRefusedError extends Error {}
+
 const SILENT_TIMEOUT_MS = 10_000
+/**
+ * callback.html answers while it loads. A frame that finished loading and
+ * stays silent shows the sign-in service's own page: an error, or a form
+ * that prompt=none must not show.
+ */
+const SILENT_SETTLE_MS = 1_000
 const POPUP_POLL_MS = 500
+
+/** Errors with which the sign-in service says it needs the person. */
+const NEEDS_PERSON = [
+  'login_required',
+  'interaction_required',
+  'consent_required',
+  'account_selection_required'
+]
+
+type Outcome = 'connected' | 'needs-person' | 'declined' | 'refused' | 'none'
 
 const callback = new URL(callbackUrl, import.meta.url)
 
@@ -128,15 +153,27 @@ export function useDelegation(): {
     return { url: url.toString(), verifier, state }
   }
 
-  async function redeem(answer: Answer | null, sent: { state: string; verifier: string }) {
-    if (!answer?.code || answer.state !== sent.state) return false
-    await httpAuthenticated.post(
-      '/api/synaplan/delegation',
-      { code: answer.code, verifier: sent.verifier, redirectUri: callback.href },
-      { schema: z.object({ connected: z.boolean() }) }
-    )
-    await load()
-    return true
+  /**
+   * Redeems a code, or names why there is none. An answer counts only
+   * with the state that was sent, its error too.
+   */
+  async function settle(
+    answer: Answer | null,
+    sent: { state: string; verifier: string }
+  ): Promise<Outcome> {
+    if (!answer || answer.state !== sent.state) return 'none'
+    if (answer.code) {
+      await httpAuthenticated.post(
+        '/api/synaplan/delegation',
+        { code: answer.code, verifier: sent.verifier, redirectUri: callback.href },
+        { schema: z.object({ connected: z.boolean() }) }
+      )
+      await load()
+      return 'connected'
+    }
+    if (answer.error === 'access_denied') return 'declined'
+    if (answer.error && NEEDS_PERSON.includes(answer.error)) return 'needs-person'
+    return 'refused'
   }
 
   async function connect() {
@@ -147,15 +184,20 @@ export function useDelegation(): {
       const frame = document.createElement('iframe')
       frame.style.display = 'none'
       frame.setAttribute('data-testid', 'synaplan-connect-frame')
+      let loadedAt = 0
+      frame.addEventListener('load', () => (loadedAt = Date.now()))
       const answer = answerFrom(
         () => frame.contentWindow,
-        () => true,
+        () => !loadedAt || Date.now() - loadedAt < SILENT_SETTLE_MS,
         SILENT_TIMEOUT_MS
       )
       frame.src = request.url
       document.body.appendChild(frame)
-      const done = await redeem(await answer, request).finally(() => frame.remove())
-      needsSignIn.value = !done
+      const outcome = await settle(await answer, request).finally(() => frame.remove())
+      if (outcome === 'refused') {
+        throw new SignInRefusedError('the sign-in service refused')
+      }
+      needsSignIn.value = outcome !== 'connected'
     } finally {
       busy.value = false
     }
@@ -175,8 +217,15 @@ export function useDelegation(): {
         null
       )
       popup.location.href = request.url
-      if (await redeem(await answer, request)) {
+      const outcome = await settle(await answer, request)
+      if (outcome === 'connected') {
         needsSignIn.value = false
+      } else if (outcome === 'declined') {
+        throw new SignInDeclinedError('the person declined')
+      } else if (outcome === 'refused') {
+        throw new SignInRefusedError('the sign-in service refused')
+      } else {
+        throw new SignInClosedError('the sign-in window closed without an answer')
       }
     } finally {
       popup.close()

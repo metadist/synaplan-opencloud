@@ -12,12 +12,19 @@ const access = {
   disconnect: vi.fn()
 }
 
-const { PopupBlockedError } = vi.hoisted(() => ({
-  PopupBlockedError: class PopupBlockedError extends Error {}
-}))
+const { PopupBlockedError, SignInClosedError, SignInDeclinedError, SignInRefusedError } =
+  vi.hoisted(() => ({
+    PopupBlockedError: class PopupBlockedError extends Error {},
+    SignInClosedError: class SignInClosedError extends Error {},
+    SignInDeclinedError: class SignInDeclinedError extends Error {},
+    SignInRefusedError: class SignInRefusedError extends Error {}
+  }))
 
 vi.mock('../../src/composables/useDelegation', () => ({
   PopupBlockedError,
+  SignInClosedError,
+  SignInDeclinedError,
+  SignInRefusedError,
   useDelegation: () => access
 }))
 
@@ -101,6 +108,32 @@ describe('DelegationSection', () => {
     await wrapper.get('[data-testid="synaplan-delegation-sign-in"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toContain('pop-ups')
+  })
+
+  it('sends the person to the administrator when the sign-in service refuses', async () => {
+    access.status.value = { available: true, connected: false }
+    access.connect.mockRejectedValue(new SignInRefusedError('refused'))
+    const wrapper = mountCard()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-delegation-connect"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toContain(
+      'administrator'
+    )
+  })
+
+  it.each([
+    ['closes without an answer', new SignInClosedError('closed'), 'closed before'],
+    ['answers that the person declined', new SignInDeclinedError('declined'), 'not allowed']
+  ])('says what happened when the sign-in window %s', async (_name, failure, text) => {
+    access.status.value = { available: true, connected: false }
+    access.needsSignIn.value = true
+    access.signIn.mockRejectedValue(failure)
+    const wrapper = mountCard()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-delegation-sign-in"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toContain(text)
   })
 
   it('says stopping could not be confirmed when Stop fails', async () => {
