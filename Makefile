@@ -1,4 +1,4 @@
-.PHONY: frontend-install frontend-build frontend-serve frontend-lint frontend-format-check frontend-format frontend-typecheck frontend-test-unit frontend-test-e2e frontend-test-e2e-dev backend-build backend-dev backend-test backend-lint backend-format format ci-local docker-up docker-down docs docs-serve-prod docs-clean
+.PHONY: frontend-install frontend-build frontend-build-dev frontend-serve frontend-lint frontend-format-check frontend-format frontend-typecheck frontend-test-unit frontend-test-e2e frontend-test-e2e-dev backend-build backend-dev backend-test backend-lint backend-format format ci-local docker-up docker-down docs docs-serve-prod docs-clean
 
 # Frontend
 frontend-install:
@@ -6,6 +6,9 @@ frontend-install:
 
 frontend-build:
 	cd frontend && pnpm build
+
+frontend-build-dev:
+	cd frontend && pnpm build --mode development
 
 frontend-serve:
 	cd frontend && pnpm serve
@@ -55,8 +58,8 @@ format:
 # Local mirror of the `frontend` and `backend` jobs in
 # .github/workflows/ci.yml — same steps, same order, same flags. Green here
 # means those two jobs are green. It does NOT run the E2E job: run
-# `make frontend-build && CI=1 make frontend-test-e2e` (bundled build on
-# :9200 — the build refreshes frontend/dist, which OpenCloud serves) or
+# `make frontend-build-dev && CI=1 make frontend-test-e2e` (bundled build on
+# :9200, the build refreshes frontend/dist, which OpenCloud serves) or
 # `CI=1 make frontend-test-e2e-dev` (web dev server on :9201) against the
 # local stack before pushing. CI=1 selects one worker and one retry, exactly
 # as CI runs it. See AGENTS.md, "The gate".

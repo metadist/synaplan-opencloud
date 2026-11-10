@@ -4,6 +4,7 @@ import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authH
 import { openSynaplanMenu } from '../../support/helpers/contextMenuHelper'
 import {
   deleteFileQuiet,
+  downloadTextFile,
   ensureFolder,
   getPersonalSpace,
   uploadFileFromDisk,
@@ -100,6 +101,50 @@ test('summarize a PDF file end-to-end', async ({ request }) => {
 
   await navigateToTestsFolder(userPage)
   await runSummarizeFlow(userPage, baseName, 'Abstractive', 'Medium')
+})
+
+test('a summary saved to the files lands in the personal space with its content', async ({
+  request
+}) => {
+  test.setTimeout(60_000)
+
+  const baseName = `save-${Date.now()}.txt`
+  const remotePath = `${TESTS_DIR}/${baseName}`
+  await uploadTextFile(
+    request,
+    webDavUrl,
+    accessToken,
+    remotePath,
+    'Synaplan summaries are saved next to the files they describe, in the personal space.'
+  )
+  filesToCleanup.push(remotePath)
+
+  await navigateToTestsFolder(userPage)
+  const row = await findFileRow(userPage, baseName)
+  await openSynaplanMenu(row)
+  await userPage.locator('.oc-files-actions-summarize-trigger').click()
+  await expect(userPage.locator('[data-testid="synaplan-summarize-dialog"]')).toBeVisible({
+    timeout: 10_000
+  })
+  await userPage.locator('[data-testid="synaplan-summarize-submit"]').click()
+  await expect(userPage.locator('[data-testid="synaplan-summarize-result"]')).toBeVisible({
+    timeout: 30_000
+  })
+
+  const saved = userPage.waitForResponse(
+    (r) => r.url().endsWith('/api/synaplan/files') && r.request().method() === 'POST'
+  )
+  await userPage.locator('[data-testid="synaplan-summarize-save"]').click()
+  const response = await saved
+  expect(response.ok()).toBe(true)
+  const savedPath = ((await response.json()) as { path: string }).path.replace(/^\.?\//, '')
+  filesToCleanup.push(savedPath)
+  await expect(userPage.locator('[data-testid="synaplan-summarize-saved"]')).toBeVisible()
+
+  const content = await downloadTextFile(request, webDavUrl, accessToken, savedPath)
+  expect(content.trim().length).toBeGreaterThan(0)
+
+  await userPage.locator('.oc-modal-title-actions-cancel').click()
 })
 
 async function runSummarizeFlow(

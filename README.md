@@ -116,7 +116,8 @@ The dev defaults live in [`docker-compose.yml`](docker-compose.yml) and use Mode
 # Frontend
 make frontend-install       # Install dependencies
 make frontend-serve         # Vite dev server on :9201 (with HMR, auto-registers in OpenCloud)
-make frontend-build         # Production build (CI only)
+make frontend-build         # Production build (CI and the Docker image)
+make frontend-build-dev     # Development build for the bundled flow on :9200 (no OpenCloud restart needed)
 make frontend-lint          # ESLint
 make frontend-format        # Prettier (write)
 make frontend-format-check  # Prettier (check)

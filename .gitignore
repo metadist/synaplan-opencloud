@@ -14,3 +14,5 @@ backend/.state/
 .github/docs/.cache/
 docs/generated/
 .env
+# Runtime cloud state: instance secret and encrypted away-keys.
+backend/.state/
