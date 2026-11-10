@@ -115,6 +115,7 @@ import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 import { useKnowledgeGroups } from '../composables/useKnowledgeGroups'
+import { sentenceFor } from '../failures'
 import { invalidateCloudStatus } from '../composables/cloudStatus'
 
 const props = defineProps<{
@@ -259,7 +260,7 @@ async function onSubmit() {
   } catch (e) {
     if (controller.signal.aborted) return
     console.error('synaplan knowledge upload failed', e)
-    error.value = e instanceof Error && e.message ? e.message : $gettext('Knowledge upload failed')
+    error.value = sentenceFor($gettext, e, $gettext('Knowledge upload failed'))
     phase.value = 'error'
   } finally {
     if (inFlight === controller) inFlight = null
@@ -280,8 +281,7 @@ async function onRemove() {
     phase.value = 'select'
   } catch (e) {
     console.error('synaplan knowledge remove failed', e)
-    error.value =
-      e instanceof Error && e.message ? e.message : $gettext('Could not remove the file')
+    error.value = sentenceFor($gettext, e, $gettext('Could not remove the file'))
     phase.value = 'error'
   }
 }

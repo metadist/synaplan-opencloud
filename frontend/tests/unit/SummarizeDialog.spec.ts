@@ -121,14 +121,20 @@ describe('SummarizeDialog', () => {
     })
   })
 
-  it('surfaces a backend error in the error box', async () => {
-    post.mockRejectedValueOnce(new Error('boom from backend'))
+  it('shows the sentence for the code the backend sent in the error box', async () => {
+    post.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 422'), {
+        response: { data: { code: 'file_empty', error: 'This file is empty.' } }
+      })
+    )
 
     const wrapper = mountDialog()
     await wrapper.get('[data-testid="synaplan-summarize-submit"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="synaplan-summarize-error"]').text()).toBe('boom from backend')
+    expect(wrapper.get('[data-testid="synaplan-summarize-error"]').text()).toBe(
+      'This file is empty.'
+    )
     expect(wrapper.find('[data-testid="synaplan-summarize-result"]').exists()).toBe(false)
   })
 

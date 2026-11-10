@@ -126,15 +126,19 @@ describe('TranslationDialog', () => {
     expect(wrapper.find('[data-testid="synaplan-translation-copy"]').exists()).toBe(true)
   })
 
-  it('surfaces a backend error in the error box', async () => {
-    post.mockRejectedValueOnce(new Error('boom from backend'))
+  it('shows the sentence for the code the backend sent in the error box', async () => {
+    post.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 422'), {
+        response: { data: { code: 'file_empty', error: 'This file is empty.' } }
+      })
+    )
 
     const wrapper = mountDialog()
     await wrapper.get('[data-testid="synaplan-translation-submit"]').trigger('click')
     await flushPromises()
 
     const err = wrapper.get('[data-testid="synaplan-translation-error"]')
-    expect(err.text()).toBe('boom from backend')
+    expect(err.text()).toBe('This file is empty.')
     // Still in the select/error phase — the result block is not rendered.
     expect(wrapper.find('[data-testid="synaplan-translation-result"]').exists()).toBe(false)
   })
