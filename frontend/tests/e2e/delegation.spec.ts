@@ -16,17 +16,6 @@ const SYNAPLAN_API_URL = process.env.SYNAPLAN_API_URL ?? 'http://host.docker.int
 
 test.describe.configure({ mode: 'serial' })
 
-test.beforeAll(async ({ request }) => {
-  // Allowing work while away and signed notifications ship with Synaplan's
-  // stacked platform-link changes. Until this stack runs that Synaplan, the
-  // configuration document is absent and these journeys cannot pass.
-  const published = await request.get(`${SYNAPLAN_API_URL}/.well-known/synaplan-configuration`)
-  test.skip(
-    published.status() === 404,
-    'this Synaplan does not publish its notification configuration yet'
-  )
-})
-
 let userPage: Page
 
 test.beforeEach(async ({ browser }) => {
