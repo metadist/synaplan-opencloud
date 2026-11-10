@@ -3,6 +3,9 @@ FROM golang:1.27-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36
 RUN go install github.com/air-verse/air@v1.64.5
 
 RUN mkdir -p /tmp/go-cache/gopath /tmp/go-cache/build && chmod -R 777 /tmp/go-cache
+# The compose user is the host's UID, so the delegation store's volume is
+# writable for anyone (development only).
+RUN mkdir -p /var/lib/synaplan-opencloud && chmod 777 /var/lib/synaplan-opencloud
 
 WORKDIR /app
 COPY go.mod go.sum ./

@@ -82,12 +82,20 @@ func Server(cfg *config.Config) *cobra.Command {
 					cfg.OIDCTargetAudience,
 				)
 				editor = synaplanauth.NewRequestEditor(exchanger)
+				store, err := delegationStore(cfg)
+				if err != nil {
+					return err
+				}
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
 						Provider:     provider,
 						ClientID:     cfg.OIDCExchangeClientID,
 						ClientSecret: cfg.OIDCExchangeSecret,
 						HTTPClient:   identityProviderClient(cfg.Insecure),
+						Store:        store,
+						StoreFailed: func(err error) {
+							logger.Warn().Err(err).Msg("synaplan-opencloud: offline tokens are kept in memory only until the store works")
+						},
 					}),
 					Exchanger: exchanger,
 					Audience:  cfg.OIDCTargetAudience,
@@ -175,4 +183,17 @@ func identityProviderClient(insecure bool) *stdhttp.Client {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // OC_INSECURE, development only
 	}
 	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
+}
+
+// delegationStore is the file that keeps offline tokens across restarts,
+// or nil when SYNAPLAN_DELEGATION_FILE is not set.
+func delegationStore(cfg *config.Config) (delegation.Store, error) {
+	if cfg.DelegationFile == "" {
+		return nil, nil
+	}
+	store, err := delegation.NewFileStore(cfg.DelegationFile, cfg.OIDCExchangeSecret)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the delegation store: %w", err)
+	}
+	return store, nil
 }
