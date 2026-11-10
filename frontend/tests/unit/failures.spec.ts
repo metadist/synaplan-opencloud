@@ -8,6 +8,12 @@ describe('sentenceFor', () => {
     ['file_not_found', 'This file is no longer there. Reload the folder and try again.'],
     ['file_empty', 'This file is empty.'],
     ['translation_unavailable', 'This Synaplan cannot translate a file. Ask your administrator.'],
+    ['file_too_large', 'This file is too large to copy here.'],
+    ['copy_failed', 'The file was not copied. It is still in Synaplan.'],
+    [
+      'synaplan_unreachable',
+      'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
+    ],
     ['unsupported_type', 'Synaplan cannot read this kind of file.'],
     [
       'no_text',

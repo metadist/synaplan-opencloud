@@ -16,6 +16,7 @@ import (
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typespb "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
@@ -221,4 +222,52 @@ func (r *Reader) uploadSimple(ctx context.Context, gwc gateway.GatewayAPIClient,
 		return fmt.Errorf("cs3reader: upload returned %d: %s", resp.StatusCode, string(snippet))
 	}
 	return nil
+}
+
+// SaveChild writes content as a new file into the folder folderID, the
+// folder the person has open. When the name is taken it appends " (2)",
+// " (3)", … and returns the space-relative path that was written.
+func (r *Reader) SaveChild(ctx context.Context, folderID, filename string, content []byte) (string, error) {
+	if r == nil || r.gws == nil {
+		return "", errors.New("cs3reader: not configured")
+	}
+	name := path.Base(strings.TrimSpace(filename))
+	if name == "" || name == "." || name == ".." || name == "/" {
+		return "", errors.New("cs3reader: invalid filename")
+	}
+	accessToken, ok := revactx.ContextGetToken(ctx)
+	if !ok || accessToken == "" {
+		return "", errors.New("cs3reader: no reva access token in context")
+	}
+	gwc, err := r.gws.Next()
+	if err != nil {
+		return "", fmt.Errorf("cs3reader: gateway client: %w", err)
+	}
+	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
+
+	rid, err := storagespace.ParseID(folderID)
+	if err != nil {
+		return "", fmt.Errorf("cs3reader: parse folder id %q: %w", folderID, err)
+	}
+	statRes, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: &provider.Reference{ResourceId: &rid}})
+	if err != nil {
+		return "", fmt.Errorf("cs3reader: stat folder: %w", err)
+	}
+	if statRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
+		return "", fmt.Errorf("cs3reader: stat folder: %s", statRes.GetStatus().GetMessage())
+	}
+	if statRes.GetInfo().GetType() != provider.ResourceType_RESOURCE_TYPE_CONTAINER {
+		return "", errors.New("cs3reader: not a folder")
+	}
+	space := &provider.ResourceId{StorageId: rid.GetStorageId(), SpaceId: rid.GetSpaceId()}
+	folder := strings.Trim(utils.MakeRelativePath(statRes.GetInfo().GetPath()), "/")
+
+	rel, err := freeName(gwCtx, gwc, space, folder, name)
+	if err != nil {
+		return "", err
+	}
+	if err := r.uploadSimple(ctx, gwc, gwCtx, accessToken, space, rel, content); err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(rel, "/"), nil
 }
