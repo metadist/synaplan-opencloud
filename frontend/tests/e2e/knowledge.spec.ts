@@ -158,6 +158,48 @@ test('a searchable file carries the Synaplan bird in its folder', async ({ reque
   await expect(bird()).toBeVisible({ timeout: 30_000 })
 })
 
+test('the Synaplan tab names the state and the folder, and removes the file', async ({
+  request
+}) => {
+  test.setTimeout(60_000)
+
+  const baseName = `tab-${Date.now()}.txt`
+  const remotePath = `${TESTS_DIR}/${baseName}`
+  await uploadTextFile(
+    request,
+    webDavUrl,
+    accessToken,
+    remotePath,
+    'The Synaplan tab says where this file is searchable.'
+  )
+  filesToCleanup.push(remotePath)
+
+  await navigateToTestsFolder(userPage)
+  await openSynaplanTab(userPage, baseName)
+  await expect(userPage.locator('[data-testid="synaplan-sidebar-not-searchable"]')).toBeVisible()
+  await userPage.keyboard.press('Escape')
+
+  await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
+
+  await userPage.reload({ waitUntil: 'domcontentloaded' })
+  await openSynaplanTab(userPage, baseName)
+  await expect(userPage.locator('[data-testid="synaplan-sidebar-state"]')).toHaveText(
+    'Searchable by AI.',
+    { timeout: 30_000 }
+  )
+  await expect(userPage.locator('[data-testid="synaplan-sidebar-folder"]')).toContainText(
+    KNOWLEDGE_GROUP
+  )
+
+  await userPage.locator('[data-testid="synaplan-sidebar-remove"]').click()
+  await expect(userPage.locator('[data-testid="synaplan-sidebar-message"]')).toHaveText(
+    'Removed from the knowledge folder. It is no longer searchable.'
+  )
+  await expect(userPage.locator('[data-testid="synaplan-sidebar-not-searchable"]')).toBeVisible({
+    timeout: 30_000
+  })
+})
+
 async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) {
   const row = await findFileRow(page, fileName)
   await openSynaplanMenu(row)
@@ -203,4 +245,12 @@ async function navigateToTestsFolder(page: Page) {
   await page.reload({ waitUntil: 'domcontentloaded' })
   const folderRow = await findFileRow(page, TESTS_DIR)
   await folderRow.click()
+}
+
+async function openSynaplanTab(page: Page, name: string) {
+  const row = await findFileRow(page, name)
+  await row.click({ button: 'right' })
+  await page.locator('.oc-files-actions-show-details-trigger').click()
+  await page.locator('#sidebar-panel-synaplan-select').click()
+  await expect(page.locator('[data-testid="synaplan-sidebar"]')).toBeVisible({ timeout: 10_000 })
 }
