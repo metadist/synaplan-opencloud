@@ -6,7 +6,8 @@ const del = vi.fn()
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
   useClientService: () => ({ httpAuthenticated: { get, post, delete: del } }),
-  useConfigStore: () => ({ serverUrl: 'https://cloud.example.com/' })
+  useRouter: () => ({}),
+  buildUrl: (_router: unknown, to: string) => `https://cloud.example.com/${to}`
 }))
 
 import { useDelegation } from '../../src/composables/useDelegation'

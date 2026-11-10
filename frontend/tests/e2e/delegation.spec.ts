@@ -107,6 +107,11 @@ test('a refused permission shows one readable sentence', async ({ request }) => 
 test('ending the link in Synaplan ends work while away here', async ({ request }) => {
   test.setTimeout(60_000)
   const token = await getAccessToken(request, TEST_USER, TEST_PASSWORD)
+  // Synaplan links the person on their first call through this OpenCloud.
+  const me = await request.get(`${OC_API_URL}/api/synaplan/me`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  expect(me.ok(), await me.text()).toBe(true)
   await allow(userPage)
   expect(await connected(request, token)).toBe(true)
 

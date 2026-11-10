@@ -1,5 +1,5 @@
 import { ref, type Ref } from 'vue'
-import { useClientService, useConfigStore } from '@opencloud-eu/web-pkg'
+import { buildUrl, useClientService, useRouter } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
 
 /**
@@ -72,12 +72,11 @@ export function useDelegation(): {
   resumeRedirect: () => Promise<boolean>
 } {
   const { httpAuthenticated } = useClientService()
-  const configStore = useConfigStore()
+  const router = useRouter()
   const status = ref<DelegationStatus | null>(null)
   const busy = ref(false)
 
-  const redirectUri = () =>
-    new URL('assets/apps/synaplan/callback.html', configStore.serverUrl).toString()
+  const redirectUri = () => buildUrl(router, 'assets/apps/synaplan/callback.html')
 
   async function load() {
     const res = await httpAuthenticated.get('/api/synaplan/delegation', { schema: statusSchema })
