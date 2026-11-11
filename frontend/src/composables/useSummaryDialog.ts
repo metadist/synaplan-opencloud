@@ -1,7 +1,9 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { useClientService, useLoadingService, useMessages } from '@opencloud-eu/web-pkg'
 import { useClipboard } from '@vueuse/core'
+import { useGettext } from 'vue3-gettext'
 import { z, type ZodType } from 'zod'
+import { sentenceFor } from '../failures'
 
 export type SummaryDialogPhase = 'select' | 'loading' | 'done' | 'error'
 
@@ -28,6 +30,7 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
   const { showErrorMessage, showMessage } = useMessages()
   const { copy: copyToClipboard } = useClipboard()
   const loadingService = useLoadingService()
+  const { $gettext } = useGettext()
 
   const phase = ref<SummaryDialogPhase>('select')
   const result = ref('')
@@ -67,7 +70,7 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
         return
       }
       console.error(`${config.endpoint} failed`, e)
-      error.value = e instanceof Error && e.message ? e.message : config.failedMessage
+      error.value = sentenceFor($gettext, e, config.failedMessage)
       phase.value = 'error'
     } finally {
       if (inFlight === controller) {
