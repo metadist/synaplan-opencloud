@@ -133,6 +133,27 @@ describe('FileSidebar', () => {
     expect(text(wrapper, 'state').exists()).toBe(false)
   })
 
+  it('does not paint a removal onto the file selected meanwhile', async () => {
+    post.mockResolvedValueOnce(status('searchable'))
+    post.mockResolvedValue({ data: { enabled: true, unreachable: true, items: [] } })
+    let release: (value: { data: { removed: boolean } }) => void = () => {}
+    const slow = new Promise<{ data: { removed: boolean } }>((resolve) => {
+      release = resolve
+    })
+    del.mockImplementationOnce(() => slow)
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await text(wrapper, 'remove').trigger('click')
+    await wrapper.setProps({ resource: { id: 's!f2', etag: '"v9"', name: 'b.txt' } })
+    await flushPromises()
+    expect(text(wrapper, 'unavailable').exists()).toBe(true)
+    release({ data: { removed: true } })
+    await flushPromises()
+    expect(text(wrapper, 'unavailable').exists()).toBe(true)
+    expect(text(wrapper, 'message').exists()).toBe(false)
+    expect(del).toHaveBeenCalledWith('/api/synaplan/knowledge?resourceId=s!f1', expect.anything())
+  })
+
   it('says in one sentence why a removal failed', async () => {
     post.mockResolvedValue(status('searchable'))
     del.mockRejectedValue({ response: { data: { code: 'synaplan_error' } } })

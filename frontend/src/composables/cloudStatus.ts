@@ -128,6 +128,11 @@ export async function loadCloudStatus(
   const owned = items.filter((item) => owns(item.id))
   if (!owned.length) return true
   cloudFilesEnabled.value = data.enabled === true
+  if (data.enabled !== true) {
+    // The bird reads marks on their own. A turn-off must not leave them up.
+    for (const id of Object.keys(cloudMarks)) delete cloudMarks[id]
+    return true
+  }
   const moving: Item[] = []
   for (const item of data.items) {
     if (!owns(item.id)) continue
