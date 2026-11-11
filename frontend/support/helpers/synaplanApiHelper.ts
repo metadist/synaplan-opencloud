@@ -22,7 +22,7 @@ interface SynaplanFilesListResponse {
  * Delete every file currently registered in the given group via
  * Synaplan's /api/v1/files endpoints. No-ops if the group is empty
  * or doesn't exist. Use this before tests that exercise the
- * "Add to Knowledge" flow with a fixed group name to keep the
+ * "Make searchable by AI" flow with a fixed group name to keep the
  * Synaplan database clean across runs.
  */
 export async function wipeKnowledgeGroup(
