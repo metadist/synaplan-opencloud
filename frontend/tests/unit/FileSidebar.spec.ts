@@ -14,6 +14,7 @@ vi.mock('vue3-gettext', () => ({
   useGettext: () => ({ $gettext: (s: string) => s })
 }))
 
+import { cloudFilesEnabled } from '../../src/composables/cloudStatus'
 import FileSidebar from '../../src/components/FileSidebar.vue'
 
 const ocButton = defineComponent({
@@ -48,6 +49,7 @@ describe('FileSidebar', () => {
     post.mockReset()
     get.mockReset()
     del.mockReset()
+    cloudFilesEnabled.value = false
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -77,6 +79,33 @@ describe('FileSidebar', () => {
     await flushPromises()
     expect(get).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="synaplan-sidebar"]').exists()).toBe(false)
+  })
+
+  it('says the check failed instead of calling the file absent', async () => {
+    cloudFilesEnabled.value = true
+    post.mockResolvedValue({ data: { enabled: true, unreachable: true, items: [] } })
+    const wrapper = mountSidebar()
+    await flushPromises()
+    expect(text(wrapper, 'unavailable').text()).toBe("Couldn't check Synaplan right now.")
+    expect(text(wrapper, 'not-searchable').exists()).toBe(false)
+    expect(text(wrapper, 'state').exists()).toBe(false)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('keeps the newer state when an older lookup answers last', async () => {
+    let release: (value: ReturnType<typeof status>) => void = () => {}
+    const slow = new Promise<ReturnType<typeof status>>((resolve) => {
+      release = resolve
+    })
+    post.mockImplementationOnce(() => slow).mockResolvedValueOnce(status('changed'))
+    const wrapper = mountSidebar()
+    await wrapper.setProps({ resource: { id: 's!f1', etag: '"v2"', name: 'a.txt' } })
+    await flushPromises()
+    expect(text(wrapper, 'state').text()).toBe('Changed since it was made searchable.')
+    release(status('searchable'))
+    await flushPromises()
+    expect(text(wrapper, 'state').text()).toBe('Changed since it was made searchable.')
+    expect(text(wrapper, 'unavailable').exists()).toBe(false)
   })
 
   it('reloads the state when the etag changes', async () => {

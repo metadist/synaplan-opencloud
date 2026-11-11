@@ -57,6 +57,34 @@ describe('cloudStatus cache', () => {
     expect(post).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps the newer mark when an older answer arrives last', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockResolvedValueOnce(answer('changed'))
+    const first = loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(markFor('f1')?.state).toBe('changed')
+    expect(cloudFilesEnabled.value).toBe(true)
+    release({
+      data: {
+        enabled: false,
+        items: [{ id: 'f1', state: 'searchable', file_id: 9, knowledge_folder: null }]
+      }
+    })
+    await first
+    expect(markFor('f1')?.state).toBe('changed')
+    expect(cloudFilesEnabled.value).toBe(true)
+
+    queueCloudStatus({ post }, { id: 'f1', version: 'v2' }, 3_000)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(post).toHaveBeenCalledTimes(2)
+  })
+
   it('records cloud file state only when the answer says it is on', async () => {
     const post = vi.fn().mockResolvedValue({ data: { enabled: false, items: [] } })
     await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
