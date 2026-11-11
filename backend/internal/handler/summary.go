@@ -37,11 +37,35 @@ const cleanupTimeout = 30 * time.Second
 // operation impossible (empty file, unsupported mime, Synaplan 4xx).
 var errClientInput = errors.New("client input rejected")
 
+// The client-input failures a person is told about in their own words.
+var (
+	errFileEmpty       = fmt.Errorf("file is empty: %w", errClientInput)
+	errUnsupportedType = fmt.Errorf("unsupported mime type: %w", errClientInput)
+	errNoText          = fmt.Errorf("no text could be indexed from this file: %w", errClientInput)
+)
+
 // errorResponse is the JSON envelope the summary-backed handlers
 // return on failure. Shared across /translate and /summarize so the
 // frontend can treat them uniformly.
 type errorResponse struct {
 	Error string `json:"error"`
+	Code  string `json:"code,omitempty"`
+}
+
+// publicFailure is what a person sees when the pipeline fails: one
+// sentence and a code the extension translates. The underlying error is
+// logged by the caller and never returned.
+func publicFailure(err error) errorResponse {
+	switch {
+	case errors.Is(err, errFileEmpty):
+		return errorResponse{Error: "This file is empty.", Code: "file_empty"}
+	case errors.Is(err, errUnsupportedType):
+		return errorResponse{Error: "Synaplan cannot read this kind of file.", Code: "unsupported_type"}
+	case errors.Is(err, errNoText):
+		return errorResponse{Error: "Synaplan found no text in this file. It may be a scan or protected by a password.", Code: "no_text"}
+	default:
+		return errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"}
+	}
 }
 
 // supportedLengths bounds the /summary/generate `length` values our
@@ -85,7 +109,10 @@ func (h *Handler) runSummaryPipeline(
 	file, err := h.cs3.Open(ctx, resourceID)
 	if err != nil {
 		log.Printf("%s: cs3 open: %v", op, err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not read file: " + err.Error()})
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "This file is no longer there. Reload the folder and try again.",
+			Code:  "file_not_found",
+		})
 		return "", false
 	}
 	defer func() { _ = file.Body.Close() }()
@@ -97,7 +124,7 @@ func (h *Handler) runSummaryPipeline(
 		if errors.Is(err, errClientInput) {
 			status = http.StatusUnprocessableEntity
 		}
-		writeJSON(w, status, errorResponse{Error: op + " failed: " + err.Error()})
+		writeJSON(w, status, publicFailure(err))
 		return "", false
 	}
 	return result, true
@@ -158,7 +185,7 @@ func (h *Handler) prepareSummaryInput(
 		}
 		s := string(buf)
 		if strings.TrimSpace(s) == "" {
-			return nil, nil, cleanup, fmt.Errorf("file is empty: %w", errClientInput)
+			return nil, nil, cleanup, errFileEmpty
 		}
 		return &s, nil, cleanup, nil
 
@@ -182,7 +209,7 @@ func (h *Handler) prepareSummaryInput(
 		return nil, &id, cleanup, nil
 
 	default:
-		return nil, nil, cleanup, fmt.Errorf("unsupported mime type %q: %w", file.MimeType, errClientInput)
+		return nil, nil, cleanup, fmt.Errorf("%w: %q", errUnsupportedType, file.MimeType)
 	}
 }
 

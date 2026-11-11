@@ -63,7 +63,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 	var uploaded *uploadedFile
 	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
-			return "", fmt.Errorf("unsupported mime type %q: %w", file.MimeType, errClientInput)
+			return "", fmt.Errorf("%w: %q", errUnsupportedType, file.MimeType)
 		}
 		u, err := h.upload(ctx, file, groupKey, synaplanapi.Vectorize, &uploadProvenance{
 			SourceID:   req.ResourceID,
@@ -74,7 +74,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 			return "", fmt.Errorf("synaplan upload: %w", err)
 		}
 		if u.ChunksCreated == 0 {
-			return "", fmt.Errorf("no text could be indexed from this file: %w", errClientInput)
+			return "", errNoText
 		}
 		uploaded = u
 		return "", nil
