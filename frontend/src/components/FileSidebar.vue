@@ -110,10 +110,12 @@ async function onRemove() {
       schema: z.object({ removed: z.boolean() })
     })
     invalidateCloudStatus(id)
+    if (props.resource?.id !== id) return
     unavailable.value = false
     message.value = $gettext('Removed from the knowledge folder. It is no longer searchable.')
   } catch (e) {
     console.error('synaplan sidebar remove failed', e)
+    if (props.resource?.id !== id) return
     message.value = sentenceFor($gettext, e, $gettext('Could not remove the file'))
   } finally {
     removing.value = false

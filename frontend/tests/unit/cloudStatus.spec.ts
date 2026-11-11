@@ -85,6 +85,18 @@ describe('cloudStatus cache', () => {
     expect(post).toHaveBeenCalledTimes(2)
   })
 
+  it('drops cached marks when cloud file state turns off', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(answer('searchable'))
+      .mockResolvedValueOnce({ data: { enabled: false, items: [] } })
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    expect(markFor('f1')?.state).toBe('searchable')
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+    expect(markFor('f1')).toBeUndefined()
+  })
+
   it('records cloud file state only when the answer says it is on', async () => {
     const post = vi.fn().mockResolvedValue({ data: { enabled: false, items: [] } })
     await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
