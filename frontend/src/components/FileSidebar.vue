@@ -1,5 +1,9 @@
 <template>
-  <div class="ext:flex ext:flex-col ext:gap-3 ext:p-2 ext:text-sm" data-testid="synaplan-sidebar">
+  <div
+    v-if="cloudFilesEnabled"
+    class="ext:flex ext:flex-col ext:gap-3 ext:p-2 ext:text-sm"
+    data-testid="synaplan-sidebar"
+  >
     <p v-if="loading">{{ $gettext('Loading…') }}</p>
     <template v-else-if="row">
       <p data-testid="synaplan-sidebar-state">{{ stateSentence }}</p>
@@ -24,15 +28,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
 import {
+  cloudFilesEnabled,
   invalidateCloudStatus,
   loadCloudStatus,
-  markFor,
-  type CloudMark
+  markFor
 } from '../composables/cloudStatus'
 import { sentenceFor } from '../failures'
 
@@ -46,13 +50,10 @@ const loading = ref(true)
 const removing = ref(false)
 const message = ref('')
 
-// A Synaplan without cloud file state answers no bird; the knowledge
-// status still knows whether this file is searchable.
-const fallback = ref<CloudMark | undefined>(undefined)
 const row = computed(() => {
   const id = props.resource?.id
   if (!id) return undefined
-  const mark = markFor(id) ?? fallback.value
+  const mark = markFor(id)
   return mark && mark.state !== 'none' ? mark : undefined
 })
 const folderName = computed(() => row.value?.folder ?? '')
@@ -72,45 +73,22 @@ const stateSentence = computed(() => {
   }
 })
 
-const knowledgeSchema = z.object({
-  inKnowledge: z.boolean(),
-  stale: z.boolean(),
-  synaplanFileId: z.number()
-})
-
-async function knowledgeMark(id: string): Promise<CloudMark | undefined> {
-  try {
-    const res = await httpAuthenticated.get(
-      `/api/synaplan/knowledge/status?resourceId=${encodeURIComponent(id)}`,
-      { schema: knowledgeSchema }
-    )
-    if (!res.data.inKnowledge) return undefined
-    return {
-      state: res.data.stale ? 'changed' : 'searchable',
-      folder: '',
-      fileId: res.data.synaplanFileId
-    }
-  } catch {
-    return undefined
-  }
-}
-
 async function refresh() {
   loading.value = true
   message.value = ''
-  fallback.value = undefined
   const id = props.resource?.id
   if (id) {
     invalidateCloudStatus(id)
     await loadCloudStatus(httpAuthenticated, [{ id, version: props.resource?.etag ?? '' }])
-    if (!markFor(id) || markFor(id)?.state === 'none') fallback.value = await knowledgeMark(id)
   }
   loading.value = false
 }
 
-// The panel stays mounted while the person clicks through files.
-onMounted(refresh)
-watch(() => props.resource?.id, refresh)
+// The panel stays mounted while the person clicks through files. A new
+// etag is a new version, so it is loaded again even when the id is unchanged.
+watch(() => `${props.resource?.id ?? ''}\0${props.resource?.etag ?? ''}`, refresh, {
+  immediate: true
+})
 
 async function onRemove() {
   const id = props.resource?.id
@@ -121,7 +99,6 @@ async function onRemove() {
       schema: z.object({ removed: z.boolean() })
     })
     invalidateCloudStatus(id)
-    fallback.value = undefined
     message.value = $gettext('Removed from the knowledge folder. It is no longer searchable.')
   } catch (e) {
     console.error('synaplan sidebar remove failed', e)

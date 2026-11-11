@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { z } from 'zod'
 
 /**
@@ -15,6 +15,13 @@ export type CloudMark = {
 }
 
 export const cloudMarks = reactive<Record<string, CloudMark>>({})
+
+/**
+ * True only after cloud/status has answered `enabled: true`. The file
+ * sidebar uses this so the tab stays absent while cloud file state is off.
+ * An unreachable answer leaves the flag as it was.
+ */
+export const cloudFilesEnabled = ref(false)
 
 const statusSchema = z.object({
   enabled: z.boolean().optional(),
@@ -87,6 +94,7 @@ export async function loadCloudStatus(http: Http, items: Item[], now = Date.now(
     const res = await http.post('/api/synaplan/cloud/status', { items }, { schema: statusSchema })
     data = statusSchema.parse(res.data)
     if (data.unreachable) throw new Error('synaplan unreachable')
+    cloudFilesEnabled.value = data.enabled === true
   } catch {
     // Ask again on the next look instead of showing a stale bird.
     for (const item of items) fetchedAt.delete(item.id)
