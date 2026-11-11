@@ -51,6 +51,9 @@ const IN_PROGRESS = new Set(['adding', 'updating'])
 
 const pending = new Map<string, Item>()
 const fetchedAt = new Map<string, { version: string; at: number }>()
+/** The newest in-flight lookup for a file. An older answer must not replace it. */
+const latestLookup = new Map<string, number>()
+let lookupTicket = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 let client: Http | undefined
 
@@ -84,35 +87,62 @@ export function queueCloudStatus(http: Http, item: Item, now = Date.now()) {
   }, 40)
 }
 
-export async function loadCloudStatus(http: Http, items: Item[], now = Date.now()) {
-  if (!items.length) return
+/**
+ * Asks Synaplan and stores the marks. Returns false when this lookup is
+ * still the newest for its files and Synaplan did not answer. A slower
+ * answer for an older version returns true and changes nothing: the newer
+ * lookup owns the file.
+ */
+export async function loadCloudStatus(
+  http: Http,
+  items: Item[],
+  now = Date.now()
+): Promise<boolean> {
+  if (!items.length) return true
+  const tickets = new Map<string, number>()
   for (const item of items) {
+    const ticket = ++lookupTicket
+    latestLookup.set(item.id, ticket)
+    tickets.set(item.id, ticket)
     fetchedAt.set(item.id, { version: item.version, at: now })
   }
+  const owns = (id: string) => latestLookup.get(id) === tickets.get(id)
+
   let data: z.infer<typeof statusSchema>
   try {
     const res = await http.post('/api/synaplan/cloud/status', { items }, { schema: statusSchema })
     data = statusSchema.parse(res.data)
     if (data.unreachable) throw new Error('synaplan unreachable')
-    cloudFilesEnabled.value = data.enabled === true
   } catch {
     // Ask again on the next look instead of showing a stale bird.
-    for (const item of items) fetchedAt.delete(item.id)
-    return
+    // A newer lookup for the same file keeps the cache it just wrote.
+    let stillMine = false
+    for (const item of items) {
+      if (!owns(item.id)) continue
+      stillMine = true
+      fetchedAt.delete(item.id)
+    }
+    return !stillMine
   }
+
+  const owned = items.filter((item) => owns(item.id))
+  if (!owned.length) return true
+  cloudFilesEnabled.value = data.enabled === true
   const moving: Item[] = []
   for (const item of data.items) {
+    if (!owns(item.id)) continue
     cloudMarks[item.id] = {
       state: item.state,
       folder: item.knowledge_folder?.name ?? '',
       fileId: item.file_id ?? 0
     }
     if (IN_PROGRESS.has(item.state)) {
-      const asked = items.find((requested) => requested.id === item.id)
+      const asked = owned.find((requested) => requested.id === item.id)
       if (asked) moving.push(asked)
     }
   }
-  scheduleFollowUp(http, moving)
+  if (moving.length) scheduleFollowUp(http, moving)
+  return true
 }
 
 let followUp: ReturnType<typeof setTimeout> | undefined

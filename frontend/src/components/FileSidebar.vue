@@ -5,6 +5,9 @@
     data-testid="synaplan-sidebar"
   >
     <p v-if="loading">{{ $gettext('Loading…') }}</p>
+    <p v-else-if="unavailable" data-testid="synaplan-sidebar-unavailable">
+      {{ $gettext("Couldn't check Synaplan right now.") }}
+    </p>
     <template v-else-if="row">
       <p data-testid="synaplan-sidebar-state">{{ stateSentence }}</p>
       <p v-if="folderName" data-testid="synaplan-sidebar-folder">
@@ -48,7 +51,9 @@ const { $gettext } = useGettext()
 const { httpAuthenticated } = useClientService()
 const loading = ref(true)
 const removing = ref(false)
+const unavailable = ref(false)
 const message = ref('')
+let refreshTicket = 0
 
 const row = computed(() => {
   const id = props.resource?.id
@@ -74,13 +79,19 @@ const stateSentence = computed(() => {
 })
 
 async function refresh() {
+  const ticket = ++refreshTicket
   loading.value = true
   message.value = ''
   const id = props.resource?.id
-  if (id) {
-    invalidateCloudStatus(id)
-    await loadCloudStatus(httpAuthenticated, [{ id, version: props.resource?.etag ?? '' }])
+  if (!id) {
+    if (ticket === refreshTicket) loading.value = false
+    return
   }
+  // Keep the previous mark until a newer answer replaces it. A failed
+  // lookup must not look like "not in the knowledge folder".
+  const ok = await loadCloudStatus(httpAuthenticated, [{ id, version: props.resource?.etag ?? '' }])
+  if (ticket !== refreshTicket) return
+  unavailable.value = !ok
   loading.value = false
 }
 
@@ -99,6 +110,7 @@ async function onRemove() {
       schema: z.object({ removed: z.boolean() })
     })
     invalidateCloudStatus(id)
+    unavailable.value = false
     message.value = $gettext('Removed from the knowledge folder. It is no longer searchable.')
   } catch (e) {
     console.error('synaplan sidebar remove failed', e)
