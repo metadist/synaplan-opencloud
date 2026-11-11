@@ -85,6 +85,66 @@ describe('cloudStatus cache', () => {
     expect(post).toHaveBeenCalledTimes(2)
   })
 
+  it('does not let an older batch turn cloud file state off over a newer file', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockResolvedValueOnce(answer('changed'))
+    const first = loadCloudStatus(
+      { post },
+      [
+        { id: 'f1', version: 'v1' },
+        { id: 'f2', version: 'v1' }
+      ],
+      1_000
+    )
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(markFor('f1')?.state).toBe('changed')
+    expect(cloudFilesEnabled.value).toBe(true)
+    release({ data: { enabled: false, items: [] } })
+    await first
+    expect(cloudFilesEnabled.value).toBe(true)
+    expect(markFor('f1')?.state).toBe('changed')
+  })
+
+  it('does not restore marks from a lookup that started before cloud file state turned off', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockResolvedValueOnce({ data: { enabled: false, items: [] } })
+    const first = loadCloudStatus(
+      { post },
+      [
+        { id: 'f1', version: 'v1' },
+        { id: 'f2', version: 'v1' }
+      ],
+      1_000
+    )
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+    release({
+      data: {
+        enabled: true,
+        items: [
+          { id: 'f1', state: 'searchable', file_id: 9, knowledge_folder: { name: 'Invoices' } },
+          { id: 'f2', state: 'searchable', file_id: 8, knowledge_folder: { name: 'Invoices' } }
+        ]
+      }
+    })
+    await first
+    expect(cloudFilesEnabled.value).toBe(false)
+    expect(markFor('f1')).toBeUndefined()
+    expect(markFor('f2')).toBeUndefined()
+  })
+
   it('drops cached marks when cloud file state turns off', async () => {
     const post = vi
       .fn()
