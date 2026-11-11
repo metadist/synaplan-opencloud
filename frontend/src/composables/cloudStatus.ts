@@ -54,10 +54,14 @@ const fetchedAt = new Map<string, { version: string; at: number }>()
 /** The newest in-flight lookup for a file. An older answer must not replace it. */
 const latestLookup = new Map<string, number>()
 let lookupTicket = 0
-/** Lookups are numbered as they start. Only the newest one may change the flag. */
+/** Lookups are numbered as they start. A failed one does not count as applied. */
 let capabilitySeq = 0
-let newestCapability = 0
-/** The lookup that last reported cloud file state off. Older answers must not refill the cache. */
+/** The highest lookup whose answer was applied to the on/off flag. */
+let appliedCapability = 0
+/**
+ * The lookup that last reported cloud file state off. Anything that started
+ * earlier must not put marks back, even after a later answer says it is on.
+ */
 let disabledAtCapability = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 let client: Http | undefined
@@ -105,7 +109,6 @@ export async function loadCloudStatus(
 ): Promise<boolean> {
   if (!items.length) return true
   const capability = ++capabilitySeq
-  newestCapability = capability
   const tickets = new Map<string, number>()
   for (const item of items) {
     const ticket = ++lookupTicket
@@ -133,7 +136,8 @@ export async function loadCloudStatus(
   }
 
   const owned = items.filter((item) => owns(item.id))
-  if (capability === newestCapability) {
+  if (capability > appliedCapability) {
+    appliedCapability = capability
     cloudFilesEnabled.value = data.enabled === true
     if (data.enabled !== true) {
       // The bird reads marks on their own. A turn-off must not leave them up.
@@ -141,11 +145,10 @@ export async function loadCloudStatus(
       for (const id of Object.keys(cloudMarks)) delete cloudMarks[id]
       return true
     }
-    disabledAtCapability = 0
-  } else if (disabledAtCapability > capability || data.enabled !== true) {
+  } else if (data.enabled !== true) {
     return true
   }
-  if (!owned.length) return true
+  if (disabledAtCapability > capability || !owned.length) return true
   const moving: Item[] = []
   for (const item of data.items) {
     if (!owns(item.id)) continue
