@@ -103,7 +103,7 @@ describe('KnowledgeDialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-knowledge-submit"]').text()).toContain(
-      'Update in Knowledge'
+      'Update in the knowledge folder'
     )
     expect(wrapper.get('[data-testid="synaplan-knowledge-stale"]').text()).toContain('changed')
   })
