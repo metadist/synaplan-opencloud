@@ -54,6 +54,11 @@ const fetchedAt = new Map<string, { version: string; at: number }>()
 /** The newest in-flight lookup for a file. An older answer must not replace it. */
 const latestLookup = new Map<string, number>()
 let lookupTicket = 0
+/** Lookups are numbered as they start. Only the newest one may change the flag. */
+let capabilitySeq = 0
+let newestCapability = 0
+/** The lookup that last reported cloud file state off. Older answers must not refill the cache. */
+let disabledAtCapability = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 let client: Http | undefined
 
@@ -99,6 +104,8 @@ export async function loadCloudStatus(
   now = Date.now()
 ): Promise<boolean> {
   if (!items.length) return true
+  const capability = ++capabilitySeq
+  newestCapability = capability
   const tickets = new Map<string, number>()
   for (const item of items) {
     const ticket = ++lookupTicket
@@ -126,13 +133,19 @@ export async function loadCloudStatus(
   }
 
   const owned = items.filter((item) => owns(item.id))
-  if (!owned.length) return true
-  cloudFilesEnabled.value = data.enabled === true
-  if (data.enabled !== true) {
-    // The bird reads marks on their own. A turn-off must not leave them up.
-    for (const id of Object.keys(cloudMarks)) delete cloudMarks[id]
+  if (capability === newestCapability) {
+    cloudFilesEnabled.value = data.enabled === true
+    if (data.enabled !== true) {
+      // The bird reads marks on their own. A turn-off must not leave them up.
+      disabledAtCapability = capability
+      for (const id of Object.keys(cloudMarks)) delete cloudMarks[id]
+      return true
+    }
+    disabledAtCapability = 0
+  } else if (disabledAtCapability > capability || data.enabled !== true) {
     return true
   }
+  if (!owned.length) return true
   const moving: Item[] = []
   for (const item of data.items) {
     if (!owns(item.id)) continue
