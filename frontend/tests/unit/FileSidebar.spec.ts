@@ -63,20 +63,31 @@ describe('FileSidebar', () => {
 
   it('says so for a file Synaplan does not know', async () => {
     post.mockResolvedValue(status('none'))
-    get.mockResolvedValue({ data: { inKnowledge: false, stale: false, synaplanFileId: 0 } })
     const wrapper = mountSidebar()
     await flushPromises()
     expect(text(wrapper, 'not-searchable').exists()).toBe(true)
     expect(text(wrapper, 'remove').exists()).toBe(false)
+    expect(get).not.toHaveBeenCalled()
   })
 
-  it('falls back to the knowledge status when Synaplan keeps no cloud file state', async () => {
+  it('stays hidden when cloud file state is off', async () => {
     post.mockResolvedValue({ data: { enabled: false, items: [] } })
     get.mockResolvedValue({ data: { inKnowledge: true, stale: true, synaplanFileId: 9 } })
     const wrapper = mountSidebar()
     await flushPromises()
-    expect(text(wrapper, 'state').text()).toBe('Changed since it was made searchable.')
-    expect(text(wrapper, 'remove').exists()).toBe(true)
+    expect(get).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="synaplan-sidebar"]').exists()).toBe(false)
+  })
+
+  it('reloads the state when the etag changes', async () => {
+    post.mockResolvedValue(status('searchable'))
+    const wrapper = mountSidebar()
+    await flushPromises()
+    expect(post).toHaveBeenCalledTimes(1)
+    await wrapper.setProps({ resource: { id: 's!f1', etag: '"v2"', name: 'a.txt' } })
+    await flushPromises()
+    expect(post).toHaveBeenCalledTimes(2)
+    expect(post.mock.calls[1]?.[1]).toEqual({ items: [{ id: 's!f1', version: '"v2"' }] })
   })
 
   it('removes the file from its knowledge folder', async () => {

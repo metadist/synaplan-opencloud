@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   IN_PROGRESS_TTL_MS,
   SETTLED_TTL_MS,
+  cloudFilesEnabled,
   cloudMarks,
   invalidateCloudStatus,
   loadCloudStatus,
@@ -22,6 +23,7 @@ function answer(state: string) {
 describe('cloudStatus cache', () => {
   beforeEach(() => {
     for (const key of Object.keys(cloudMarks)) delete cloudMarks[key]
+    cloudFilesEnabled.value = false
     invalidateCloudStatus('f1')
     vi.useRealTimers()
   })
@@ -53,6 +55,28 @@ describe('cloudStatus cache', () => {
     queueCloudStatus({ post }, { id: 'f1', version: 'v1' }, 1_001)
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(post).toHaveBeenCalledTimes(2)
+  })
+
+  it('records cloud file state only when the answer says it is on', async () => {
+    const post = vi.fn().mockResolvedValue({ data: { enabled: false, items: [] } })
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+
+    post.mockResolvedValue(answer('searchable'))
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(true)
+  })
+
+  it('leaves cloud file state on when a later answer is unreachable', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(answer('searchable'))
+      .mockResolvedValueOnce({ data: { enabled: true, unreachable: true, items: [] } })
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    expect(cloudFilesEnabled.value).toBe(true)
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(true)
+    expect(markFor('f1')?.state).toBe('searchable')
   })
 
   it('treats an unreachable answer like a failed one', async () => {
