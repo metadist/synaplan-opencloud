@@ -91,6 +91,7 @@ func newDelegation(p *identityProvider) *delegation.Delegation {
 		ClientID:     "synaplan-opencloud",
 		ClientSecret: "secret",
 		HTTPClient:   p.Client(),
+		Store:        delegation.NewMemoryStore(),
 	})
 }
 

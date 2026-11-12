@@ -4,83 +4,18 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/metadist/synaplan-opencloud/internal/idp"
 )
 
-type memEntry struct {
-	token string
-	rev   uint64
-}
+// failingStore is a store that cannot be reached.
+type failingStore struct{ err error }
 
-// memStore is an in-process stand-in for the NATS bucket: one revision per
-// person, and a write or delete that names a stale revision does not land.
-type memStore struct {
-	mu  sync.Mutex
-	m   map[string]memEntry
-	err error
-}
-
-func newMemStore() *memStore {
-	return &memStore{m: map[string]memEntry{}}
-}
-
-func (s *memStore) Get(subject string) (string, uint64, bool, error) {
-	if s.err != nil {
-		return "", 0, false, s.err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, ok := s.m[subject]
-	if !ok {
-		return "", 0, false, nil
-	}
-	return entry.token, entry.rev, true, nil
-}
-
-func (s *memStore) Write(subject, token string, match uint64) (uint64, bool, error) {
-	if s.err != nil {
-		return 0, false, s.err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, ok := s.m[subject]
-	if match == 0 {
-		if ok {
-			return 0, false, nil
-		}
-		s.m[subject] = memEntry{token: token, rev: 1}
-		return 1, true, nil
-	}
-	if !ok || entry.rev != match {
-		return 0, false, nil
-	}
-	entry.token = token
-	entry.rev++
-	s.m[subject] = entry
-	return entry.rev, true, nil
-}
-
-func (s *memStore) Delete(subject string, match uint64) (bool, error) {
-	if s.err != nil {
-		return false, s.err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, ok := s.m[subject]
-	if !ok {
-		return true, nil
-	}
-	if entry.rev != match {
-		return false, nil
-	}
-	delete(s.m, subject)
-	return true, nil
-}
-
-func (s *memStore) Close() error { return nil }
+func (s failingStore) Get(string) (string, uint64, bool, error)           { return "", 0, false, s.err }
+func (s failingStore) Write(string, string, uint64) (uint64, bool, error) { return 0, false, s.err }
+func (s failingStore) Delete(string, uint64) (bool, error)                { return false, s.err }
+func (s failingStore) Close() error                                       { return nil }
 
 func withStore(f *fakeIdP, store Store, failed *[]error) *Delegation {
 	return New(Config{
@@ -95,7 +30,7 @@ func withStore(f *fakeIdP, store Store, failed *[]error) *Delegation {
 
 func TestAConnectedPersonStaysConnectedAcrossARestart(t *testing.T) {
 	idp := newIdP(t, "ada", false)
-	store := newMemStore()
+	store := NewMemoryStore()
 	var failed []error
 	if err := connect(t, withStore(idp, store, &failed), "ada"); err != nil {
 		t.Fatal(err)
@@ -133,7 +68,7 @@ func TestAConnectedPersonStaysConnectedAcrossARestart(t *testing.T) {
 
 func TestPeopleDoNotOverwriteEachOther(t *testing.T) {
 	idp := newIdP(t, "ada", false)
-	store := newMemStore()
+	store := NewMemoryStore()
 	var failed []error
 	first := withStore(idp, store, &failed)
 	if err := connect(t, first, "ada"); err != nil {
@@ -163,7 +98,7 @@ func TestPeopleDoNotOverwriteEachOther(t *testing.T) {
 
 func TestALostRevisionDoesNotDropTheOtherReplicasToken(t *testing.T) {
 	idp := newIdP(t, "ada", false)
-	store := &rotateOnDelete{memStore: newMemStore()}
+	store := &rotateOnDelete{MemoryStore: NewMemoryStore()}
 	var failed []error
 	d := withStore(idp, store, &failed)
 	if err := connect(t, d, "ada"); err != nil {
@@ -192,7 +127,7 @@ func TestALostRevisionDoesNotDropTheOtherReplicasToken(t *testing.T) {
 // rotateOnDelete is another replica replacing the token in the moment this
 // one tries to forget a refused refresh.
 type rotateOnDelete struct {
-	*memStore
+	*MemoryStore
 	armed bool
 }
 
@@ -204,12 +139,12 @@ func (s *rotateOnDelete) Delete(subject string, match uint64) (bool, error) {
 		}
 		return false, nil
 	}
-	return s.memStore.Delete(subject, match)
+	return s.MemoryStore.Delete(subject, match)
 }
 
 func TestALostWriteDoesNotReplaceTheWinningToken(t *testing.T) {
 	idp := newIdP(t, "ada", false)
-	store := &rejectReplace{memStore: newMemStore()}
+	store := &rejectReplace{MemoryStore: NewMemoryStore()}
 	var failed []error
 	d := withStore(idp, store, &failed)
 	if err := connect(t, d, "ada"); err != nil {
@@ -227,20 +162,19 @@ func TestALostWriteDoesNotReplaceTheWinningToken(t *testing.T) {
 // rejectReplace loses every replace, as a replica does when its revision
 // is no longer current.
 type rejectReplace struct {
-	*memStore
+	*MemoryStore
 }
 
 func (s *rejectReplace) Write(subject, token string, match uint64) (uint64, bool, error) {
 	if match != 0 {
 		return 0, false, nil
 	}
-	return s.memStore.Write(subject, token, match)
+	return s.MemoryStore.Write(subject, token, match)
 }
 
 func TestAStoreThatFailsDoesNotPretendThePersonIsConnected(t *testing.T) {
 	idp := newIdP(t, "ada", false)
-	store := newMemStore()
-	store.err = errors.New("nats down")
+	store := failingStore{err: errors.New("nats down")}
 	var failed []error
 	d := withStore(idp, store, &failed)
 	err := connect(t, d, "ada")
@@ -263,4 +197,66 @@ func TestNATSKeyIsASingleToken(t *testing.T) {
 	if natsKey("ada") == natsKey("bob") {
 		t.Fatal("different people share a key")
 	}
+}
+
+func TestARefreshForSomeoneElseIsNotKept(t *testing.T) {
+	idp := newIdP(t, "ada", false)
+	store := NewMemoryStore()
+	var failed []error
+	d := withStore(idp, store, &failed)
+	if err := connect(t, d, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	idp.mu.Lock()
+	idp.codeSub = "eve"
+	idp.mu.Unlock()
+
+	if _, err := d.Token(context.Background(), "ada", "synaplan-app"); err == nil {
+		t.Fatal("a token for eve was used for ada")
+	}
+	if kept, _, _, _ := store.Get("ada"); kept != "offline-1" {
+		t.Fatalf("kept %q, want ada's own offline-1", kept)
+	}
+}
+
+func TestMemoryStoreRevisions(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*MemoryStore) uint64
+		write string
+		match func(uint64) uint64
+		want  bool
+	}{
+		{"create when absent", func(*MemoryStore) uint64 { return 0 }, "t1", func(uint64) uint64 { return 0 }, true},
+		{"create when present", seed, "t2", func(uint64) uint64 { return 0 }, false},
+		{"replace at the read revision", seed, "t2", func(r uint64) uint64 { return r }, true},
+		{"replace at a stale revision", seed, "t2", func(r uint64) uint64 { return r + 1 }, false},
+		{"replace when absent", func(*MemoryStore) uint64 { return 0 }, "t2", func(uint64) uint64 { return 1 }, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewMemoryStore()
+			rev := tc.setup(s)
+			if _, ok, err := s.Write("ada", tc.write, tc.match(rev)); err != nil || ok != tc.want {
+				t.Fatalf("ok %v err %v, want %v", ok, err, tc.want)
+			}
+		})
+	}
+
+	s := NewMemoryStore()
+	rev := seed(s)
+	if ok, _ := s.Delete("ada", rev+1); ok {
+		t.Fatal("a stale revision deleted the token")
+	}
+	if ok, _ := s.Delete("ada", rev); !ok {
+		t.Fatal("the read revision did not delete the token")
+	}
+	if _, _, ok, _ := s.Get("ada"); ok {
+		t.Fatal("the token is still there")
+	}
+}
+
+func seed(s *MemoryStore) uint64 {
+	rev, _, _ := s.Write("ada", "t1", 0)
+	return rev
 }
