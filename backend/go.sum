@@ -140,8 +140,6 @@ github.com/cpuguy83/go-md2man/v2 v2.0.7 h1:zbFlGlXEAKlwXpmvle3d8Oe3YnkKIK4xSRTd3
 github.com/cpuguy83/go-md2man/v2 v2.0.7/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9 h1:8WtMb7TKKx1AJM3j+uR+H25y4v+b8o8GIQg/2ooCyRo=
 github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9/go.mod h1:DedpcqXl193qF/08Y04IO0PpxyyMu8+GrkD6kWK2MEQ=
-github.com/cs3org/go-cs3apis v0.0.0-20261111120608-8780d2de79cc h1:6g3DdAPoKXkA3tr0/tBGsaZlj0E/mgeQhzVRZrEtD+c=
-github.com/cs3org/go-cs3apis v0.0.0-20261111120608-8780d2de79cc/go.mod h1:DedpcqXl193qF/08Y04IO0PpxyyMu8+GrkD6kWK2MEQ=
 github.com/cyphar/filepath-securejoin v0.7.0 h1:s0Y3ITPy6sQn5xt54DuYvTF8hu134ooYLUb58DX/HjE=
 github.com/cyphar/filepath-securejoin v0.7.0/go.mod h1:ymLGms/u3BYaviIiuKFnUx8EkQEZeK6cInNoAPJA3o4=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -560,6 +558,8 @@ github.com/opencloud-eu/opencloud v1.1.1-0.20261028231712-b806773a0821 h1:poE3hI
 github.com/opencloud-eu/opencloud v1.1.1-0.20261028231712-b806773a0821/go.mod h1:P2bJW9wYaIFv1bsNmYAnkqIScI1xNX1EoUTGaVVbKoo=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261111131434-2435420f69ca h1:X+FLel510IwFciiMBTIJIIbg46kbIDdY3LBkstivjIQ=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261111131434-2435420f69ca/go.mod h1:Fe2v2+fFPKYiO0PrjzdL6BTsVrf9+8qg26uGguF4Lwc=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612 h1:J9W9wbSFMZ1Fj7RXmqGiGkayd5ppJua+xf+I0MvXT7E=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612/go.mod h1:Fe2v2+fFPKYiO0PrjzdL6BTsVrf9+8qg26uGguF4Lwc=
 github.com/opencloud-eu/reva/v2 v2.52.1 h1:c4tjmqtbJeqDjztTNq4Jvl3dWWSMHhXqV1JixKLKbT4=
 github.com/opencloud-eu/reva/v2 v2.52.1/go.mod h1:rAwuI3PX8n3RxBXHfpMtAKqfwxTIKhZol1Bi3Qj39p8=
 github.com/opencloud-eu/reva/v2 v2.52.2 h1:uSYHhzX9hv911ciAyCVShg99cUoudkmFu+WVK2G85eI=

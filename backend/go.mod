@@ -15,11 +15,11 @@ replace github.com/pablodz/inotifywaitgo v0.0.9 => github.com/opencloud-eu/inoti
 require (
 	github.com/MicahParks/keyfunc/v2 v2.1.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/cs3org/go-cs3apis v0.0.0-20261111120608-8780d2de79cc
+	github.com/cs3org/go-cs3apis v0.0.0-20260424072047-8d9ef7076ae9
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/oapi-codegen/runtime v1.9.0
-	github.com/opencloud-eu/opencloud v1.1.1-0.20261111131434-2435420f69ca
+	github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612
 	github.com/opencloud-eu/reva/v2 v2.52.2
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.85.0

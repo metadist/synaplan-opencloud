@@ -79,6 +79,15 @@
       "matchUpdateTypes": ["minor", "patch"]
     },
     {
+      // reva v2.52.2 and current reva main still require
+      // v0.0.0-20260424072047-8d9ef7076ae9. The 2026-11-11 digest
+      // removes ViewMode and adds SetImmutable, so this module does
+      // not compile against that reva. Move it only with a reva
+      // release that requires the new revision.
+      "matchPackageNames": ["github.com/cs3org/go-cs3apis"],
+      "enabled": false
+    },
+    {
       "groupName": "Docker Images",
       "matchManagers": ["dockerfile", "docker-compose"],
       "matchUpdateTypes": ["minor", "patch"]
