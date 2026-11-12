@@ -172,6 +172,27 @@ describe('SummarizeDialog', () => {
     expect(wrapper.find('[data-testid="synaplan-summarize-result"]').exists()).toBe(false)
   })
 
+  it('saves the summary next to the source file', async () => {
+    post.mockResolvedValueOnce({ data: { summary: 'A summary' } })
+    post.mockResolvedValueOnce({ data: { path: 'Reports/Summary of report.md' } })
+
+    const wrapper = mountDialog()
+    await wrapper.get('[data-testid="synaplan-summarize-submit"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-summarize-save"]').trigger('click')
+    await flushPromises()
+
+    expect(post.mock.calls[1][0]).toBe('/api/synaplan/files')
+    expect(post.mock.calls[1][1]).toEqual({
+      filename: 'Summary of report.md',
+      text: 'A summary',
+      resourceId: 'res-1'
+    })
+    expect(wrapper.get('[data-testid="synaplan-summarize-saved"]').text()).toContain(
+      'Reports/Summary of report.md'
+    )
+  })
+
   it('copies the result and flips the button into its copied state', async () => {
     vi.useFakeTimers()
     try {

@@ -46,9 +46,10 @@ func kindFolder(filename string) string {
 }
 
 // Save writes content into the signed-in user's personal space, under
-// Synaplan/<Kind>/ when the extension is known. If that name is taken
-// it appends " (2)", " (3)", … and returns the space-relative path
-// that was written.
+// Synaplan/<Kind>/ when the extension is known. That folder is one
+// target of SaveChild, the only write into OpenCloud. If the name is
+// taken it appends " (2)", " (3)", … and returns the space-relative
+// path that was written.
 func (r *Reader) Save(ctx context.Context, filename string, content []byte) (string, error) {
 	if r == nil || r.gws == nil {
 		return "", errors.New("cs3reader: not configured")
@@ -86,14 +87,73 @@ func (r *Reader) Save(ctx context.Context, filename string, content []byte) (str
 		}
 	}
 
-	rel, err := freeName(gwCtx, gwc, root, folder, name)
+	id, err := resourceIDAt(gwCtx, gwc, root, folder)
 	if err != nil {
 		return "", err
 	}
-	if err := r.uploadSimple(ctx, gwc, gwCtx, accessToken, root, rel, content); err != nil {
-		return "", err
+	return r.SaveChild(ctx, id, name, content)
+}
+
+// ParentFolderID is the folder that contains resourceID. A summary or
+// a translation is saved there, through SaveChild, so the result sits
+// next to its source file in whichever space that file is in.
+func (r *Reader) ParentFolderID(ctx context.Context, resourceID string) (string, error) {
+	if r == nil || r.gws == nil {
+		return "", errors.New("cs3reader: not configured")
 	}
-	return rel, nil
+	accessToken, ok := revactx.ContextGetToken(ctx)
+	if !ok || accessToken == "" {
+		return "", errors.New("cs3reader: no reva access token in context")
+	}
+	gwc, err := r.gws.Next()
+	if err != nil {
+		return "", fmt.Errorf("cs3reader: gateway client: %w", err)
+	}
+	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
+
+	rid, err := storagespace.ParseID(resourceID)
+	if err != nil {
+		return "", fmt.Errorf("cs3reader: parse resource id %q: %w", resourceID, err)
+	}
+	statRes, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: &provider.Reference{ResourceId: &rid}})
+	if err != nil {
+		return "", fmt.Errorf("cs3reader: stat: %w", err)
+	}
+	if statRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
+		return "", fmt.Errorf("cs3reader: stat: %s", statRes.GetStatus().GetMessage())
+	}
+	info := statRes.GetInfo()
+	// A parent id without its space cannot be opened again. Fall
+	// through to the path in that case.
+	if parent := info.GetParentId(); parent.GetOpaqueId() != "" && parent.GetSpaceId() != "" {
+		return storagespace.FormatResourceID(parent), nil
+	}
+	root := info.GetSpace().GetRoot()
+	if root == nil {
+		return "", errors.New("cs3reader: stat did not return a space root")
+	}
+	parentPath := path.Dir(strings.Trim(utils.MakeRelativePath(info.GetPath()), "/"))
+	if parentPath == "." {
+		parentPath = ""
+	}
+	return resourceIDAt(gwCtx, gwc, root, parentPath)
+}
+
+func resourceIDAt(ctx context.Context, gwc gateway.GatewayAPIClient, root *provider.ResourceId, rel string) (string, error) {
+	res, err := gwc.Stat(ctx, &provider.StatRequest{
+		Ref: &provider.Reference{ResourceId: root, Path: utils.MakeRelativePath(rel)},
+	})
+	if err != nil {
+		return "", fmt.Errorf("cs3reader: stat %s: %w", rel, err)
+	}
+	if res.GetStatus().GetCode() != rpc.Code_CODE_OK {
+		return "", fmt.Errorf("cs3reader: stat %s: %s", rel, res.GetStatus().GetMessage())
+	}
+	id := res.GetInfo().GetId()
+	if id.GetOpaqueId() == "" {
+		return "", fmt.Errorf("cs3reader: stat %s: no id", rel)
+	}
+	return storagespace.FormatResourceID(id), nil
 }
 
 func personalRoot(ctx context.Context, gwc gateway.GatewayAPIClient) (*provider.ResourceId, error) {

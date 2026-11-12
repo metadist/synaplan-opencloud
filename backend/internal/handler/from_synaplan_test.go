@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestCopyLimitDefaultsToCloudflareAndCanRise(t *testing.T) {
+	h := &Handler{}
+	if h.copyLimit() != defaultMaxCopyBytes || defaultMaxCopyBytes != 100<<20 {
+		t.Fatalf("default = %d", h.copyLimit())
+	}
+	h.SetMaxCopyBytes(4 << 30)
+	if h.copyLimit() != 4<<30 {
+		t.Fatalf("raised = %d", h.copyLimit())
+	}
+	h.SetMaxCopyBytes(0)
+	if h.copyLimit() != 4<<30 {
+		t.Fatal("zero must not clear a configured cap")
+	}
+}
+
 func TestCopyFromSynaplanRejectsBadInput(t *testing.T) {
 	cases := []struct {
 		name, body, want string

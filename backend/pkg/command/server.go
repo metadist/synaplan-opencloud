@@ -117,6 +117,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
+			h.SetMaxCopyBytes(cfg.MaxCopyBytes)
 
 			mux := chi.NewMux()
 			mux.Use(

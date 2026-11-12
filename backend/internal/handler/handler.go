@@ -63,6 +63,9 @@ type Handler struct {
 	audience    string
 
 	notifications notifications
+
+	// maxCopyBytes is SYNAPLAN_MAX_COPY_BYTES. Zero means the default.
+	maxCopyBytes int64
 }
 
 // New creates a new Handler. The editor is the synaplanapi
