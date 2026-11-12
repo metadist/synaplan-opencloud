@@ -558,6 +558,8 @@ github.com/opencloud-eu/opencloud v1.1.1-0.20261028231712-b806773a0821 h1:poE3hI
 github.com/opencloud-eu/opencloud v1.1.1-0.20261028231712-b806773a0821/go.mod h1:P2bJW9wYaIFv1bsNmYAnkqIScI1xNX1EoUTGaVVbKoo=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261111131434-2435420f69ca h1:X+FLel510IwFciiMBTIJIIbg46kbIDdY3LBkstivjIQ=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261111131434-2435420f69ca/go.mod h1:Fe2v2+fFPKYiO0PrjzdL6BTsVrf9+8qg26uGguF4Lwc=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612 h1:J9W9wbSFMZ1Fj7RXmqGiGkayd5ppJua+xf+I0MvXT7E=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612/go.mod h1:Fe2v2+fFPKYiO0PrjzdL6BTsVrf9+8qg26uGguF4Lwc=
 github.com/opencloud-eu/reva/v2 v2.52.1 h1:c4tjmqtbJeqDjztTNq4Jvl3dWWSMHhXqV1JixKLKbT4=
 github.com/opencloud-eu/reva/v2 v2.52.1/go.mod h1:rAwuI3PX8n3RxBXHfpMtAKqfwxTIKhZol1Bi3Qj39p8=
 github.com/opencloud-eu/reva/v2 v2.52.2 h1:uSYHhzX9hv911ciAyCVShg99cUoudkmFu+WVK2G85eI=
