@@ -160,8 +160,8 @@ func (d *Delegation) Connected(subject string) bool {
 	if d == nil || subject == "" {
 		return false
 	}
-	_, _, ok, err := d.current(subject)
-	return err == nil && ok
+	token, _, ok, err := d.current(subject)
+	return err == nil && ok && token != ""
 }
 
 // Disconnect forgets the offline token of subject and revokes it at the
@@ -191,6 +191,9 @@ func (d *Delegation) Disconnect(ctx context.Context, subject string) error {
 			continue
 		}
 		d.dropCache(subject)
+		if previous == "" {
+			return nil
+		}
 		return d.revoke(ctx, previous)
 	}
 	return fmt.Errorf("%w: the offline token changed while it was removed", ErrUnavailable)
@@ -214,6 +217,16 @@ func (d *Delegation) Token(ctx context.Context, subject, audience string) (strin
 		}
 		if !ok {
 			return "", ErrNotConnected
+		}
+		if offline == "" {
+			gone, err := d.forgetStale(subject, rev)
+			if err != nil {
+				return "", err
+			}
+			if gone {
+				return "", ErrNotConnected
+			}
+			continue
 		}
 		if token, hit := d.cachedToken(key, rev); hit {
 			return token, nil
@@ -281,7 +294,8 @@ func (d *Delegation) rememberAccess(key, token string, expiresIn int, revision u
 	d.cache[key] = cached{token: token, expires: expiry(expiresIn), revision: revision}
 }
 
-// current is the offline token kept for subject and its revision.
+// current is the offline token kept for subject and its revision. An empty
+// token is one the store holds but cannot read; it is replaced or forgotten.
 func (d *Delegation) current(subject string) (string, uint64, bool, error) {
 	token, rev, ok, err := d.cfg.Store.Get(subject)
 	if err != nil {
@@ -312,7 +326,7 @@ func (d *Delegation) install(ctx context.Context, subject, token string) error {
 			continue
 		}
 		d.dropCache(subject)
-		if had {
+		if had && previous != "" {
 			_ = d.revoke(ctx, previous)
 		}
 		return nil

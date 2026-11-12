@@ -82,13 +82,26 @@ func Server(cfg *config.Config) *cobra.Command {
 					cfg.OIDCTargetAudience,
 				)
 				editor = synaplanauth.NewRequestEditor(exchanger)
-				store, err := delegationStore(cfg)
+				inner, err := delegationStore(cfg)
 				if err != nil {
 					return err
 				}
-				defer func() { _ = store.Close() }()
+				defer func() { _ = inner.Close() }()
 				if cfg.Store.Store == "memory" {
 					logger.Warn().Msg("synaplan-opencloud: offline tokens are kept in memory; a restart forgets them and other replicas never see them")
+				}
+				secret := cfg.Store.EncryptionSecret
+				if secret == "" {
+					logger.Warn().Msg("synaplan-opencloud: SYNAPLAN_STORE_ENCRYPTION_SECRET is not set; the offline tokens are encrypted with a key derived from the exchange client secret")
+					secret = cfg.OIDCExchangeSecret
+				}
+				keys, err := delegation.NewLocalKeys(append([]string{secret}, cfg.Store.EncryptionPreviousSecrets...)...)
+				if err != nil {
+					return fmt.Errorf("could not set up the delegation store key: %w", err)
+				}
+				store := delegation.NewSealedStore(inner, keys)
+				store.Unreadable = func(subject string, err error) {
+					logger.Warn().Err(err).Str("subject", subject).Msg("synaplan-opencloud: a kept offline token does not decrypt; that person has to allow again")
 				}
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
