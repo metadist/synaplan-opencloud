@@ -5,6 +5,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -29,10 +30,9 @@ type Store interface {
 	// Delete removes the token when its revision is still match. ok is
 	// false when the revision moved, and true when it was already gone.
 	Delete(subject string, match uint64) (ok bool, err error)
+	// Close ends the connection to the store, if there is one.
 	Close() error
 }
-
-const defaultBucket = "synaplan-delegation"
 
 // NATSConfig is how this service reaches the JetStream key-value store
 // OpenCloud already runs for its own services.
@@ -51,28 +51,35 @@ type NATSConfig struct {
 // the offline tokens. The bucket lives on NATS's own disk, so it survives
 // a restart of this service and of NATS.
 type NATSStore struct {
-	conn *nats.Conn
-	kv   nats.KeyValue
+	conn   *nats.Conn
+	js     nats.JetStreamContext
+	bucket string
+
+	mu sync.Mutex
+	kv nats.KeyValue
 }
 
-// NewNATS connects to OpenCloud's NATS and opens the bucket, creating it
-// on first use. JetStream file storage is the default, which is what
-// survives a restart; the bucket has no TTL, because a token stays until
-// the person disconnects.
+// NewNATS prepares the connection to OpenCloud's NATS. Like OpenCloud's own
+// services it does not wait for NATS: the connection is retried in the
+// background and the bucket is opened, or created, on first use, so this
+// service starts while NATS is still starting. JetStream file storage is the
+// default, which is what survives a restart; the bucket has no TTL, because
+// a token stays until the person disconnects.
 func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 	if len(cfg.Nodes) == 0 {
 		return nil, errors.New("delegation: nats-js-kv needs the address of OpenCloud's NATS")
 	}
 	if cfg.Bucket == "" {
-		cfg.Bucket = defaultBucket
+		return nil, errors.New("delegation: nats-js-kv needs a bucket")
 	}
 
 	options := nats.GetDefaultOptions()
-	options.Name = "synaplan-delegation"
+	options.Name = "synaplan-opencloud"
 	options.Servers = cfg.Nodes
 	options.Timeout = 5 * time.Second
 	options.MaxReconnect = -1
 	options.ReconnectWait = time.Second
+	options.RetryOnFailedConnect = true
 	if cfg.Username != "" {
 		options.User = cfg.Username
 		options.Password = cfg.Password
@@ -99,24 +106,39 @@ func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 		conn.Close()
 		return nil, fmt.Errorf("delegation: JetStream: %w", err)
 	}
-	kv, err := js.KeyValue(cfg.Bucket)
+	return &NATSStore{conn: conn, js: js, bucket: cfg.Bucket}, nil
+}
+
+// open returns the bucket, opening or creating it the first time NATS
+// answers.
+func (s *NATSStore) open() (nats.KeyValue, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.kv != nil {
+		return s.kv, nil
+	}
+	kv, err := s.js.KeyValue(s.bucket)
 	if errors.Is(err, nats.ErrBucketNotFound) {
-		kv, err = js.CreateKeyValue(&nats.KeyValueConfig{
-			Bucket:      cfg.Bucket,
+		kv, err = s.js.CreateKeyValue(&nats.KeyValueConfig{
+			Bucket:      s.bucket,
 			Description: "Offline tokens for Synaplan work while a person is away",
 			Storage:     nats.FileStorage,
 		})
 	}
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("delegation: opening the %s bucket: %w", cfg.Bucket, err)
+		return nil, fmt.Errorf("delegation: opening the %s bucket: %w", s.bucket, err)
 	}
-	return &NATSStore{conn: conn, kv: kv}, nil
+	s.kv = kv
+	return kv, nil
 }
 
 // Get reads the person's token.
 func (s *NATSStore) Get(subject string) (string, uint64, bool, error) {
-	entry, err := s.kv.Get(natsKey(subject))
+	kv, err := s.open()
+	if err != nil {
+		return "", 0, false, err
+	}
+	entry, err := kv.Get(natsKey(subject))
 	if errors.Is(err, nats.ErrKeyNotFound) || errors.Is(err, nats.ErrKeyDeleted) {
 		return "", 0, false, nil
 	}
@@ -131,18 +153,19 @@ func (s *NATSStore) Write(subject, token string, match uint64) (uint64, bool, er
 	if token == "" {
 		return 0, false, errors.New("delegation: refusing to store an empty offline token")
 	}
+	kv, err := s.open()
+	if err != nil {
+		return 0, false, err
+	}
 	key := natsKey(subject)
-	var (
-		rev uint64
-		err error
-	)
+	var rev uint64
 	if match == 0 {
-		rev, err = s.kv.Create(key, []byte(token))
+		rev, err = kv.Create(key, []byte(token))
 		if errors.Is(err, nats.ErrKeyExists) {
 			return 0, false, nil
 		}
 	} else {
-		rev, err = s.kv.Update(key, []byte(token), match)
+		rev, err = kv.Update(key, []byte(token), match)
 		if errors.Is(err, nats.ErrKeyRevisionMismatch) || errors.Is(err, nats.ErrKeyNotFound) {
 			return 0, false, nil
 		}
@@ -155,7 +178,11 @@ func (s *NATSStore) Write(subject, token string, match uint64) (uint64, bool, er
 
 // Delete removes the token when match is still current.
 func (s *NATSStore) Delete(subject string, match uint64) (bool, error) {
-	err := s.kv.Delete(natsKey(subject), nats.LastRevision(match))
+	kv, err := s.open()
+	if err != nil {
+		return false, err
+	}
+	err = kv.Delete(natsKey(subject), nats.LastRevision(match))
 	if errors.Is(err, nats.ErrKeyRevisionMismatch) {
 		return false, nil
 	}

@@ -82,9 +82,9 @@ type TokenManager struct {
 // The variable names are the ones OpenCloud services use for their own
 // persistent store, plus a SYNAPLAN_ alias.
 type PersistentStore struct {
-	Store                string   `yaml:"store" env:"OC_PERSISTENT_STORE;SYNAPLAN_STORE" desc:"Where the offline tokens of people who allowed work while away are kept. 'nats-js-kv' is OpenCloud's JetStream key-value store, shared by every replica of this service. 'memory' keeps them in this process, and a restart forgets them. Defaults to nats-js-kv when nodes are set, and to memory otherwise."`
-	Nodes                []string `yaml:"nodes" env:"OC_PERSISTENT_STORE_NODES;SYNAPLAN_STORE_NODES" desc:"Addresses of OpenCloud's NATS, as host:port. OpenCloud's NATS listens on port 9233. Empty keeps the tokens in memory. A comma-separated list when there is more than one."`
-	Database             string   `yaml:"database" env:"SYNAPLAN_STORE_DATABASE" desc:"JetStream key-value bucket for the offline tokens. Defaults to synaplan-delegation."`
+	Store                string   `yaml:"store" env:"OC_PERSISTENT_STORE;SYNAPLAN_STORE" desc:"Where the offline tokens of people who allowed work while away are kept. 'nats-js-kv' is OpenCloud's JetStream key-value store, shared by every replica of this service. 'memory' keeps them in this process: a restart forgets them and other replicas never see them."`
+	Nodes                []string `yaml:"nodes" env:"OC_PERSISTENT_STORE_NODES;SYNAPLAN_STORE_NODES" desc:"Addresses of OpenCloud's NATS, as host:port. A comma-separated list when there is more than one. Only applies when the store is nats-js-kv."`
+	Database             string   `yaml:"database" env:"SYNAPLAN_STORE_DATABASE" desc:"JetStream key-value bucket for the offline tokens."`
 	AuthUsername         string   `yaml:"username" env:"OC_PERSISTENT_STORE_AUTH_USERNAME;SYNAPLAN_STORE_AUTH_USERNAME" desc:"Username for OpenCloud's NATS. Only applies when the store is nats-js-kv."`
 	AuthPassword         string   `yaml:"password" env:"OC_PERSISTENT_STORE_AUTH_PASSWORD;SYNAPLAN_STORE_AUTH_PASSWORD" desc:"Password for OpenCloud's NATS. Only applies when the store is nats-js-kv."`
 	EnableTLS            bool     `yaml:"enable_tls" env:"OC_PERSISTENT_STORE_ENABLE_TLS;SYNAPLAN_STORE_ENABLE_TLS" desc:"Use TLS to reach OpenCloud's NATS. Only applies when the store is nats-js-kv."`

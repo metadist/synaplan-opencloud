@@ -86,8 +86,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if store != nil {
-					defer func() { _ = store.Close() }()
+				defer func() { _ = store.Close() }()
+				if cfg.Store.Store == "memory" {
+					logger.Warn().Msg("synaplan-opencloud: offline tokens are kept in memory; a restart forgets them and other replicas never see them")
 				}
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
@@ -188,20 +189,12 @@ func identityProviderClient(insecure bool) *stdhttp.Client {
 	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
 }
 
-// delegationStore is OpenCloud's NATS key-value store when its address is
-// set, and nil when the tokens stay in this process. memory forces that
-// even if an address is set.
+// delegationStore is the store the configuration names. There is no
+// fallback: a store that is not supported stops the service.
 func delegationStore(cfg *config.Config) (delegation.Store, error) {
-	kind := cfg.Store.Store
-	if kind == "" {
-		if len(cfg.Store.Nodes) == 0 {
-			return nil, nil
-		}
-		kind = "nats-js-kv"
-	}
-	switch kind {
+	switch cfg.Store.Store {
 	case "memory":
-		return nil, nil
+		return delegation.NewMemoryStore(), nil
 	case "nats-js-kv":
 		store, err := delegation.NewNATS(delegation.NATSConfig{
 			Nodes:     cfg.Store.Nodes,
@@ -217,6 +210,6 @@ func delegationStore(cfg *config.Config) (delegation.Store, error) {
 		}
 		return store, nil
 	default:
-		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported (nats-js-kv or memory)", kind)
+		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported, use nats-js-kv or memory (SYNAPLAN_STORE)", cfg.Store.Store)
 	}
 }

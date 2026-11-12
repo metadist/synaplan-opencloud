@@ -28,6 +28,11 @@ func DefaultConfig() *config.Config {
 			Name: "synaplan",
 		},
 		RevaGateway: shared.DefaultRevaConfig().Address,
+		Store: config.PersistentStore{
+			Store:    "nats-js-kv",
+			Nodes:    []string{"127.0.0.1:9233"},
+			Database: "synaplan-delegation",
+		},
 		HTTP: config.HTTP{
 			Addr:      "127.0.0.1:9106",
 			Root:      "/api/synaplan",
@@ -49,9 +54,6 @@ func DefaultConfig() *config.Config {
 func EnsureDefaults(cfg *config.Config) {
 	if cfg.TokenManager == nil {
 		cfg.TokenManager = &config.TokenManager{}
-	}
-	if cfg.Store.Database == "" {
-		cfg.Store.Database = "synaplan-delegation"
 	}
 }
 
