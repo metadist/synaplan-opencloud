@@ -22,6 +22,22 @@ func TestCopyLimitDefaultsToCloudflareAndCanRise(t *testing.T) {
 	}
 }
 
+func TestFromSynaplanRefusesSharedKey(t *testing.T) {
+	h := &Handler{}
+	h.UseSharedKey()
+	rr := httptest.NewRecorder()
+	h.ListSynaplanFiles(rr, httptest.NewRequest(http.MethodGet, "/api/synaplan/from-synaplan", nil))
+	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"shared_key"`) {
+		t.Fatalf("list status = %d, body %s", rr.Code, rr.Body.String())
+	}
+	rr = httptest.NewRecorder()
+	body := `{"fileId":1,"folderId":"s!f","name":"a.txt"}`
+	h.CopyFromSynaplan(rr, httptest.NewRequest(http.MethodPost, "/api/synaplan/from-synaplan", strings.NewReader(body)))
+	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"shared_key"`) {
+		t.Fatalf("copy status = %d, body %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestCopyFromSynaplanRejectsBadInput(t *testing.T) {
 	cases := []struct {
 		name, body, want string

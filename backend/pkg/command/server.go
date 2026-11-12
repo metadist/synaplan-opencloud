@@ -118,6 +118,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
 			h.SetMaxCopyBytes(cfg.MaxCopyBytes)
+			if cfg.SynaplanAPIKey != "" {
+				h.UseSharedKey()
+			}
 
 			mux := chi.NewMux()
 			mux.Use(

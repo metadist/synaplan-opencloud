@@ -9,6 +9,10 @@ describe('sentenceFor', () => {
     ['file_empty', 'This file is empty.'],
     ['translation_unavailable', 'This Synaplan cannot translate a file. Ask your administrator.'],
     ['file_too_large', 'This file is too large to copy here.'],
+    [
+      'shared_key',
+      'From Synaplan needs each person signed in to Synaplan. This installation uses one shared key.'
+    ],
     ['copy_failed', 'The file was not copied. It is still in Synaplan.'],
     [
       'synaplan_unreachable',

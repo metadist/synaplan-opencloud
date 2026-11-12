@@ -97,7 +97,7 @@ For single-tenant deployments where Synaplan and OpenCloud don't share an identi
 | `SYNAPLAN_URL` | Base URL of the Synaplan instance. |
 | `SYNAPLAN_API_KEY` | Synaplan API key (`sk_…`). Sent as `X-API-Key` on every outbound call. |
 
-**Caveat:** in this mode every call to Synaplan looks like the same user. There is no per-user identity, no per-OC-user audit trail, no per-user quotas, and you cannot revoke access for an individual OpenCloud user without revoking the key for everyone. Prefer Mode A unless you understand and accept these tradeoffs.
+**Caveat:** in this mode every call to Synaplan looks like the same user. There is no per-user identity, no per-OC-user audit trail, no per-user quotas, and you cannot revoke access for an individual OpenCloud user without revoking the key for everyone. "From Synaplan" is closed in this mode: the file list would be the key owner's files, and any signed-in OpenCloud user could copy them. Prefer Mode A unless you understand and accept these tradeoffs.
 
 When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` variables are ignored.
 

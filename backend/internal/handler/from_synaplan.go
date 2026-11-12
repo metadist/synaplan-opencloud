@@ -30,6 +30,20 @@ func (h *Handler) SetMaxCopyBytes(n int64) {
 	}
 }
 
+// refuseSharedKey reports that From Synaplan is closed. With one
+// shared key the list is the key owner's files, and any signed-in
+// OpenCloud user could read and copy them.
+func (h *Handler) refuseSharedKey(w http.ResponseWriter) bool {
+	if h == nil || !h.sharedKey {
+		return false
+	}
+	writeJSON(w, http.StatusForbidden, errorResponse{
+		Error: "From Synaplan needs each person signed in to Synaplan. This installation uses one shared key.",
+		Code:  "shared_key",
+	})
+	return true
+}
+
 func (h *Handler) copyLimit() int64 {
 	if h != nil && h.maxCopyBytes > 0 {
 		return h.maxCopyBytes
@@ -44,6 +58,9 @@ const synaplanFilesPerPage = 50
 // ListSynaplanFiles is one page of the person's own files in Synaplan,
 // newest first, for "From Synaplan".
 func (h *Handler) ListSynaplanFiles(w http.ResponseWriter, r *http.Request) {
+	if h.refuseSharedKey(w) {
+		return
+	}
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil || page < 1 {
 		page = 1
@@ -98,6 +115,9 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 		return
 	case name == "" || name == "." || name == ".." || name == "/":
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "name is required"})
+		return
+	}
+	if h.refuseSharedKey(w) {
 		return
 	}
 	if h.cs3 == nil {

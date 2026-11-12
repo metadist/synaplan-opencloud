@@ -76,16 +76,22 @@ func (h *Handler) SaveToSpace(w http.ResponseWriter, r *http.Request) {
 
 // saveText is the one write of a text result. A source file selects
 // its own folder; otherwise the personal Synaplan folder is the target.
-// Both end in SaveChild.
+// Both end in SaveChild. A folder the person cannot write, such as a
+// read-only share, falls back to the personal Synaplan folder. The
+// path in the response is where the file landed.
 func (h *Handler) saveText(ctx context.Context, name string, text []byte, resourceID string) (string, error) {
-	if resourceID == "" {
-		return h.cs3.Save(ctx, name, text)
+	if resourceID != "" {
+		folderID, err := h.cs3.ParentFolderID(ctx, resourceID)
+		if err == nil {
+			saved, saveErr := h.cs3.SaveChild(ctx, folderID, name, text)
+			if saveErr == nil {
+				return saved, nil
+			}
+			err = saveErr
+		}
+		log.Printf("save beside source: %v", err)
 	}
-	folderID, err := h.cs3.ParentFolderID(ctx, resourceID)
-	if err != nil {
-		return "", err
-	}
-	return h.cs3.SaveChild(ctx, folderID, name, text)
+	return h.cs3.Save(ctx, name, text)
 }
 
 func cleanSavedName(raw string) (string, string) {

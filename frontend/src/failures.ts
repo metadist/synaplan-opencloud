@@ -29,6 +29,10 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext('This file is too large to copy here.')
     case 'copy_failed':
       return $gettext('The file was not copied. It is still in Synaplan.')
+    case 'shared_key':
+      return $gettext(
+        'From Synaplan needs each person signed in to Synaplan. This installation uses one shared key.'
+      )
     case 'synaplan_unreachable':
       return $gettext(
         'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
