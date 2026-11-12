@@ -79,6 +79,11 @@ func (s *SealedStore) Delete(ctx context.Context, subject string, match uint64) 
 	return s.inner.Delete(ctx, subject, match)
 }
 
+// Lease takes the lease of the store underneath.
+func (s *SealedStore) Lease(ctx context.Context, subject string) (func(context.Context), error) {
+	return s.inner.Lease(ctx, subject)
+}
+
 // Close closes the store underneath.
 func (s *SealedStore) Close() error { return s.inner.Close() }
 

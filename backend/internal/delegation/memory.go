@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -13,6 +14,7 @@ import (
 type MemoryStore struct {
 	mu      sync.Mutex
 	entries map[string]memoryEntry
+	leases  map[string]chan struct{}
 }
 
 type memoryEntry struct {
@@ -22,7 +24,7 @@ type memoryEntry struct {
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{entries: map[string]memoryEntry{}}
+	return &MemoryStore{entries: map[string]memoryEntry{}, leases: map[string]chan struct{}{}}
 }
 
 // Get reads the person's token.
@@ -64,6 +66,24 @@ func (s *MemoryStore) Delete(_ context.Context, subject string, match uint64) (b
 	}
 	delete(s.entries, subject)
 	return true, nil
+}
+
+// Lease holds subject until release is called, waiting while another
+// caller holds it.
+func (s *MemoryStore) Lease(ctx context.Context, subject string) (func(context.Context), error) {
+	s.mu.Lock()
+	lease, ok := s.leases[subject]
+	if !ok {
+		lease = make(chan struct{}, 1)
+		s.leases[subject] = lease
+	}
+	s.mu.Unlock()
+	select {
+	case lease <- struct{}{}:
+		return func(context.Context) { <-lease }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("delegation: waiting for a lease: %w", ctx.Err())
+	}
 }
 
 // Close does nothing; there is no connection to end.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/metadist/synaplan-opencloud/internal/idp"
@@ -19,7 +20,10 @@ func (s failingStore) Write(context.Context, string, string, uint64) (uint64, bo
 	return 0, false, s.err
 }
 func (s failingStore) Delete(context.Context, string, uint64) (bool, error) { return false, s.err }
-func (s failingStore) Close() error                                         { return nil }
+func (s failingStore) Lease(context.Context, string) (func(context.Context), error) {
+	return nil, s.err
+}
+func (s failingStore) Close() error { return nil }
 
 func withStore(f *fakeIdP, store Store, failed *[]error) *Delegation {
 	return New(Config{
@@ -263,4 +267,37 @@ func TestMemoryStoreRevisions(t *testing.T) {
 func seed(s *MemoryStore) uint64 {
 	rev, _, _ := s.Write(context.Background(), "ada", "t1", 0)
 	return rev
+}
+
+func TestReplicasRefreshingAtOnceDoNotEndTheSession(t *testing.T) {
+	idp := newIdP(t, "ada", false)
+	idp.singleUse = true
+	store := NewMemoryStore()
+	var failed []error
+	if err := connect(t, withStore(idp, store, &failed), "ada"); err != nil {
+		t.Fatal(err)
+	}
+
+	replicas := []*Delegation{withStore(idp, store, &failed), withStore(idp, store, &failed), withStore(idp, store, &failed)}
+	errs := make(chan error, len(replicas))
+	var wg sync.WaitGroup
+	for _, d := range replicas {
+		wg.Go(func() {
+			_, err := d.Token(context.Background(), "ada", "synaplan-app")
+			errs <- err
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("a replica failed: %v", err)
+		}
+	}
+	idp.mu.Lock()
+	ended := idp.refuse
+	idp.mu.Unlock()
+	if ended {
+		t.Fatal("two replicas refreshed the same token and ended the session")
+	}
 }

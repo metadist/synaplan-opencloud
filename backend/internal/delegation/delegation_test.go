@@ -27,7 +27,11 @@ type fakeIdP struct {
 	refuse  bool
 	// dead refresh tokens are answered with invalid_grant. A nil map
 	// refuses none.
-	dead      map[string]bool
+	dead map[string]bool
+	// singleUse answers a refresh token used a second time by ending the
+	// whole session, as Keycloak does with "Revoke Refresh Token" on.
+	singleUse bool
+	used      map[string]bool
 	revokeURL string
 	mu        sync.Mutex
 	issued    int
@@ -65,6 +69,15 @@ func newIdP(t *testing.T, codeSub string, refuse bool) *fakeIdP {
 		switch r.Form.Get("grant_type") {
 		case "refresh_token":
 			f.refreshed = append(f.refreshed, r.Form.Get("refresh_token"))
+			if f.singleUse {
+				if f.used[r.Form.Get("refresh_token")] {
+					f.refuse = true
+				}
+				if f.used == nil {
+					f.used = map[string]bool{}
+				}
+				f.used[r.Form.Get("refresh_token")] = true
+			}
 			if f.refuse || f.dead[r.Form.Get("refresh_token")] {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))

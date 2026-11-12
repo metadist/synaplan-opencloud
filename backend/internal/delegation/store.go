@@ -32,6 +32,10 @@ type Store interface {
 	// Delete removes the token when its revision is still match. ok is
 	// false when the revision moved, and true when it was already gone.
 	Delete(ctx context.Context, subject string, match uint64) (ok bool, err error)
+	// Lease holds subject exclusively across every replica until release
+	// is called, waiting while another holder has it. A lease that is never
+	// released, by a replica that died, lapses after leaseTTL.
+	Lease(ctx context.Context, subject string) (release func(context.Context), err error)
 	// Close ends the connection to the store, if there is one.
 	Close() error
 }
@@ -204,6 +208,57 @@ func (s *NATSStore) Close() error {
 	}
 	s.conn.Close()
 	return nil
+}
+
+// leaseTTL bounds how long a lease whose holder never released it blocks
+// the person: longer than one refresh and its store write take.
+const leaseTTL = 30 * time.Second
+
+// leasePoll is how often a waiting replica looks at a held lease again.
+const leasePoll = 100 * time.Millisecond
+
+// Lease takes the person's lease key in the bucket. A held lease is waited
+// for; one older than leaseTTL is taken over at its revision, so only one
+// waiter wins it.
+func (s *NATSStore) Lease(ctx context.Context, subject string) (func(context.Context), error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := "lease." + natsKey(subject)
+	for {
+		rev, err := kv.Create(ctx, key, []byte("held"))
+		if err == nil {
+			return releaser(kv, key, rev), nil
+		}
+		if !errors.Is(err, jetstream.ErrKeyExists) {
+			return nil, fmt.Errorf("delegation: taking a lease: %w", err)
+		}
+		entry, err := kv.Get(ctx, key)
+		switch {
+		case errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted):
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("delegation: reading a lease: %w", err)
+		case time.Since(entry.Created()) > leaseTTL:
+			if rev, err := kv.Update(ctx, key, []byte("held"), entry.Revision()); err == nil {
+				return releaser(kv, key, rev), nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("delegation: waiting for a lease: %w", ctx.Err())
+		case <-time.After(leasePoll):
+		}
+	}
+}
+
+// releaser deletes the lease only while it is still the one taken, so a
+// lease another replica took over after it lapsed stays.
+func releaser(kv jetstream.KeyValue, key string, rev uint64) func(context.Context) {
+	return func(ctx context.Context) {
+		_ = kv.Delete(ctx, key, jetstream.LastRevision(rev))
+	}
 }
 
 // natsKey encodes subject so it is one NATS key. A subject may contain

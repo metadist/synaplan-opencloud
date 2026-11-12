@@ -231,33 +231,18 @@ func (d *Delegation) Token(ctx context.Context, subject, audience string) (strin
 		if token, hit := d.cachedToken(key, rev); hit {
 			return token, nil
 		}
-		refreshed, err := d.tokenRequest(ctx, url.Values{
-			"grant_type":    {"refresh_token"},
-			"refresh_token": {offline},
-		})
-		var rejected *rejectedError
-		if errors.As(err, &rejected) {
-			gone, ferr := d.forgetStale(ctx, subject, rev)
-			if ferr != nil {
-				return "", ferr
-			}
-			if gone {
-				return "", ErrNotConnected
-			}
-			continue
+		release, err := d.cfg.Store.Lease(ctx, subject)
+		if err != nil {
+			d.storeFailed(err)
+			return "", fmt.Errorf("%w: %w", ErrUnavailable, err)
 		}
+		refreshed, cacheRev, cache, retry, err := d.refresh(ctx, subject, offline, rev)
+		release(context.WithoutCancel(ctx))
 		if err != nil {
 			return "", err
 		}
-		if got := Subject(refreshed.AccessToken); got != subject {
-			return "", fmt.Errorf("delegation: refreshed token belongs to %q, not to %q", got, subject)
-		}
-		cacheRev, cache := rev, true
-		if refreshed.RefreshToken != "" && refreshed.RefreshToken != offline {
-			cacheRev, cache, err = d.keep(ctx, subject, refreshed.RefreshToken, rev)
-			if err != nil {
-				return "", err
-			}
+		if retry {
+			continue
 		}
 		exchanged, err := d.tokenRequest(ctx, url.Values{
 			"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
@@ -278,6 +263,53 @@ func (d *Delegation) Token(ctx context.Context, subject, audience string) (strin
 
 // cachedToken is an access token exchanged from the offline token at
 // revision, while it is still valid.
+// refresh redeems offline, read at rev, while subject's lease is held, and
+// keeps the rotated token. retry means another replica refreshed first or
+// the refused token was already replaced: read again. Holding the lease
+// keeps two replicas from refreshing the same token, which an identity
+// provider that revokes used refresh tokens answers by ending the session.
+func (d *Delegation) refresh(ctx context.Context, subject, offline string, rev uint64) (refreshed *tokenResponse, cacheRev uint64, cache, retry bool, err error) {
+	_, latest, ok, err := d.current(ctx, subject)
+	if err != nil {
+		return nil, 0, false, false, err
+	}
+	if !ok {
+		return nil, 0, false, false, ErrNotConnected
+	}
+	if latest != rev {
+		return nil, 0, false, true, nil
+	}
+	refreshed, err = d.tokenRequest(ctx, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {offline},
+	})
+	var rejected *rejectedError
+	if errors.As(err, &rejected) {
+		gone, err := d.forgetStale(ctx, subject, rev)
+		if err != nil {
+			return nil, 0, false, false, err
+		}
+		if gone {
+			return nil, 0, false, false, ErrNotConnected
+		}
+		return nil, 0, false, true, nil
+	}
+	if err != nil {
+		return nil, 0, false, false, err
+	}
+	if got := Subject(refreshed.AccessToken); got != subject {
+		return nil, 0, false, false, fmt.Errorf("delegation: refreshed token belongs to %q, not to %q", got, subject)
+	}
+	cacheRev, cache = rev, true
+	if refreshed.RefreshToken != "" && refreshed.RefreshToken != offline {
+		cacheRev, cache, err = d.keep(ctx, subject, refreshed.RefreshToken, rev)
+		if err != nil {
+			return nil, 0, false, false, err
+		}
+	}
+	return refreshed, cacheRev, cache, false, nil
+}
+
 func (d *Delegation) cachedToken(key string, revision uint64) (string, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
