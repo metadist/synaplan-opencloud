@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -60,8 +61,8 @@ func TestAForgedBearerReachesNobodyElsesPermission(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	h.DelegationDisconnect(rec, httptest.NewRequestWithContext(eveWithAdasName, http.MethodDelete, "/api/synaplan/delegation", nil))
-	if rec.Code != http.StatusBadGateway || !h.delegation.Connected("ada") || len(idp.revokedTokens()) != 0 {
-		t.Fatalf("disconnect with a forged bearer: status %d, ada connected %v", rec.Code, h.delegation.Connected("ada"))
+	if rec.Code != http.StatusBadGateway || !h.delegation.Connected(context.Background(), "ada") || len(idp.revokedTokens()) != 0 {
+		t.Fatalf("disconnect with a forged bearer: status %d, ada connected %v", rec.Code, h.delegation.Connected(context.Background(), "ada"))
 	}
 }
 
@@ -83,7 +84,7 @@ func TestDelegationConnectRefuses(t *testing.T) {
 			if rec.Code != tc.want {
 				t.Fatalf("status %d %s, want %d", rec.Code, rec.Body, tc.want)
 			}
-			if h.delegation.Connected("ada") {
+			if h.delegation.Connected(context.Background(), "ada") {
 				t.Fatal("connected anyway")
 			}
 		})

@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hkdf"
@@ -19,9 +20,9 @@ import (
 // changing the stored format.
 type KeyWrapper interface {
 	// Wrap encrypts dek and names the key it used.
-	Wrap(dek, aad []byte) (keyID string, wrapped []byte, err error)
+	Wrap(ctx context.Context, dek, aad []byte) (keyID string, wrapped []byte, err error)
 	// Unwrap decrypts dek with the key named keyID.
-	Unwrap(keyID string, wrapped, aad []byte) ([]byte, error)
+	Unwrap(ctx context.Context, keyID string, wrapped, aad []byte) ([]byte, error)
 }
 
 // SealedStore encrypts every token before it reaches the store underneath,
@@ -46,12 +47,12 @@ func NewSealedStore(inner Store, keys KeyWrapper) *SealedStore {
 }
 
 // Get reads and decrypts the person's token.
-func (s *SealedStore) Get(subject string) (string, uint64, bool, error) {
-	value, rev, ok, err := s.inner.Get(subject)
+func (s *SealedStore) Get(ctx context.Context, subject string) (string, uint64, bool, error) {
+	value, rev, ok, err := s.inner.Get(ctx, subject)
 	if err != nil || !ok {
 		return "", rev, ok, err
 	}
-	token, err := s.open(subject, value)
+	token, err := s.open(ctx, subject, value)
 	if err != nil {
 		if s.Unreadable != nil {
 			s.Unreadable(subject, err)
@@ -62,20 +63,20 @@ func (s *SealedStore) Get(subject string) (string, uint64, bool, error) {
 }
 
 // Write encrypts the token and stores it when match is still current.
-func (s *SealedStore) Write(subject, token string, match uint64) (uint64, bool, error) {
+func (s *SealedStore) Write(ctx context.Context, subject, token string, match uint64) (uint64, bool, error) {
 	if token == "" {
 		return 0, false, errors.New("delegation: refusing to store an empty offline token")
 	}
-	value, err := s.seal(subject, token)
+	value, err := s.seal(ctx, subject, token)
 	if err != nil {
 		return 0, false, err
 	}
-	return s.inner.Write(subject, value, match)
+	return s.inner.Write(ctx, subject, value, match)
 }
 
 // Delete removes the token when match is still current.
-func (s *SealedStore) Delete(subject string, match uint64) (bool, error) {
-	return s.inner.Delete(subject, match)
+func (s *SealedStore) Delete(ctx context.Context, subject string, match uint64) (bool, error) {
+	return s.inner.Delete(ctx, subject, match)
 }
 
 // Close closes the store underneath.
@@ -86,13 +87,13 @@ func sealedAAD(subject string) []byte {
 }
 
 // seal is "v1.<key id>.<wrapped data key>.<nonce and ciphertext>".
-func (s *SealedStore) seal(subject, token string) (string, error) {
+func (s *SealedStore) seal(ctx context.Context, subject, token string) (string, error) {
 	aad := sealedAAD(subject)
 	dek := make([]byte, 32)
 	if _, err := rand.Read(dek); err != nil {
 		return "", fmt.Errorf("delegation: data key: %w", err)
 	}
-	keyID, wrapped, err := s.keys.Wrap(dek, aad)
+	keyID, wrapped, err := s.keys.Wrap(ctx, dek, aad)
 	if err != nil {
 		return "", fmt.Errorf("delegation: wrapping the data key: %w", err)
 	}
@@ -104,7 +105,7 @@ func (s *SealedStore) seal(subject, token string) (string, error) {
 	return strings.Join([]string{sealedVersion, keyID, enc.EncodeToString(wrapped), enc.EncodeToString(sealed)}, "."), nil
 }
 
-func (s *SealedStore) open(subject, value string) (string, error) {
+func (s *SealedStore) open(ctx context.Context, subject, value string) (string, error) {
 	parts := strings.Split(value, ".")
 	if len(parts) != 4 || parts[0] != sealedVersion {
 		return "", errors.New("delegation: not a sealed value")
@@ -119,7 +120,7 @@ func (s *SealedStore) open(subject, value string) (string, error) {
 		return "", fmt.Errorf("delegation: sealed token: %w", err)
 	}
 	aad := sealedAAD(subject)
-	dek, err := s.keys.Unwrap(parts[1], wrapped, aad)
+	dek, err := s.keys.Unwrap(ctx, parts[1], wrapped, aad)
 	if err != nil {
 		return "", err
 	}
@@ -166,13 +167,13 @@ func NewLocalKeys(secrets ...string) (*LocalKeys, error) {
 }
 
 // Wrap encrypts dek with the current key.
-func (l *LocalKeys) Wrap(dek, aad []byte) (string, []byte, error) {
+func (l *LocalKeys) Wrap(_ context.Context, dek, aad []byte) (string, []byte, error) {
 	wrapped, err := gcmSeal(l.keys[l.current], dek, aad)
 	return l.current, wrapped, err
 }
 
 // Unwrap decrypts dek with the key named keyID.
-func (l *LocalKeys) Unwrap(keyID string, wrapped, aad []byte) ([]byte, error) {
+func (l *LocalKeys) Unwrap(_ context.Context, keyID string, wrapped, aad []byte) ([]byte, error) {
 	key, ok := l.keys[keyID]
 	if !ok {
 		return nil, fmt.Errorf("delegation: no key %s to unwrap with", keyID)

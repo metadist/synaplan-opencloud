@@ -12,10 +12,14 @@ import (
 // failingStore is a store that cannot be reached.
 type failingStore struct{ err error }
 
-func (s failingStore) Get(string) (string, uint64, bool, error)           { return "", 0, false, s.err }
-func (s failingStore) Write(string, string, uint64) (uint64, bool, error) { return 0, false, s.err }
-func (s failingStore) Delete(string, uint64) (bool, error)                { return false, s.err }
-func (s failingStore) Close() error                                       { return nil }
+func (s failingStore) Get(context.Context, string) (string, uint64, bool, error) {
+	return "", 0, false, s.err
+}
+func (s failingStore) Write(context.Context, string, string, uint64) (uint64, bool, error) {
+	return 0, false, s.err
+}
+func (s failingStore) Delete(context.Context, string, uint64) (bool, error) { return false, s.err }
+func (s failingStore) Close() error                                         { return nil }
 
 func withStore(f *fakeIdP, store Store, failed *[]error) *Delegation {
 	return New(Config{
@@ -37,7 +41,7 @@ func TestAConnectedPersonStaysConnectedAcrossARestart(t *testing.T) {
 	}
 
 	restarted := withStore(idp, store, &failed)
-	if !restarted.Connected("ada") {
+	if !restarted.Connected(context.Background(), "ada") {
 		t.Fatal("the restart forgot the person")
 	}
 	if _, err := restarted.Token(context.Background(), "ada", "synaplan-app"); err != nil {
@@ -58,7 +62,7 @@ func TestAConnectedPersonStaysConnectedAcrossARestart(t *testing.T) {
 	if err := again.Disconnect(context.Background(), "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if withStore(idp, store, &failed).Connected("ada") {
+	if withStore(idp, store, &failed).Connected(context.Background(), "ada") {
 		t.Fatal("a disconnected person came back after a restart")
 	}
 	if len(failed) != 0 {
@@ -82,13 +86,13 @@ func TestPeopleDoNotOverwriteEachOther(t *testing.T) {
 	}
 
 	second := withStore(idp, store, &failed)
-	if !second.Connected("ada") || !second.Connected("bob") {
+	if !second.Connected(context.Background(), "ada") || !second.Connected(context.Background(), "bob") {
 		t.Fatal("a second replica cannot see both people")
 	}
 	if err := second.Disconnect(context.Background(), "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if first.Connected("ada") || !first.Connected("bob") {
+	if first.Connected(context.Background(), "ada") || !first.Connected(context.Background(), "bob") {
 		t.Fatal("removing one person removed the other")
 	}
 	if len(failed) != 0 {
@@ -115,11 +119,11 @@ func TestALostRevisionDoesNotDropTheOtherReplicasToken(t *testing.T) {
 	if _, refreshed, _ := idp.state(); len(refreshed) < 2 || refreshed[0] != "offline-1" || refreshed[1] != "offline-9" {
 		t.Fatalf("refreshed with %v, want offline-1 refused and then offline-9", refreshed)
 	}
-	kept, _, ok, err := store.Get("ada")
+	kept, _, ok, err := store.Get(context.Background(), "ada")
 	if err != nil || !ok || kept != "offline-2" {
 		t.Fatalf("kept %q ok %v err %v, want the refresh of the other replica's token", kept, ok, err)
 	}
-	if !withStore(idp, store, &failed).Connected("ada") {
+	if !withStore(idp, store, &failed).Connected(context.Background(), "ada") {
 		t.Fatal("the lost revision disconnected the person")
 	}
 }
@@ -131,15 +135,15 @@ type rotateOnDelete struct {
 	armed bool
 }
 
-func (s *rotateOnDelete) Delete(subject string, match uint64) (bool, error) {
+func (s *rotateOnDelete) Delete(ctx context.Context, subject string, match uint64) (bool, error) {
 	if s.armed {
 		s.armed = false
-		if _, ok, err := s.Write(subject, "offline-9", match); err != nil || !ok {
+		if _, ok, err := s.Write(ctx, subject, "offline-9", match); err != nil || !ok {
 			return false, errors.New("the other replica could not store its token")
 		}
 		return false, nil
 	}
-	return s.MemoryStore.Delete(subject, match)
+	return s.MemoryStore.Delete(ctx, subject, match)
 }
 
 func TestALostWriteDoesNotReplaceTheWinningToken(t *testing.T) {
@@ -153,7 +157,7 @@ func TestALostWriteDoesNotReplaceTheWinningToken(t *testing.T) {
 	if _, err := d.Token(context.Background(), "ada", "synaplan-app"); err != nil {
 		t.Fatal(err)
 	}
-	kept, _, ok, err := store.Get("ada")
+	kept, _, ok, err := store.Get(context.Background(), "ada")
 	if err != nil || !ok || kept != "offline-1" {
 		t.Fatalf("kept %q ok %v err %v, want the token that won", kept, ok, err)
 	}
@@ -165,11 +169,11 @@ type rejectReplace struct {
 	*MemoryStore
 }
 
-func (s *rejectReplace) Write(subject, token string, match uint64) (uint64, bool, error) {
+func (s *rejectReplace) Write(ctx context.Context, subject, token string, match uint64) (uint64, bool, error) {
 	if match != 0 {
 		return 0, false, nil
 	}
-	return s.MemoryStore.Write(subject, token, match)
+	return s.MemoryStore.Write(ctx, subject, token, match)
 }
 
 func TestAStoreThatFailsDoesNotPretendThePersonIsConnected(t *testing.T) {
@@ -178,8 +182,8 @@ func TestAStoreThatFailsDoesNotPretendThePersonIsConnected(t *testing.T) {
 	var failed []error
 	d := withStore(idp, store, &failed)
 	err := connect(t, d, "ada")
-	if !errors.Is(err, ErrUnavailable) || d.Connected("ada") || len(failed) == 0 {
-		t.Fatalf("err %v, connected %v, failures %d", err, d.Connected("ada"), len(failed))
+	if !errors.Is(err, ErrUnavailable) || d.Connected(context.Background(), "ada") || len(failed) == 0 {
+		t.Fatalf("err %v, connected %v, failures %d", err, d.Connected(context.Background(), "ada"), len(failed))
 	}
 }
 
@@ -214,7 +218,7 @@ func TestARefreshForSomeoneElseIsNotKept(t *testing.T) {
 	if _, err := d.Token(context.Background(), "ada", "synaplan-app"); err == nil {
 		t.Fatal("a token for eve was used for ada")
 	}
-	if kept, _, _, _ := store.Get("ada"); kept != "offline-1" {
+	if kept, _, _, _ := store.Get(context.Background(), "ada"); kept != "offline-1" {
 		t.Fatalf("kept %q, want ada's own offline-1", kept)
 	}
 }
@@ -237,7 +241,7 @@ func TestMemoryStoreRevisions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewMemoryStore()
 			rev := tc.setup(s)
-			if _, ok, err := s.Write("ada", tc.write, tc.match(rev)); err != nil || ok != tc.want {
+			if _, ok, err := s.Write(context.Background(), "ada", tc.write, tc.match(rev)); err != nil || ok != tc.want {
 				t.Fatalf("ok %v err %v, want %v", ok, err, tc.want)
 			}
 		})
@@ -245,18 +249,18 @@ func TestMemoryStoreRevisions(t *testing.T) {
 
 	s := NewMemoryStore()
 	rev := seed(s)
-	if ok, _ := s.Delete("ada", rev+1); ok {
+	if ok, _ := s.Delete(context.Background(), "ada", rev+1); ok {
 		t.Fatal("a stale revision deleted the token")
 	}
-	if ok, _ := s.Delete("ada", rev); !ok {
+	if ok, _ := s.Delete(context.Background(), "ada", rev); !ok {
 		t.Fatal("the read revision did not delete the token")
 	}
-	if _, _, ok, _ := s.Get("ada"); ok {
+	if _, _, ok, _ := s.Get(context.Background(), "ada"); ok {
 		t.Fatal("the token is still there")
 	}
 }
 
 func seed(s *MemoryStore) uint64 {
-	rev, _, _ := s.Write("ada", "t1", 0)
+	rev, _, _ := s.Write(context.Background(), "ada", "t1", 0)
 	return rev
 }

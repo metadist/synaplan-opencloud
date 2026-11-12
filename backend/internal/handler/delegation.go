@@ -63,7 +63,7 @@ func (h *Handler) DelegationStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"available":         true,
-		"connected":         h.delegation.Connected(sub),
+		"connected":         h.delegation.Connected(r.Context(), sub),
 		"clientId":          clientID,
 		"authorizeEndpoint": endpoint,
 	})

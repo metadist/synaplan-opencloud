@@ -35,9 +35,9 @@ func TestSealedStore(t *testing.T) {
 		{
 			name: "a value copied to another person does not read",
 			before: func(inner *MemoryStore) {
-				eve, _, _, _ := inner.Get("eve")
-				_, rev, _, _ := inner.Get("ada")
-				_, _, _ = inner.Write("ada", eve, rev)
+				eve, _, _, _ := inner.Get(context.Background(), "eve")
+				_, rev, _, _ := inner.Get(context.Background(), "ada")
+				_, _, _ = inner.Write(context.Background(), "ada", eve, rev)
 			},
 			readWith:   []string{"one"},
 			unreadable: true,
@@ -45,8 +45,8 @@ func TestSealedStore(t *testing.T) {
 		{
 			name: "a value that was never sealed does not read",
 			before: func(inner *MemoryStore) {
-				_, rev, _, _ := inner.Get("ada")
-				_, _, _ = inner.Write("ada", "offline-plain", rev)
+				_, rev, _, _ := inner.Get(context.Background(), "ada")
+				_, _, _ = inner.Write(context.Background(), "ada", "offline-plain", rev)
 			},
 			readWith:   []string{"one"},
 			unreadable: true,
@@ -56,17 +56,17 @@ func TestSealedStore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			inner := NewMemoryStore()
 			writer, _ := sealedWith(t, inner, "one")
-			if _, ok, err := writer.Write("ada", "offline-1", 0); err != nil || !ok {
+			if _, ok, err := writer.Write(context.Background(), "ada", "offline-1", 0); err != nil || !ok {
 				t.Fatalf("write: ok %v err %v", ok, err)
 			}
-			if _, ok, err := writer.Write("eve", "offline-eve", 0); err != nil || !ok {
+			if _, ok, err := writer.Write(context.Background(), "eve", "offline-eve", 0); err != nil || !ok {
 				t.Fatalf("write: ok %v err %v", ok, err)
 			}
 			if tc.before != nil {
 				tc.before(inner)
 			}
 			reader, unreadable := sealedWith(t, inner, tc.readWith...)
-			got, _, ok, err := reader.Get("ada")
+			got, _, ok, err := reader.Get(context.Background(), "ada")
 			if err != nil || !ok {
 				t.Fatalf("get: ok %v err %v", ok, err)
 			}
@@ -80,10 +80,10 @@ func TestSealedStore(t *testing.T) {
 func TestSealedStoreKeepsNothingReadable(t *testing.T) {
 	inner := NewMemoryStore()
 	s, _ := sealedWith(t, inner, "one")
-	if _, _, err := s.Write("ada", "offline-1", 0); err != nil {
+	if _, _, err := s.Write(context.Background(), "ada", "offline-1", 0); err != nil {
 		t.Fatal(err)
 	}
-	raw, _, _, _ := inner.Get("ada")
+	raw, _, _, _ := inner.Get(context.Background(), "ada")
 	if strings.Contains(raw, "offline-1") || !strings.HasPrefix(raw, "v1.") {
 		t.Fatalf("stored %q", raw)
 	}
@@ -92,18 +92,18 @@ func TestSealedStoreKeepsNothingReadable(t *testing.T) {
 func TestSealedStoreWritesWithTheCurrentKey(t *testing.T) {
 	inner := NewMemoryStore()
 	old, _ := sealedWith(t, inner, "one")
-	rev, _, _ := old.Write("ada", "offline-1", 0)
-	before, _, _, _ := inner.Get("ada")
+	rev, _, _ := old.Write(context.Background(), "ada", "offline-1", 0)
+	before, _, _, _ := inner.Get(context.Background(), "ada")
 
 	rotated, _ := sealedWith(t, inner, "two", "one")
-	if _, ok, err := rotated.Write("ada", "offline-2", rev); err != nil || !ok {
+	if _, ok, err := rotated.Write(context.Background(), "ada", "offline-2", rev); err != nil || !ok {
 		t.Fatalf("ok %v err %v", ok, err)
 	}
-	after, _, _, _ := inner.Get("ada")
+	after, _, _, _ := inner.Get(context.Background(), "ada")
 	if strings.Split(before, ".")[1] == strings.Split(after, ".")[1] {
 		t.Fatal("the rewrite kept the previous key")
 	}
-	if got, _, _, _ := mustSealed(t, inner, "two").Get("ada"); got != "offline-2" {
+	if got, _, _, _ := mustSealed(t, inner, "two").Get(context.Background(), "ada"); got != "offline-2" {
 		t.Fatalf("the current key alone reads %q", got)
 	}
 }
@@ -123,7 +123,7 @@ func TestAnUnreadableTokenMeansAllowAgain(t *testing.T) {
 	}
 
 	d := withStore(idp, mustSealed(t, inner, "two"), &failed)
-	if d.Connected("ada") {
+	if d.Connected(context.Background(), "ada") {
 		t.Fatal("an unreadable token counts as connected")
 	}
 	if _, err := d.Token(context.Background(), "ada", "synaplan-app"); !errors.Is(err, ErrNotConnected) {
@@ -132,7 +132,7 @@ func TestAnUnreadableTokenMeansAllowAgain(t *testing.T) {
 	if err := connect(t, d, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if !d.Connected("ada") {
+	if !d.Connected(context.Background(), "ada") {
 		t.Fatal("allowing again did not connect")
 	}
 }

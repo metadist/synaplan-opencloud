@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"context"
 	"errors"
 	"sync"
 )
@@ -25,7 +26,7 @@ func NewMemoryStore() *MemoryStore {
 }
 
 // Get reads the person's token.
-func (s *MemoryStore) Get(subject string) (string, uint64, bool, error) {
+func (s *MemoryStore) Get(_ context.Context, subject string) (string, uint64, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.entries[subject]
@@ -33,7 +34,7 @@ func (s *MemoryStore) Get(subject string) (string, uint64, bool, error) {
 }
 
 // Write stores the token when match is still current.
-func (s *MemoryStore) Write(subject, token string, match uint64) (uint64, bool, error) {
+func (s *MemoryStore) Write(_ context.Context, subject, token string, match uint64) (uint64, bool, error) {
 	if token == "" {
 		return 0, false, errors.New("delegation: refusing to store an empty offline token")
 	}
@@ -51,7 +52,7 @@ func (s *MemoryStore) Write(subject, token string, match uint64) (uint64, bool, 
 }
 
 // Delete removes the token when match is still current.
-func (s *MemoryStore) Delete(subject string, match uint64) (bool, error) {
+func (s *MemoryStore) Delete(_ context.Context, subject string, match uint64) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.entries[subject]

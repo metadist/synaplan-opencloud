@@ -127,8 +127,8 @@ func TestConnect(t *testing.T) {
 			for range tc.connections {
 				err = connect(t, d, "ada")
 			}
-			if (err != nil) != tc.wantErr || d.Connected("ada") == tc.wantErr {
-				t.Fatalf("err = %v, connected = %v", err, d.Connected("ada"))
+			if (err != nil) != tc.wantErr || d.Connected(context.Background(), "ada") == tc.wantErr {
+				t.Fatalf("err = %v, connected = %v", err, d.Connected(context.Background(), "ada"))
 			}
 			if _, _, revoked := idp.state(); fmt.Sprint(revoked) != fmt.Sprint(tc.wantRevoked) {
 				t.Fatalf("revoked %v, want %v", revoked, tc.wantRevoked)
@@ -192,7 +192,7 @@ func TestNoToken(t *testing.T) {
 			if _, err := d.Token(context.Background(), "ada", "synaplan-app"); !errors.Is(err, ErrNotConnected) {
 				t.Fatalf("err = %v, want ErrNotConnected", err)
 			}
-			if d.Connected("ada") {
+			if d.Connected(context.Background(), "ada") {
 				t.Fatal("still connected")
 			}
 		})
@@ -211,7 +211,7 @@ func TestAClientRefusalKeepsTheOfflineToken(t *testing.T) {
 	if err == nil || errors.Is(err, ErrNotConnected) {
 		t.Fatalf("err = %v, want a configuration error", err)
 	}
-	if !d.Connected("ada") {
+	if !d.Connected(context.Background(), "ada") {
 		t.Fatal("a refused client forgot the person's offline token")
 	}
 }
@@ -246,7 +246,7 @@ func TestAFailedRevocationIsReportedAndTheTokenForgotten(t *testing.T) {
 	if err := d.Disconnect(context.Background(), "ada"); err == nil {
 		t.Fatal("a failed revocation was not reported")
 	}
-	if d.Connected("ada") {
+	if d.Connected(context.Background(), "ada") {
 		t.Fatal("still connected")
 	}
 }
