@@ -20,7 +20,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/oapi-codegen/runtime v1.9.0
 	github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612
-	github.com/opencloud-eu/reva/v2 v2.52.2
+	github.com/opencloud-eu/reva/v2 v2.52.3
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.85.0
 )
