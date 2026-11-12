@@ -13,9 +13,6 @@ services:
     image: ${BACKEND_IMAGE:-}
     volumes: !reset []
     environment:
-      # The dev compose points at OpenCloud's NATS. CI keeps tokens in
-      # memory so the backend starts without waiting for that port.
-      SYNAPLAN_STORE: memory
       SYNAPLAN_URL: "http://host.docker.internal:8001"
       SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8081/realms/synaplan/protocol/openid-connect/token"
       OC_OIDC_ISSUER: "https://host.docker.internal:8444/realms/synaplan"
