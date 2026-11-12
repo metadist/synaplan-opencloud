@@ -1,0 +1,19 @@
+# Extra compose file for the Synaplan test stack, used with the synaplan
+# repo's docker-compose.test.yml:
+#
+#   docker compose -f docker-compose.test.yml -f docker-compose.test.ci.yml \
+#     -f <this repo>/frontend/tests/e2e/synaplan-test-stack.yml \
+#     --profile oidc --profile integration up -d --wait
+#
+# Synaplan and this OpenCloud share the test realm's Keycloak. Synaplan knows
+# the one cloud behind that identity provider from these variables (the
+# `oidc-cloud` row); without them nobody is ever linked through this
+# OpenCloud and Synaplan has no address for its notifications.
+
+services:
+  app_test:
+    environment:
+      PLATFORM_LINKS_OIDC_CLOUD_TYPE: opencloud
+      PLATFORM_LINKS_OIDC_CLOUD_URL: https://host.docker.internal:9200
+      PLATFORM_LINKS_OIDC_CLOUD_CLIENT_ID: synaplan-opencloud
+      PLATFORM_LINKS_OIDC_CLOUD_INTERNAL_URL: http://host.docker.internal:9106

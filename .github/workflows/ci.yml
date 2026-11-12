@@ -16,8 +16,8 @@ env:
   # auto-updated by Renovate via the customManager defined in
   # renovate.json5. SYNAPLAN_REF is updated manually alongside the
   # digest when moving to a new synaplan release.
-  SYNAPLAN_REF: 46be7e9c30713bbea2f0b6c80e96b3dcd3c53aa0
-  SYNAPLAN_IMAGE_DIGEST: sha256:2a40b6f5b392eccf0be5c4095b1f79a3d28eb5b8a0da4dabccd5ee622ee7d69f
+  SYNAPLAN_REF: 902c0f8aef561392b0cdc1f258b34beaca450742
+  SYNAPLAN_IMAGE_DIGEST: sha256:216261f93eb899a6713eeb9f11423290f9a51c5b32076aa7af92f2cdba31e245
 
 jobs:
   frontend:
@@ -27,7 +27,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -59,7 +59,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [frontend, backend]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Download frontend dist
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -143,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [docker-build]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Add host.docker.internal to /etc/hosts
         run: echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
@@ -170,7 +170,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('frontend/pnpm-lock.yaml') }}
@@ -188,7 +188,7 @@ jobs:
 
       # --- Start Synaplan test stack ---
       - name: Clone synaplan
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: metadist/synaplan
           # Pin checkout and image together. Update both when bumping synaplan.
@@ -207,6 +207,7 @@ jobs:
           COMPOSE="docker compose \
             -f docker-compose.test.yml \
             -f docker-compose.test.ci.yml \
+            -f ../frontend/tests/e2e/synaplan-test-stack.yml \
             --profile oidc --profile integration"
           $COMPOSE up -d --wait
           echo "Waiting for Keycloak setup..."

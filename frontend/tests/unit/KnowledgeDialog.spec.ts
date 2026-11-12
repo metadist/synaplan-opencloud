@@ -103,7 +103,7 @@ describe('KnowledgeDialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-knowledge-submit"]').text()).toContain(
-      'Update in Knowledge'
+      'Update in the knowledge folder'
     )
     expect(wrapper.get('[data-testid="synaplan-knowledge-stale"]').text()).toContain('changed')
   })
@@ -192,8 +192,12 @@ describe('KnowledgeDialog', () => {
     expect(select.props('options')).toContain('BRAND_NEW')
   })
 
-  it('surfaces a backend error', async () => {
-    post.mockRejectedValueOnce(new Error('boom'))
+  it('shows the sentence for the code the backend sent', async () => {
+    post.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 422'), {
+        response: { data: { code: 'file_empty', error: 'This file is empty.' } }
+      })
+    )
 
     const wrapper = mountDialog()
     await flushPromises()
@@ -201,7 +205,9 @@ describe('KnowledgeDialog', () => {
     await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="synaplan-knowledge-error"]').text()).toBe('boom')
+    expect(wrapper.get('[data-testid="synaplan-knowledge-error"]').text()).toBe(
+      'This file is empty.'
+    )
     expect(wrapper.find('[data-testid="synaplan-knowledge-success"]').exists()).toBe(false)
   })
 
