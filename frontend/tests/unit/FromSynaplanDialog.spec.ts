@@ -81,9 +81,38 @@ describe('FromSynaplanDialog', () => {
       { fileId: 7, folderId: 's!folder', name: 'Offer.pdf' },
       expect.anything()
     )
+    expect(wrapper.get('[data-testid="synaplan-from-file-7"]').attributes('aria-pressed')).toBe(
+      'true'
+    )
     expect(wrapper.get('[data-testid="synaplan-from-saved"]').text()).toBe(
       'Copied Offer.pdf into your files. The file is still in Synaplan.'
     )
+  })
+
+  it('names the file that was written when the folder already had that name', async () => {
+    get.mockResolvedValue(page([{ id: 7, display_name: 'Offer.pdf' }]))
+    post.mockResolvedValue({ data: { path: 'Reports/Offer (2).pdf' } })
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-from-file-7"]').trigger('click')
+    await wrapper.get('[data-testid="synaplan-from-submit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-from-saved"]').text()).toContain('Offer (2).pdf')
+  })
+
+  it('drops the previous success when the next copy fails', async () => {
+    get.mockResolvedValue(page([{ id: 7, display_name: 'Offer.pdf' }]))
+    post.mockResolvedValueOnce({ data: { path: 'Reports/Offer.pdf' } })
+    post.mockRejectedValueOnce({ response: { data: { code: 'copy_failed' } } })
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-from-file-7"]').trigger('click')
+    await wrapper.get('[data-testid="synaplan-from-submit"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-from-submit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-from-saved"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('The file was not copied. It is still in Synaplan.')
   })
 
   it('says in one sentence why the copy failed', async () => {
@@ -103,5 +132,31 @@ describe('FromSynaplanDialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.text()).toContain('You have no files in Synaplan yet.')
+  })
+
+  it('does not call an empty account a failed list', async () => {
+    get.mockRejectedValue(new Error('offline'))
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('You have no files in Synaplan yet.')
+    expect(wrapper.text()).toContain(
+      'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
+    )
+  })
+
+  it('loads the next page when the person asks for older files', async () => {
+    get.mockImplementation((url: string) => {
+      if (url.endsWith('page=2')) {
+        return Promise.resolve(page([{ id: 8, display_name: 'Older.txt' }], 2))
+      }
+      return Promise.resolve(page([{ id: 7, display_name: 'New.txt' }], 2))
+    })
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-from-file-8"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="synaplan-from-more"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-from-file-8"]').text()).toBe('Older.txt')
+    expect(wrapper.find('[data-testid="synaplan-from-more"]').exists()).toBe(false)
   })
 })
