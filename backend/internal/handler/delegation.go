@@ -92,6 +92,10 @@ func (h *Handler) DelegationConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("delegation connect: %v", err)
+		if errors.Is(err, delegation.ErrUnavailable) {
+			writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not update this permission. Try again."})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Synaplan could not be allowed to work for you. Try again."})
 		return
 	}
@@ -112,6 +116,10 @@ func (h *Handler) DelegationDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("delegation disconnect: %v", err)
+		if errors.Is(err, delegation.ErrUnavailable) {
+			writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not update this permission. Try again."})
+			return
+		}
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan no longer works for you, but the sign-in service could not confirm it. Try again."})
 		return
 	}

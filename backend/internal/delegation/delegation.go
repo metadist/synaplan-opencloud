@@ -6,8 +6,9 @@
 // code lands here. The offline token it yields is refreshed on demand and
 // exchanged (RFC 8693) for the audience a call needs. Disconnecting revokes
 // it at the identity provider (RFC 7009). Nothing here can act for someone
-// who did not connect. Offline tokens live in this process and, with a
-// Store, survive a restart.
+// who did not connect. With a Store the tokens live in OpenCloud's NATS
+// key-value store, one key per person, so a restart or another replica
+// still has them. Without one they live in this process.
 package delegation
 
 import (
@@ -30,17 +31,24 @@ import (
 // connected, revoked, or expired. The person has to connect again.
 var ErrNotConnected = errors.New("delegation: person is not connected")
 
+// ErrUnavailable means the shared store could not be read or written.
+// Nothing was kept in this process instead.
+var ErrUnavailable = errors.New("delegation: OpenCloud's token store is unavailable")
+
+// storeAttempts bounds a compare-and-swap against another replica.
+const storeAttempts = 3
+
 // Config names the identity provider and this service's client.
 type Config struct {
 	Provider     *idp.Provider
 	ClientID     string
 	ClientSecret string
 	HTTPClient   *http.Client
-	// Store keeps the offline tokens across restarts; nil keeps them in
-	// memory only.
+	// Store keeps one offline token per person for every replica. Nil
+	// keeps them in this process only.
 	Store Store
-	// StoreFailed hears a store that could not be read or written. The
-	// tokens in memory stay in use either way.
+	// StoreFailed hears a shared store that could not be read or written.
+	// The call fails; the token is not kept in this process instead.
 	StoreFailed func(error)
 }
 
@@ -51,17 +59,16 @@ type Delegation struct {
 	mu      sync.Mutex
 	offline map[string]string
 	cache   map[string]cached
-	// ops serialises connecting, refreshing and disconnecting per person,
-	// so a rotated offline token is never written back over a disconnect
-	// and two refreshes never race on the same rotating token, while a
-	// slow identity provider answer for one person does not hold up the
-	// others.
+	// ops serialises connecting, refreshing and disconnecting per person
+	// in this process, so two refreshes here never race on the same
+	// rotating token. Another replica is kept out by the store's revision.
 	ops map[string]*sync.Mutex
 }
 
 type cached struct {
-	token   string
-	expires time.Time
+	token    string
+	expires  time.Time
+	revision uint64
 }
 
 type tokenResponse struct {
@@ -71,25 +78,14 @@ type tokenResponse struct {
 	Error        string `json:"error"`
 }
 
-// New returns a Delegation with the people the store kept connected, or
-// with no one.
+// New returns a Delegation. A store is read when someone connects, works,
+// or stops, so a token written by another replica is visible without a
+// restart of this one.
 func New(cfg Config) *Delegation {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 15 * time.Second}
 	}
-	d := &Delegation{cfg: cfg, offline: map[string]string{}, cache: map[string]cached{}, ops: map[string]*sync.Mutex{}}
-	if cfg.Store != nil {
-		kept, err := cfg.Store.Load()
-		if err != nil {
-			d.storeFailed(err)
-		}
-		for subject, offline := range kept {
-			if subject != "" && offline != "" {
-				d.offline[subject] = offline
-			}
-		}
-	}
-	return d
+	return &Delegation{cfg: cfg, offline: map[string]string{}, cache: map[string]cached{}, ops: map[string]*sync.Mutex{}}
 }
 
 func (d *Delegation) storeFailed(err error) {
@@ -153,98 +149,155 @@ func (d *Delegation) Connect(ctx context.Context, code, verifier, redirectURI, s
 		_ = d.revoke(ctx, resp.RefreshToken)
 		return fmt.Errorf("delegation: token belongs to %q, not to the signed-in person", got)
 	}
-	previous, had := d.swap(subject, resp.RefreshToken)
-	if had && previous != resp.RefreshToken {
-		_ = d.revoke(ctx, previous)
+	if d.cfg.Store == nil {
+		previous, had := d.swap(subject, resp.RefreshToken)
+		if had && previous != resp.RefreshToken {
+			_ = d.revoke(ctx, previous)
+		}
+		return nil
+	}
+	if err := d.install(ctx, subject, resp.RefreshToken); err != nil {
+		_ = d.revoke(ctx, resp.RefreshToken)
+		return err
 	}
 	return nil
 }
 
-// Connected reports whether an offline token is kept for subject.
+// Connected reports whether an offline token is kept for subject. A store
+// that cannot be read reports false; StoreFailed hears the error.
 func (d *Delegation) Connected(subject string) bool {
 	if d == nil || subject == "" {
 		return false
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	_, ok := d.offline[subject]
-	return ok
+	_, _, ok, err := d.current(subject)
+	return err == nil && ok
 }
 
 // Disconnect forgets the offline token of subject and revokes it at the
 // identity provider. A failed revocation is returned; the token is
 // forgotten either way, so this service can no longer act for the person.
+// A revision that moved is tried again, so a token another replica just
+// rotated is the one that gets revoked.
 func (d *Delegation) Disconnect(ctx context.Context, subject string) error {
 	if d == nil || subject == "" {
 		return nil
 	}
 	defer d.lock(subject)()
-	previous, had := d.swap(subject, "")
-	if !had {
-		return nil
+	if d.cfg.Store == nil {
+		previous, had := d.swap(subject, "")
+		if !had {
+			return nil
+		}
+		return d.revoke(ctx, previous)
 	}
-	return d.revoke(ctx, previous)
+	for range storeAttempts {
+		previous, rev, had, err := d.current(subject)
+		if err != nil {
+			return err
+		}
+		if !had {
+			return nil
+		}
+		ok, err := d.cfg.Store.Delete(subject, rev)
+		if err != nil {
+			d.storeFailed(err)
+			return fmt.Errorf("%w: %w", ErrUnavailable, err)
+		}
+		if !ok {
+			continue
+		}
+		d.dropCache(subject)
+		return d.revoke(ctx, previous)
+	}
+	return fmt.Errorf("%w: the offline token changed while it was removed", ErrUnavailable)
 }
 
 // Token returns an access token for subject with the given audience. It
 // refreshes the offline token and exchanges the result; a refused refresh
-// forgets the offline token and reports ErrNotConnected.
+// forgets the offline token and reports ErrNotConnected. A refresh another
+// replica already replaced is not forgotten: the new token is read and used.
 func (d *Delegation) Token(ctx context.Context, subject, audience string) (string, error) {
 	if d == nil {
 		return "", ErrNotConnected
 	}
 	key := subject + "\x00" + audience
-	if token, ok := d.cachedToken(key); ok {
-		return token, nil
+	if d.cfg.Store == nil {
+		if token, ok := d.cachedToken(key, 0, false); ok {
+			return token, nil
+		}
 	}
 	defer d.lock(subject)()
-	if token, ok := d.cachedToken(key); ok {
-		return token, nil
+
+	for range storeAttempts {
+		offline, rev, ok, err := d.current(subject)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", ErrNotConnected
+		}
+		if token, hit := d.cachedToken(key, rev, d.cfg.Store != nil); hit {
+			return token, nil
+		}
+		refreshed, err := d.tokenRequest(ctx, url.Values{
+			"grant_type":    {"refresh_token"},
+			"refresh_token": {offline},
+		})
+		var rejected *rejectedError
+		if errors.As(err, &rejected) {
+			gone, ferr := d.forgetStale(subject, rev)
+			if ferr != nil {
+				return "", ferr
+			}
+			if gone {
+				return "", ErrNotConnected
+			}
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		cacheRev, cache := rev, true
+		if refreshed.RefreshToken != "" && refreshed.RefreshToken != offline {
+			cacheRev, cache, err = d.keep(subject, refreshed.RefreshToken, rev)
+			if err != nil {
+				return "", err
+			}
+		}
+		exchanged, err := d.tokenRequest(ctx, url.Values{
+			"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
+			"subject_token":      {refreshed.AccessToken},
+			"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
+			"audience":           {audience},
+		})
+		if err != nil {
+			return "", err
+		}
+		if cache {
+			d.rememberAccess(key, exchanged.AccessToken, exchanged.ExpiresIn, cacheRev)
+		}
+		return exchanged.AccessToken, nil
 	}
-	d.mu.Lock()
-	offline, ok := d.offline[subject]
-	d.mu.Unlock()
-	if !ok {
-		return "", ErrNotConnected
-	}
-	refreshed, err := d.tokenRequest(ctx, url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {offline},
-	})
-	var rejected *rejectedError
-	if errors.As(err, &rejected) {
-		d.swap(subject, "")
-		return "", ErrNotConnected
-	}
-	if err != nil {
-		return "", err
-	}
-	if refreshed.RefreshToken != "" && refreshed.RefreshToken != offline {
-		d.swap(subject, refreshed.RefreshToken)
-	}
-	exchanged, err := d.tokenRequest(ctx, url.Values{
-		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
-		"subject_token":      {refreshed.AccessToken},
-		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
-		"audience":           {audience},
-	})
-	if err != nil {
-		return "", err
-	}
-	d.mu.Lock()
-	d.cache[key] = cached{token: exchanged.AccessToken, expires: expiry(exchanged.ExpiresIn)}
-	d.mu.Unlock()
-	return exchanged.AccessToken, nil
+	return "", fmt.Errorf("%w: the offline token kept changing", ErrUnavailable)
 }
 
-func (d *Delegation) cachedToken(key string) (string, bool) {
+func (d *Delegation) cachedToken(key string, revision uint64, match bool) (string, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	c, ok := d.cache[key]
 	if !ok || !time.Now().Before(c.expires) {
 		return "", false
 	}
+	if match && c.revision != revision {
+		return "", false
+	}
 	return c.token, true
+}
+
+func (d *Delegation) rememberAccess(key, token string, expiresIn int, revision uint64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.cache[key] = cached{token: token, expires: expiry(expiresIn), revision: revision}
 }
 
 // swap keeps offline for subject, or forgets subject when offline is
@@ -264,12 +317,109 @@ func (d *Delegation) swap(subject, offline string) (string, bool) {
 			delete(d.cache, key)
 		}
 	}
-	if d.cfg.Store != nil && previous != offline {
-		if err := d.cfg.Store.Save(d.offline); err != nil {
+	return previous, had
+}
+
+// current is the offline token kept for subject. Without a store it is the
+// one in this process, at revision 0.
+func (d *Delegation) current(subject string) (string, uint64, bool, error) {
+	if d.cfg.Store == nil {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		token, ok := d.offline[subject]
+		return token, 0, ok, nil
+	}
+	token, rev, ok, err := d.cfg.Store.Get(subject)
+	if err != nil {
+		d.storeFailed(err)
+		return "", 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	return token, rev, ok, nil
+}
+
+// install stores token for subject and revokes the one it replaced.
+func (d *Delegation) install(ctx context.Context, subject, token string) error {
+	for range storeAttempts {
+		previous, rev, had, err := d.current(subject)
+		if err != nil {
+			return err
+		}
+		match := uint64(0)
+		if had {
+			if previous == token {
+				return nil
+			}
+			match = rev
+		}
+		if _, ok, err := d.cfg.Store.Write(subject, token, match); err != nil {
 			d.storeFailed(err)
+			return fmt.Errorf("%w: %w", ErrUnavailable, err)
+		} else if !ok {
+			continue
+		}
+		d.dropCache(subject)
+		if had {
+			_ = d.revoke(ctx, previous)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: the offline token changed while it was stored", ErrUnavailable)
+}
+
+// keep stores a rotated token when rev is still current. cache is false
+// when another replica wrote first: this refresh's access token is usable
+// once, and must not be reused as if it belonged to the token that won.
+func (d *Delegation) keep(subject, token string, rev uint64) (uint64, bool, error) {
+	if d.cfg.Store == nil {
+		d.swap(subject, token)
+		return 0, true, nil
+	}
+	got, ok, err := d.cfg.Store.Write(subject, token, rev)
+	if err != nil {
+		d.storeFailed(err)
+		return 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	d.dropCache(subject)
+	if ok {
+		return got, true, nil
+	}
+	_, _, still, err := d.cfg.Store.Get(subject)
+	if err != nil {
+		d.storeFailed(err)
+		return 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	if !still {
+		return 0, false, ErrNotConnected
+	}
+	return 0, false, nil
+}
+
+// forgetStale removes the token when rev is still current. False means
+// another replica replaced it and the caller should read again.
+func (d *Delegation) forgetStale(subject string, rev uint64) (bool, error) {
+	if d.cfg.Store == nil {
+		d.swap(subject, "")
+		return true, nil
+	}
+	ok, err := d.cfg.Store.Delete(subject, rev)
+	if err != nil {
+		d.storeFailed(err)
+		return false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	if ok {
+		d.dropCache(subject)
+	}
+	return ok, nil
+}
+
+func (d *Delegation) dropCache(subject string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for key := range d.cache {
+		if strings.HasPrefix(key, subject+"\x00") {
+			delete(d.cache, key)
 		}
 	}
-	return previous, had
 }
 
 // rejectedError is the identity provider refusing the grant itself

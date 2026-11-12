@@ -23,8 +23,11 @@ func jwt(sub string) string {
 // rotated or replaced token is told apart from the one before.
 type fakeIdP struct {
 	*httptest.Server
-	codeSub   string
-	refuse    bool
+	codeSub string
+	refuse  bool
+	// dead refresh tokens are answered with invalid_grant. A nil map
+	// refuses none.
+	dead      map[string]bool
 	revokeURL string
 	mu        sync.Mutex
 	issued    int
@@ -62,7 +65,7 @@ func newIdP(t *testing.T, codeSub string, refuse bool) *fakeIdP {
 		switch r.Form.Get("grant_type") {
 		case "refresh_token":
 			f.refreshed = append(f.refreshed, r.Form.Get("refresh_token"))
-			if f.refuse {
+			if f.refuse || f.dead[r.Form.Get("refresh_token")] {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 				return

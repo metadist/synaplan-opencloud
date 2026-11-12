@@ -86,6 +86,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if store != nil {
+					defer func() { _ = store.Close() }()
+				}
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
 						Provider:     provider,
@@ -94,7 +97,7 @@ func Server(cfg *config.Config) *cobra.Command {
 						HTTPClient:   identityProviderClient(cfg.Insecure),
 						Store:        store,
 						StoreFailed: func(err error) {
-							logger.Warn().Err(err).Msg("synaplan-opencloud: offline tokens are kept in memory only until the store works")
+							logger.Warn().Err(err).Msg("synaplan-opencloud: could not use OpenCloud's token store")
 						},
 					}),
 					Exchanger: exchanger,
@@ -185,15 +188,35 @@ func identityProviderClient(insecure bool) *stdhttp.Client {
 	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
 }
 
-// delegationStore is the file that keeps offline tokens across restarts,
-// or nil when SYNAPLAN_DELEGATION_FILE is not set.
+// delegationStore is OpenCloud's NATS key-value store when its address is
+// set, and nil when the tokens stay in this process. memory forces that
+// even if an address is set.
 func delegationStore(cfg *config.Config) (delegation.Store, error) {
-	if cfg.DelegationFile == "" {
+	kind := cfg.Store.Store
+	if kind == "" {
+		if len(cfg.Store.Nodes) == 0 {
+			return nil, nil
+		}
+		kind = "nats-js-kv"
+	}
+	switch kind {
+	case "memory":
 		return nil, nil
+	case "nats-js-kv":
+		store, err := delegation.NewNATS(delegation.NATSConfig{
+			Nodes:     cfg.Store.Nodes,
+			Bucket:    cfg.Store.Database,
+			Username:  cfg.Store.AuthUsername,
+			Password:  cfg.Store.AuthPassword,
+			EnableTLS: cfg.Store.EnableTLS,
+			Insecure:  cfg.Store.TLSInsecure,
+			RootCAs:   cfg.Store.TLSRootCACertificate,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("could not open the delegation store: %w", err)
+		}
+		return store, nil
+	default:
+		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported (nats-js-kv or memory)", kind)
 	}
-	store, err := delegation.NewFileStore(cfg.DelegationFile, cfg.OIDCExchangeSecret)
-	if err != nil {
-		return nil, fmt.Errorf("could not open the delegation store: %w", err)
-	}
-	return store, nil
 }

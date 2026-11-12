@@ -50,6 +50,9 @@ func EnsureDefaults(cfg *config.Config) {
 	if cfg.TokenManager == nil {
 		cfg.TokenManager = &config.TokenManager{}
 	}
+	if cfg.Store.Database == "" {
+		cfg.Store.Database = "synaplan-delegation"
+	}
 }
 
 // Sanitize sanitizes the config.
