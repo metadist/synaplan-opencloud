@@ -36,7 +36,11 @@ var ErrNotConnected = errors.New("delegation: person is not connected")
 var ErrUnavailable = errors.New("delegation: the token store is unavailable")
 
 // storeAttempts bounds a compare-and-swap against another replica.
-const storeAttempts = 3
+const storeAttempts = 5
+
+// errReadAgain means another replica changed the offline token while it was
+// in use: read it again and start over.
+var errReadAgain = errors.New("delegation: the offline token changed, read it again")
 
 // Config names the identity provider and this service's client.
 type Config struct {
@@ -86,10 +90,13 @@ func New(cfg Config) *Delegation {
 	return &Delegation{cfg: cfg, cache: map[string]cached{}, ops: map[string]*sync.Mutex{}}
 }
 
-func (d *Delegation) storeFailed(err error) {
+// unavailable reports a store that could not be used and returns the
+// error a caller sees: ErrUnavailable, wrapping err.
+func (d *Delegation) unavailable(err error) error {
 	if d.cfg.StoreFailed != nil {
 		d.cfg.StoreFailed(err)
 	}
+	return fmt.Errorf("%w: %w", ErrUnavailable, err)
 }
 
 // lock takes subject's operation lock and returns its unlock.
@@ -154,14 +161,17 @@ func (d *Delegation) Connect(ctx context.Context, code, verifier, redirectURI, s
 	return nil
 }
 
-// Connected reports whether an offline token is kept for subject. A store
-// that cannot be read reports false; StoreFailed hears the error.
-func (d *Delegation) Connected(ctx context.Context, subject string) bool {
+// Connected reports whether a readable offline token is kept for subject.
+// A store that cannot be used is an error, not a no.
+func (d *Delegation) Connected(ctx context.Context, subject string) (bool, error) {
 	if d == nil || subject == "" {
-		return false
+		return false, nil
 	}
-	token, _, ok, err := d.current(ctx, subject)
-	return err == nil && ok && token != ""
+	kept, err := d.current(ctx, subject)
+	if err != nil {
+		return false, err
+	}
+	return kept.found && !kept.unreadable, nil
 }
 
 // Disconnect forgets the offline token of subject and revokes it at the
@@ -175,26 +185,25 @@ func (d *Delegation) Disconnect(ctx context.Context, subject string) error {
 	}
 	defer d.lock(subject)()
 	for range storeAttempts {
-		previous, rev, had, err := d.current(ctx, subject)
+		kept, err := d.current(ctx, subject)
 		if err != nil {
 			return err
 		}
-		if !had {
+		if !kept.found {
 			return nil
 		}
-		ok, err := d.cfg.Store.Delete(ctx, subject, rev)
+		ok, err := d.cfg.Store.Delete(ctx, subject, kept.Revision)
 		if err != nil {
-			d.storeFailed(err)
-			return fmt.Errorf("%w: %w", ErrUnavailable, err)
+			return d.unavailable(err)
 		}
 		if !ok {
 			continue
 		}
 		d.dropCache(subject)
-		if previous == "" {
+		if kept.unreadable {
 			return nil
 		}
-		return d.revoke(ctx, previous)
+		return d.revoke(ctx, kept.Token)
 	}
 	return fmt.Errorf("%w: the offline token changed while it was removed", ErrUnavailable)
 }
@@ -211,105 +220,107 @@ func (d *Delegation) Token(ctx context.Context, subject, audience string) (strin
 	defer d.lock(subject)()
 
 	for range storeAttempts {
-		offline, rev, ok, err := d.current(ctx, subject)
+		kept, err := d.current(ctx, subject)
 		if err != nil {
 			return "", err
 		}
-		if !ok {
+		if !kept.found {
 			return "", ErrNotConnected
 		}
-		if offline == "" {
-			gone, err := d.forgetStale(ctx, subject, rev)
-			if err != nil {
+		if kept.unreadable {
+			if err := d.forgetStale(ctx, subject, kept.Revision); errors.Is(err, errReadAgain) {
+				continue
+			} else if err != nil {
 				return "", err
 			}
-			if gone {
-				return "", ErrNotConnected
-			}
-			continue
+			return "", ErrNotConnected
 		}
-		if token, hit := d.cachedToken(key, rev); hit {
+		if token, hit := d.cachedToken(key, kept.Revision); hit {
 			return token, nil
 		}
-		release, err := d.cfg.Store.Lease(ctx, subject)
+		held, release, err := d.cfg.Store.Lease(ctx, subject)
 		if err != nil {
-			d.storeFailed(err)
-			return "", fmt.Errorf("%w: %w", ErrUnavailable, err)
+			return "", d.unavailable(err)
 		}
-		refreshed, cacheRev, cache, retry, err := d.refresh(ctx, subject, offline, rev)
-		release(context.WithoutCancel(ctx))
+		refreshed, err := d.refresh(held, subject, kept.Entry)
+		release()
+		if errors.Is(err, errReadAgain) {
+			continue
+		}
 		if err != nil {
 			return "", err
-		}
-		if retry {
-			continue
 		}
 		exchanged, err := d.tokenRequest(ctx, url.Values{
 			"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
-			"subject_token":      {refreshed.AccessToken},
+			"subject_token":      {refreshed.accessToken},
 			"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
 			"audience":           {audience},
 		})
 		if err != nil {
 			return "", err
 		}
-		if cache {
-			d.rememberAccess(key, exchanged.AccessToken, exchanged.ExpiresIn, cacheRev)
+		if refreshed.cacheable {
+			d.rememberAccess(key, exchanged.AccessToken, exchanged.ExpiresIn, refreshed.revision)
 		}
 		return exchanged.AccessToken, nil
 	}
 	return "", fmt.Errorf("%w: the offline token kept changing", ErrUnavailable)
 }
 
-// cachedToken is an access token exchanged from the offline token at
-// revision, while it is still valid.
-// refresh redeems offline, read at rev, while subject's lease is held, and
-// keeps the rotated token. retry means another replica refreshed first or
-// the refused token was already replaced: read again. Holding the lease
-// keeps two replicas from refreshing the same token, which an identity
-// provider that revokes used refresh tokens answers by ending the session.
-func (d *Delegation) refresh(ctx context.Context, subject, offline string, rev uint64) (refreshed *tokenResponse, cacheRev uint64, cache, retry bool, err error) {
-	_, latest, ok, err := d.current(ctx, subject)
+// refreshed is an access token from a refresh. Its exchanged tokens may be
+// cached for revision when cacheable; they may not when another replica
+// wrote first, because then they belong to no kept revision.
+type refreshed struct {
+	accessToken string
+	revision    uint64
+	cacheable   bool
+}
+
+// refresh redeems kept while subject's lease is held, and keeps the rotated
+// token. errReadAgain means another replica refreshed first or the refused
+// token was already replaced. Holding the lease keeps two replicas from
+// refreshing the same token, which an identity provider that revokes used
+// refresh tokens answers by ending the session.
+func (d *Delegation) refresh(ctx context.Context, subject string, kept Entry) (refreshed, error) {
+	latest, err := d.current(ctx, subject)
 	if err != nil {
-		return nil, 0, false, false, err
+		return refreshed{}, err
 	}
-	if !ok {
-		return nil, 0, false, false, ErrNotConnected
+	if !latest.found {
+		return refreshed{}, ErrNotConnected
 	}
-	if latest != rev {
-		return nil, 0, false, true, nil
+	if latest.Revision != kept.Revision {
+		return refreshed{}, errReadAgain
 	}
-	refreshed, err = d.tokenRequest(ctx, url.Values{
+	resp, err := d.tokenRequest(ctx, url.Values{
 		"grant_type":    {"refresh_token"},
-		"refresh_token": {offline},
+		"refresh_token": {kept.Token},
 	})
 	var rejected *rejectedError
 	if errors.As(err, &rejected) {
-		gone, err := d.forgetStale(ctx, subject, rev)
-		if err != nil {
-			return nil, 0, false, false, err
+		if err := d.forgetStale(ctx, subject, kept.Revision); err != nil {
+			return refreshed{}, err
 		}
-		if gone {
-			return nil, 0, false, false, ErrNotConnected
-		}
-		return nil, 0, false, true, nil
+		return refreshed{}, ErrNotConnected
 	}
 	if err != nil {
-		return nil, 0, false, false, err
+		return refreshed{}, err
 	}
-	if got := Subject(refreshed.AccessToken); got != subject {
-		return nil, 0, false, false, fmt.Errorf("delegation: refreshed token belongs to %q, not to %q", got, subject)
+	if got := Subject(resp.AccessToken); got != subject {
+		return refreshed{}, fmt.Errorf("delegation: refreshed token belongs to %q, not to %q", got, subject)
 	}
-	cacheRev, cache = rev, true
-	if refreshed.RefreshToken != "" && refreshed.RefreshToken != offline {
-		cacheRev, cache, err = d.keep(ctx, subject, refreshed.RefreshToken, rev)
+	result := refreshed{accessToken: resp.AccessToken, revision: kept.Revision, cacheable: true}
+	if resp.RefreshToken != "" && resp.RefreshToken != kept.Token {
+		result.revision, result.cacheable, err = d.keep(ctx, subject, resp.RefreshToken, kept.Revision)
 		if err != nil {
-			return nil, 0, false, false, err
+			return refreshed{}, err
 		}
 	}
-	return refreshed, cacheRev, cache, false, nil
+	return result, nil
 }
 
+// cachedToken is an access token exchanged from the offline token at
+// revision, while it is still valid.
 func (d *Delegation) cachedToken(key string, revision uint64) (string, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -326,81 +337,104 @@ func (d *Delegation) rememberAccess(key, token string, expiresIn int, revision u
 	d.cache[key] = cached{token: token, expires: expiry(expiresIn), revision: revision}
 }
 
-// current is the offline token kept for subject and its revision. An empty
-// token is one the store holds but cannot read; it is replaced or forgotten.
-func (d *Delegation) current(ctx context.Context, subject string) (string, uint64, bool, error) {
-	token, rev, ok, err := d.cfg.Store.Get(ctx, subject)
-	if err != nil {
-		d.storeFailed(err)
-		return "", 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+// kept is what the store holds for a person: found, and when found either
+// a token or a value that cannot be read, which is replaced or forgotten.
+type kept struct {
+	Entry
+	found      bool
+	unreadable bool
+}
+
+// current reads the person's offline token. A value that cannot be read is
+// reported to StoreFailed and returned as unreadable, not as an outage.
+func (d *Delegation) current(ctx context.Context, subject string) (kept, error) {
+	entry, ok, err := d.cfg.Store.Get(ctx, subject)
+	if errors.Is(err, ErrUnreadable) {
+		if d.cfg.StoreFailed != nil {
+			d.cfg.StoreFailed(err)
+		}
+		return kept{Entry: entry, found: true, unreadable: true}, nil
 	}
-	return token, rev, ok, nil
+	if err != nil {
+		return kept{}, d.unavailable(err)
+	}
+	return kept{Entry: entry, found: ok}, nil
 }
 
 // install stores token for subject and revokes the one it replaced.
 func (d *Delegation) install(ctx context.Context, subject, token string) error {
 	for range storeAttempts {
-		previous, rev, had, err := d.current(ctx, subject)
+		previous, err := d.current(ctx, subject)
 		if err != nil {
 			return err
 		}
-		match := uint64(0)
-		if had {
-			if previous == token {
-				return nil
-			}
-			match = rev
+		if previous.found && !previous.unreadable && previous.Token == token {
+			return nil
 		}
-		if _, ok, err := d.cfg.Store.Write(ctx, subject, token, match); err != nil {
-			d.storeFailed(err)
-			return fmt.Errorf("%w: %w", ErrUnavailable, err)
-		} else if !ok {
+		ok, err := d.write(ctx, subject, token, previous)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			continue
 		}
 		d.dropCache(subject)
-		if had && previous != "" {
-			_ = d.revoke(ctx, previous)
+		if previous.found && !previous.unreadable {
+			_ = d.revoke(ctx, previous.Token)
 		}
 		return nil
 	}
 	return fmt.Errorf("%w: the offline token changed while it was stored", ErrUnavailable)
 }
 
-// keep stores a rotated token when rev is still current. cache is false
+// write stores token over previous: created when nothing was kept,
+// replaced at previous's revision otherwise.
+func (d *Delegation) write(ctx context.Context, subject, token string, previous kept) (bool, error) {
+	match := uint64(0)
+	if previous.found {
+		match = previous.Revision
+	}
+	_, ok, err := d.cfg.Store.Write(ctx, subject, token, match)
+	if err != nil {
+		return false, d.unavailable(err)
+	}
+	return ok, nil
+}
+
+// keep stores a rotated token when rev is still current. cacheable is false
 // when another replica wrote first: this refresh's access token is usable
 // once, and must not be reused as if it belonged to the token that won.
 func (d *Delegation) keep(ctx context.Context, subject, token string, rev uint64) (uint64, bool, error) {
 	got, ok, err := d.cfg.Store.Write(ctx, subject, token, rev)
 	if err != nil {
-		d.storeFailed(err)
-		return 0, false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+		return 0, false, d.unavailable(err)
 	}
 	d.dropCache(subject)
 	if ok {
 		return got, true, nil
 	}
-	_, _, still, err := d.current(ctx, subject)
+	still, err := d.current(ctx, subject)
 	if err != nil {
 		return 0, false, err
 	}
-	if !still {
+	if !still.found {
 		return 0, false, ErrNotConnected
 	}
 	return 0, false, nil
 }
 
-// forgetStale removes the token when rev is still current. False means
-// another replica replaced it and the caller should read again.
-func (d *Delegation) forgetStale(ctx context.Context, subject string, rev uint64) (bool, error) {
+// forgetStale removes the token when rev is still current. errReadAgain
+// means another replica replaced it.
+func (d *Delegation) forgetStale(ctx context.Context, subject string, rev uint64) error {
 	ok, err := d.cfg.Store.Delete(ctx, subject, rev)
 	if err != nil {
-		d.storeFailed(err)
-		return false, fmt.Errorf("%w: %w", ErrUnavailable, err)
+		return d.unavailable(err)
 	}
-	if ok {
-		d.dropCache(subject)
+	if !ok {
+		return errReadAgain
 	}
-	return ok, nil
+	d.dropCache(subject)
+	return nil
 }
 
 func (d *Delegation) dropCache(subject string) {

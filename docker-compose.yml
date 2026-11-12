@@ -15,10 +15,6 @@ services:
       STORAGE_USERS_HTTP_ADDR: 0.0.0.0:9158
       STORAGE_USERS_DATA_SERVER_URL: http://opencloud:9158/data
       IDM_ADMIN_PASSWORD: admin
-      # NATS listens on localhost unless told otherwise. This service runs
-      # beside OpenCloud and keeps offline tokens in that NATS, so the
-      # port has to be reachable on the compose network. It is not published
-      # on the host.
       NATS_NATS_HOST: 0.0.0.0
       PROXY_ENABLE_BASIC_AUTH: "true"
       PROXY_TLS: "false"

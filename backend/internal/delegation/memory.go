@@ -2,55 +2,48 @@ package delegation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 )
 
-// MemoryStore keeps the offline tokens in this process with the same
-// revisions as the NATS bucket. A restart forgets them, and another replica
-// never sees them, so it only fits a single instance that accepts people
-// allowing again after a restart, and tests.
+// MemoryStore keeps the offline tokens in this process. Its revisions keep
+// increasing across all keys, as a NATS bucket's do. A restart forgets the
+// tokens, and another replica never sees them, so it only fits a single
+// instance that accepts people allowing again after a restart, and tests.
 type MemoryStore struct {
-	mu      sync.Mutex
-	entries map[string]memoryEntry
-	leases  map[string]chan struct{}
-}
-
-type memoryEntry struct {
-	token    string
+	mu       sync.Mutex
 	revision uint64
+	entries  map[string]Entry
+	leases   map[string]chan struct{}
 }
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{entries: map[string]memoryEntry{}, leases: map[string]chan struct{}{}}
+	return &MemoryStore{entries: map[string]Entry{}, leases: map[string]chan struct{}{}}
 }
 
 // Get reads the person's token.
-func (s *MemoryStore) Get(_ context.Context, subject string) (string, uint64, bool, error) {
+func (s *MemoryStore) Get(_ context.Context, subject string) (Entry, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.entries[subject]
-	return entry.token, entry.revision, ok, nil
+	return entry, ok, nil
 }
 
 // Write stores the token when match is still current.
 func (s *MemoryStore) Write(_ context.Context, subject, token string, match uint64) (uint64, bool, error) {
 	if token == "" {
-		return 0, false, errors.New("delegation: refusing to store an empty offline token")
+		return 0, false, errEmptyToken
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.entries[subject]
-	switch {
-	case match == 0 && ok, match != 0 && (!ok || entry.revision != match):
+	if (match == 0 && ok) || (match != 0 && (!ok || entry.Revision != match)) {
 		return 0, false, nil
 	}
-	entry.token = token
-	entry.revision++
-	s.entries[subject] = entry
-	return entry.revision, true, nil
+	s.revision++
+	s.entries[subject] = Entry{Token: token, Revision: s.revision}
+	return s.revision, true, nil
 }
 
 // Delete removes the token when match is still current.
@@ -61,7 +54,7 @@ func (s *MemoryStore) Delete(_ context.Context, subject string, match uint64) (b
 	if !ok {
 		return true, nil
 	}
-	if entry.revision != match {
+	if entry.Revision != match {
 		return false, nil
 	}
 	delete(s.entries, subject)
@@ -70,7 +63,7 @@ func (s *MemoryStore) Delete(_ context.Context, subject string, match uint64) (b
 
 // Lease holds subject until release is called, waiting while another
 // caller holds it.
-func (s *MemoryStore) Lease(ctx context.Context, subject string) (func(context.Context), error) {
+func (s *MemoryStore) Lease(ctx context.Context, subject string) (context.Context, func(), error) {
 	s.mu.Lock()
 	lease, ok := s.leases[subject]
 	if !ok {
@@ -80,9 +73,13 @@ func (s *MemoryStore) Lease(ctx context.Context, subject string) (func(context.C
 	s.mu.Unlock()
 	select {
 	case lease <- struct{}{}:
-		return func(context.Context) { <-lease }, nil
+		held, cancel := context.WithCancel(ctx)
+		return held, func() {
+			cancel()
+			<-lease
+		}, nil
 	case <-ctx.Done():
-		return nil, fmt.Errorf("delegation: waiting for a lease: %w", ctx.Err())
+		return nil, nil, fmt.Errorf("delegation: waiting for a lease: %w", ctx.Err())
 	}
 }
 

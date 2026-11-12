@@ -32,6 +32,7 @@ func DefaultConfig() *config.Config {
 			Store:    "nats-js-kv",
 			Nodes:    []string{"127.0.0.1:9233"},
 			Database: "synaplan-delegation",
+			Replicas: 1,
 		},
 		HTTP: config.HTTP{
 			Addr:      "127.0.0.1:9106",

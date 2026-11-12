@@ -19,24 +19,25 @@ import (
 // a key held in an HSM or a KMS fits behind the same interface without
 // changing the stored format.
 type KeyWrapper interface {
-	// Wrap encrypts dek and names the key it used.
+	// Wrap encrypts dek with the current key and names it.
 	Wrap(ctx context.Context, dek, aad []byte) (keyID string, wrapped []byte, err error)
-	// Unwrap decrypts dek with the key named keyID.
-	Unwrap(ctx context.Context, keyID string, wrapped, aad []byte) ([]byte, error)
+	// Unwrap decrypts dek with the key named keyID. current is false when
+	// that key is no longer the one Wrap uses. An error matching
+	// ErrUnreadable means the value cannot be decrypted with the keys at
+	// hand; any other error is an outage and is reported as such.
+	Unwrap(ctx context.Context, keyID string, wrapped, aad []byte) (dek []byte, current bool, err error)
 }
 
 // SealedStore encrypts every token before it reaches the store underneath,
 // so the store, its disk and its backups hold nothing usable. Each value
 // gets its own data key, wrapped by a KeyWrapper (envelope encryption), and
 // both layers are bound to the person, so a value copied to another person's
-// key does not decrypt. Revisions pass through unchanged.
+// key does not decrypt. Revisions and leases pass through. A value read
+// under a key that is no longer current is sealed again with the current
+// one, so an old secret can be dropped once every value was read.
 type SealedStore struct {
 	inner Store
 	keys  KeyWrapper
-	// Unreadable hears a value that does not decrypt, for example after its
-	// key was dropped. The person reads as connected with an empty token,
-	// so the next use forgets it and they allow again.
-	Unreadable func(subject string, err error)
 }
 
 const sealedVersion = "v1"
@@ -47,25 +48,32 @@ func NewSealedStore(inner Store, keys KeyWrapper) *SealedStore {
 }
 
 // Get reads and decrypts the person's token.
-func (s *SealedStore) Get(ctx context.Context, subject string) (string, uint64, bool, error) {
-	value, rev, ok, err := s.inner.Get(ctx, subject)
+func (s *SealedStore) Get(ctx context.Context, subject string) (Entry, bool, error) {
+	kept, ok, err := s.inner.Get(ctx, subject)
 	if err != nil || !ok {
-		return "", rev, ok, err
+		return kept, ok, err
 	}
-	token, err := s.open(ctx, subject, value)
+	token, current, err := s.open(ctx, subject, kept.Token)
+	if errors.Is(err, ErrUnreadable) {
+		return Entry{Revision: kept.Revision}, true, err
+	}
 	if err != nil {
-		if s.Unreadable != nil {
-			s.Unreadable(subject, err)
-		}
-		return "", rev, true, nil
+		return Entry{}, false, err
 	}
-	return token, rev, true, nil
+	if !current {
+		if value, err := s.seal(ctx, subject, token); err == nil {
+			if rev, ok, err := s.inner.Write(ctx, subject, value, kept.Revision); err == nil && ok {
+				kept.Revision = rev
+			}
+		}
+	}
+	return Entry{Token: token, Revision: kept.Revision}, true, nil
 }
 
 // Write encrypts the token and stores it when match is still current.
 func (s *SealedStore) Write(ctx context.Context, subject, token string, match uint64) (uint64, bool, error) {
 	if token == "" {
-		return 0, false, errors.New("delegation: refusing to store an empty offline token")
+		return 0, false, errEmptyToken
 	}
 	value, err := s.seal(ctx, subject, token)
 	if err != nil {
@@ -80,7 +88,7 @@ func (s *SealedStore) Delete(ctx context.Context, subject string, match uint64) 
 }
 
 // Lease takes the lease of the store underneath.
-func (s *SealedStore) Lease(ctx context.Context, subject string) (func(context.Context), error) {
+func (s *SealedStore) Lease(ctx context.Context, subject string) (context.Context, func(), error) {
 	return s.inner.Lease(ctx, subject)
 }
 
@@ -110,37 +118,35 @@ func (s *SealedStore) seal(ctx context.Context, subject, token string) (string, 
 	return strings.Join([]string{sealedVersion, keyID, enc.EncodeToString(wrapped), enc.EncodeToString(sealed)}, "."), nil
 }
 
-func (s *SealedStore) open(ctx context.Context, subject, value string) (string, error) {
+func (s *SealedStore) open(ctx context.Context, subject, value string) (string, bool, error) {
 	parts := strings.Split(value, ".")
 	if len(parts) != 4 || parts[0] != sealedVersion {
-		return "", errors.New("delegation: not a sealed value")
+		return "", false, fmt.Errorf("%w: not a sealed value", ErrUnreadable)
 	}
 	enc := base64.RawURLEncoding
 	wrapped, err := enc.DecodeString(parts[2])
 	if err != nil {
-		return "", fmt.Errorf("delegation: wrapped data key: %w", err)
+		return "", false, fmt.Errorf("%w: wrapped data key: %w", ErrUnreadable, err)
 	}
 	sealed, err := enc.DecodeString(parts[3])
 	if err != nil {
-		return "", fmt.Errorf("delegation: sealed token: %w", err)
+		return "", false, fmt.Errorf("%w: sealed token: %w", ErrUnreadable, err)
 	}
 	aad := sealedAAD(subject)
-	dek, err := s.keys.Unwrap(ctx, parts[1], wrapped, aad)
+	dek, current, err := s.keys.Unwrap(ctx, parts[1], wrapped, aad)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	token, err := gcmOpen(dek, sealed, aad)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return string(token), nil
+	return string(token), current, nil
 }
 
 // LocalKeys wraps data keys with AES-256-GCM under keys derived from
 // secrets with HKDF-SHA256. The first secret wraps new values; the others
 // only unwrap, so a secret can be rotated while older values are still read.
-// Values move to the current key when they are written next, which a token
-// refresh does.
 type LocalKeys struct {
 	current string
 	keys    map[string][]byte
@@ -178,12 +184,13 @@ func (l *LocalKeys) Wrap(_ context.Context, dek, aad []byte) (string, []byte, er
 }
 
 // Unwrap decrypts dek with the key named keyID.
-func (l *LocalKeys) Unwrap(_ context.Context, keyID string, wrapped, aad []byte) ([]byte, error) {
+func (l *LocalKeys) Unwrap(_ context.Context, keyID string, wrapped, aad []byte) ([]byte, bool, error) {
 	key, ok := l.keys[keyID]
 	if !ok {
-		return nil, fmt.Errorf("delegation: no key %s to unwrap with", keyID)
+		return nil, false, fmt.Errorf("%w: no key %s", ErrUnreadable, keyID)
 	}
-	return gcmOpen(key, wrapped, aad)
+	dek, err := gcmOpen(key, wrapped, aad)
+	return dek, keyID == l.current, err
 }
 
 func gcmSeal(key, plaintext, aad []byte) ([]byte, error) {
@@ -204,11 +211,11 @@ func gcmOpen(key, sealed, aad []byte) ([]byte, error) {
 		return nil, err
 	}
 	if len(sealed) < aead.NonceSize() {
-		return nil, errors.New("delegation: sealed value too short")
+		return nil, fmt.Errorf("%w: sealed value too short", ErrUnreadable)
 	}
 	plain, err := aead.Open(nil, sealed[:aead.NonceSize()], sealed[aead.NonceSize():], aad)
 	if err != nil {
-		return nil, errors.New("delegation: sealed value does not decrypt")
+		return nil, fmt.Errorf("%w: sealed value does not decrypt", ErrUnreadable)
 	}
 	return plain, nil
 }

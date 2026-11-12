@@ -61,9 +61,15 @@ func (h *Handler) DelegationStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "The sign-in service cannot be reached. Try again later."})
 		return
 	}
+	connected, err := h.delegation.Connected(r.Context(), sub)
+	if err != nil {
+		log.Printf("delegation status: %v", err)
+		writeStoreUnavailable(w)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"available":         true,
-		"connected":         h.delegation.Connected(r.Context(), sub),
+		"connected":         connected,
 		"clientId":          clientID,
 		"authorizeEndpoint": endpoint,
 	})
@@ -93,7 +99,7 @@ func (h *Handler) DelegationConnect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("delegation connect: %v", err)
 		if errors.Is(err, delegation.ErrUnavailable) {
-			writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not update this permission. Try again."})
+			writeStoreUnavailable(w)
 			return
 		}
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Synaplan could not be allowed to work for you. Try again."})
@@ -117,13 +123,19 @@ func (h *Handler) DelegationDisconnect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("delegation disconnect: %v", err)
 		if errors.Is(err, delegation.ErrUnavailable) {
-			writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not update this permission. Try again."})
+			writeStoreUnavailable(w)
 			return
 		}
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan no longer works for you, but the sign-in service could not confirm it. Try again."})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"connected": false})
+}
+
+// writeStoreUnavailable answers that the store keeping the permission
+// cannot be used right now.
+func writeStoreUnavailable(w http.ResponseWriter) {
+	writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not update this permission. Try again."})
 }
 
 // delegatedBearer is the Synaplan token for sub, minted from their offline

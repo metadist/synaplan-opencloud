@@ -13,6 +13,19 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// ErrUnreadable means a value is kept but cannot be read with the keys at
+// hand: written under a key that was dropped, or not written by this
+// service. The person has to allow again. Any other error is an outage.
+var ErrUnreadable = errors.New("delegation: the kept offline token cannot be read")
+
+var errEmptyToken = errors.New("delegation: refusing to store an empty offline token")
+
+// Entry is a person's offline token and the revision it was read at.
+type Entry struct {
+	Token    string
+	Revision uint64
+}
+
 // Store keeps one offline token per person where every replica of this
 // service can read it. Revision is the generation of that one key. A write
 // or delete names the revision it read and does nothing when another replica
@@ -22,9 +35,10 @@ import (
 // unconditional put. A rotating refresh token has to be replaced only when
 // it is still the one that was refreshed.
 type Store interface {
-	// Get returns the offline token and its revision. ok is false when
-	// none is kept.
-	Get(ctx context.Context, subject string) (token string, revision uint64, ok bool, err error)
+	// Get returns the person's entry. ok is false when none is kept. A
+	// value that is kept but cannot be read returns its revision, ok, and
+	// an error matching ErrUnreadable, so it can be replaced or removed.
+	Get(ctx context.Context, subject string) (entry Entry, ok bool, err error)
 	// Write stores token when the kept revision is still match. match 0
 	// stores it only when the person is not kept yet. ok is false when
 	// the revision moved.
@@ -32,10 +46,10 @@ type Store interface {
 	// Delete removes the token when its revision is still match. ok is
 	// false when the revision moved, and true when it was already gone.
 	Delete(ctx context.Context, subject string, match uint64) (ok bool, err error)
-	// Lease holds subject exclusively across every replica until release
-	// is called, waiting while another holder has it. A lease that is never
-	// released, by a replica that died, lapses after leaseTTL.
-	Lease(ctx context.Context, subject string) (release func(context.Context), err error)
+	// Lease holds subject exclusively across every replica, waiting while
+	// another holder has it. Work under the lease uses held, which ends
+	// before the lease could lapse; release gives the lease back.
+	Lease(ctx context.Context, subject string) (held context.Context, release func(), err error)
 	// Close ends the connection to the store, if there is one.
 	Close() error
 }
@@ -45,6 +59,7 @@ type Store interface {
 type NATSConfig struct {
 	Nodes     []string
 	Bucket    string
+	Replicas  int
 	Username  string
 	Password  string
 	EnableTLS bool
@@ -59,18 +74,30 @@ type NATSConfig struct {
 type NATSStore struct {
 	conn   *nats.Conn
 	js     jetstream.JetStream
-	bucket string
+	bucket jetstream.KeyValueConfig
 
 	mu sync.Mutex
 	kv jetstream.KeyValue
 }
 
+// leaseTTL is how long NATS keeps a lease whose holder never gave it back,
+// because its replica died.
+const leaseTTL = 2 * time.Minute
+
+// leaseHold is how long work under a lease may take. It ends well before
+// leaseTTL, so the lease cannot lapse while a refresh is still running.
+const leaseHold = leaseTTL / 2
+
+// leasePoll is how often a waiting replica tries a held lease again.
+const leasePoll = 100 * time.Millisecond
+
 // NewNATS prepares the connection to OpenCloud's NATS. Like OpenCloud's own
 // services it does not wait for NATS: the connection is retried in the
 // background and the bucket is opened, or created, on first use, so this
 // service starts while NATS is still starting. JetStream file storage is the
-// default, which is what survives a restart; the bucket has no TTL, because
-// a token stays until the person disconnects.
+// default, which is what survives a restart; tokens have no TTL, because a
+// token stays until the person disconnects. Leases expire on their own,
+// which needs NATS 2.11 or later.
 func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 	if len(cfg.Nodes) == 0 {
 		return nil, errors.New("delegation: nats-js-kv needs the address of OpenCloud's NATS")
@@ -97,7 +124,7 @@ func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 			}
 		} else if err := (nats.Secure(&tls.Config{
 			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: cfg.Insecure, //nolint:gosec // explicit opt-in, as OC_INSECURE is elsewhere
+			InsecureSkipVerify: cfg.Insecure,
 		}))(&options); err != nil {
 			return nil, fmt.Errorf("delegation: NATS TLS: %w", err)
 		}
@@ -112,52 +139,57 @@ func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 		conn.Close()
 		return nil, fmt.Errorf("delegation: JetStream: %w", err)
 	}
-	return &NATSStore{conn: conn, js: js, bucket: cfg.Bucket}, nil
+	return &NATSStore{conn: conn, js: js, bucket: jetstream.KeyValueConfig{
+		Bucket:         cfg.Bucket,
+		Description:    "Offline tokens for Synaplan work while a person is away",
+		Storage:        jetstream.FileStorage,
+		Replicas:       cfg.Replicas,
+		LimitMarkerTTL: leaseTTL,
+	}}, nil
 }
 
-// open returns the bucket, opening or creating it the first time NATS
-// answers.
+// open returns the bucket, creating or updating it the first time NATS
+// answers. No lock is held while NATS is asked, so callers waiting for a
+// NATS that is down do not queue behind each other.
 func (s *NATSStore) open(ctx context.Context) (jetstream.KeyValue, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.kv != nil {
-		return s.kv, nil
+	kv := s.kv
+	s.mu.Unlock()
+	if kv != nil {
+		return kv, nil
 	}
-	kv, err := s.js.KeyValue(ctx, s.bucket)
-	if errors.Is(err, jetstream.ErrBucketNotFound) {
-		kv, err = s.js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
-			Bucket:      s.bucket,
-			Description: "Offline tokens for Synaplan work while a person is away",
-			Storage:     jetstream.FileStorage,
-		})
-	}
+	kv, err := s.js.CreateOrUpdateKeyValue(ctx, s.bucket)
 	if err != nil {
-		return nil, fmt.Errorf("delegation: opening the %s bucket: %w", s.bucket, err)
+		return nil, fmt.Errorf("delegation: opening the %s bucket: %w", s.bucket.Bucket, err)
 	}
-	s.kv = kv
-	return kv, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.kv == nil {
+		s.kv = kv
+	}
+	return s.kv, nil
 }
 
 // Get reads the person's token.
-func (s *NATSStore) Get(ctx context.Context, subject string) (string, uint64, bool, error) {
+func (s *NATSStore) Get(ctx context.Context, subject string) (Entry, bool, error) {
 	kv, err := s.open(ctx)
 	if err != nil {
-		return "", 0, false, err
+		return Entry{}, false, err
 	}
 	entry, err := kv.Get(ctx, natsKey(subject))
 	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
-		return "", 0, false, nil
+		return Entry{}, false, nil
 	}
 	if err != nil {
-		return "", 0, false, fmt.Errorf("delegation: reading an offline token: %w", err)
+		return Entry{}, false, fmt.Errorf("delegation: reading an offline token: %w", err)
 	}
-	return string(entry.Value()), entry.Revision(), true, nil
+	return Entry{Token: string(entry.Value()), Revision: entry.Revision()}, true, nil
 }
 
 // Write stores the token when match is still current.
 func (s *NATSStore) Write(ctx context.Context, subject, token string, match uint64) (uint64, bool, error) {
 	if token == "" {
-		return 0, false, errors.New("delegation: refusing to store an empty offline token")
+		return 0, false, errEmptyToken
 	}
 	kv, err := s.open(ctx)
 	if err != nil {
@@ -201,6 +233,36 @@ func (s *NATSStore) Delete(ctx context.Context, subject string, match uint64) (b
 	return true, nil
 }
 
+// Lease creates the person's lease key with a TTL of its own. NATS removes
+// a lease that was never given back, so no replica compares clocks.
+func (s *NATSStore) Lease(ctx context.Context, subject string) (context.Context, func(), error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	key := "lease." + natsKey(subject)
+	for {
+		rev, err := kv.Create(ctx, key, []byte("held"), jetstream.KeyTTL(leaseTTL))
+		if err == nil {
+			held, cancel := context.WithTimeout(ctx, leaseHold)
+			return held, func() {
+				cancel()
+				release, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer done()
+				_ = kv.Delete(release, key, jetstream.LastRevision(rev))
+			}, nil
+		}
+		if !errors.Is(err, jetstream.ErrKeyExists) {
+			return nil, nil, fmt.Errorf("delegation: taking a lease: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, fmt.Errorf("delegation: waiting for a lease: %w", ctx.Err())
+		case <-time.After(leasePoll):
+		}
+	}
+}
+
 // Close disconnects from NATS.
 func (s *NATSStore) Close() error {
 	if s == nil || s.conn == nil {
@@ -208,57 +270,6 @@ func (s *NATSStore) Close() error {
 	}
 	s.conn.Close()
 	return nil
-}
-
-// leaseTTL bounds how long a lease whose holder never released it blocks
-// the person: longer than one refresh and its store write take.
-const leaseTTL = 30 * time.Second
-
-// leasePoll is how often a waiting replica looks at a held lease again.
-const leasePoll = 100 * time.Millisecond
-
-// Lease takes the person's lease key in the bucket. A held lease is waited
-// for; one older than leaseTTL is taken over at its revision, so only one
-// waiter wins it.
-func (s *NATSStore) Lease(ctx context.Context, subject string) (func(context.Context), error) {
-	kv, err := s.open(ctx)
-	if err != nil {
-		return nil, err
-	}
-	key := "lease." + natsKey(subject)
-	for {
-		rev, err := kv.Create(ctx, key, []byte("held"))
-		if err == nil {
-			return releaser(kv, key, rev), nil
-		}
-		if !errors.Is(err, jetstream.ErrKeyExists) {
-			return nil, fmt.Errorf("delegation: taking a lease: %w", err)
-		}
-		entry, err := kv.Get(ctx, key)
-		switch {
-		case errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted):
-			continue
-		case err != nil:
-			return nil, fmt.Errorf("delegation: reading a lease: %w", err)
-		case time.Since(entry.Created()) > leaseTTL:
-			if rev, err := kv.Update(ctx, key, []byte("held"), entry.Revision()); err == nil {
-				return releaser(kv, key, rev), nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("delegation: waiting for a lease: %w", ctx.Err())
-		case <-time.After(leasePoll):
-		}
-	}
-}
-
-// releaser deletes the lease only while it is still the one taken, so a
-// lease another replica took over after it lapsed stays.
-func releaser(kv jetstream.KeyValue, key string, rev uint64) func(context.Context) {
-	return func(ctx context.Context) {
-		_ = kv.Delete(ctx, key, jetstream.LastRevision(rev))
-	}
 }
 
 // natsKey encodes subject so it is one NATS key. A subject may contain

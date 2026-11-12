@@ -114,3 +114,14 @@ func signedIn(userID, bearer string) context.Context {
 	ctx := revactx.ContextSetUser(context.Background(), &userpb.User{Id: &userpb.UserId{OpaqueId: userID}})
 	return synaplanauth.ContextWithOIDCToken(ctx, bearer)
 }
+
+// connectedAda is whether ada is connected, for a test that expects the
+// store to work.
+func connectedAda(t *testing.T, h *Handler) bool {
+	t.Helper()
+	ok, err := h.delegation.Connected(context.Background(), "ada")
+	if err != nil {
+		t.Fatalf("connected: %v", err)
+	}
+	return ok
+}

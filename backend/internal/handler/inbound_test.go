@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -82,7 +81,7 @@ func TestARevokedIdentityEndsWorkWhileAway(t *testing.T) {
 	if rec := inbound(h, token); rec.Code != http.StatusNoContent {
 		t.Fatalf("status %d %s, want 204", rec.Code, rec.Body)
 	}
-	if h.delegation.Connected(context.Background(), "ada") {
+	if connectedAda(t, h) {
 		t.Fatal("still acting for a person Synaplan revoked")
 	}
 	if got := idp.revokedTokens(); len(got) != 1 || got[0] != "offline-ada" {
@@ -119,7 +118,7 @@ func TestInboundRefusesWhatDoesNotVerify(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), tc.want) {
 				t.Fatalf("status %d %s, want 401 %s", rec.Code, rec.Body, tc.want)
 			}
-			if !h.delegation.Connected(context.Background(), "ada") {
+			if !connectedAda(t, h) {
 				t.Fatal("an unverified notification ended work while away")
 			}
 		})

@@ -7,71 +7,99 @@ import (
 	"testing"
 )
 
-func sealedWith(t *testing.T, inner Store, secrets ...string) (*SealedStore, *[]string) {
+func sealed(t *testing.T, inner Store, secrets ...string) *SealedStore {
 	t.Helper()
 	keys, err := NewLocalKeys(secrets...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var unreadable []string
-	s := NewSealedStore(inner, keys)
-	s.Unreadable = func(subject string, _ error) { unreadable = append(unreadable, subject) }
-	return s, &unreadable
+	return NewSealedStore(inner, keys)
+}
+
+// outageKeys is a key wrapper on the network that cannot be reached.
+type outageKeys struct{}
+
+func (outageKeys) Wrap(context.Context, []byte, []byte) (string, []byte, error) {
+	return "", nil, errors.New("kms timeout")
+}
+func (outageKeys) Unwrap(context.Context, string, []byte, []byte) ([]byte, bool, error) {
+	return nil, false, errors.New("kms timeout")
+}
+
+func keyID(t *testing.T, inner Store) string {
+	t.Helper()
+	return strings.Split(storedFor(t, inner), ".")[1]
 }
 
 func TestSealedStore(t *testing.T) {
+	ctx := context.Background()
+	with := func(secrets ...string) func(*testing.T, Store) *SealedStore {
+		return func(t *testing.T, inner Store) *SealedStore { return sealed(t, inner, secrets...) }
+	}
 	cases := []struct {
 		name string
-		// before changes what the store holds for ada, sealed with "one",
-		// before it is read with readWith.
+		// before changes what inner holds for ada, sealed with "one",
+		// before it is read through read.
 		before     func(inner *MemoryStore)
-		readWith   []string
+		read       func(*testing.T, Store) *SealedStore
 		want       string
 		unreadable bool
+		outage     bool
 	}{
-		{name: "round trip", readWith: []string{"one"}, want: "offline-1"},
-		{name: "after a rotation the previous secret still reads", readWith: []string{"two", "one"}, want: "offline-1"},
-		{name: "a dropped secret does not read", readWith: []string{"two"}, unreadable: true},
+		{name: "round trip", read: with("one"), want: "offline-1"},
+		{name: "after a rotation the previous secret still reads", read: with("two", "one"), want: "offline-1"},
+		{name: "a dropped secret does not read", read: with("two"), unreadable: true},
 		{
 			name: "a value copied to another person does not read",
 			before: func(inner *MemoryStore) {
-				eve, _, _, _ := inner.Get(context.Background(), "eve")
-				_, rev, _, _ := inner.Get(context.Background(), "ada")
-				_, _, _ = inner.Write(context.Background(), "ada", eve, rev)
+				eve, _, _ := inner.Get(ctx, "eve")
+				ada, _, _ := inner.Get(ctx, "ada")
+				_, _, _ = inner.Write(ctx, "ada", eve.Token, ada.Revision)
 			},
-			readWith:   []string{"one"},
+			read:       with("one"),
 			unreadable: true,
 		},
 		{
 			name: "a value that was never sealed does not read",
 			before: func(inner *MemoryStore) {
-				_, rev, _, _ := inner.Get(context.Background(), "ada")
-				_, _, _ = inner.Write(context.Background(), "ada", "offline-plain", rev)
+				ada, _, _ := inner.Get(ctx, "ada")
+				_, _, _ = inner.Write(ctx, "ada", "offline-plain", ada.Revision)
 			},
-			readWith:   []string{"one"},
+			read:       with("one"),
 			unreadable: true,
+		},
+		{
+			name:   "a key wrapper that cannot be reached is an outage, not an unreadable value",
+			read:   func(_ *testing.T, inner Store) *SealedStore { return NewSealedStore(inner, outageKeys{}) },
+			outage: true,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			inner := NewMemoryStore()
-			writer, _ := sealedWith(t, inner, "one")
-			if _, ok, err := writer.Write(context.Background(), "ada", "offline-1", 0); err != nil || !ok {
-				t.Fatalf("write: ok %v err %v", ok, err)
-			}
-			if _, ok, err := writer.Write(context.Background(), "eve", "offline-eve", 0); err != nil || !ok {
-				t.Fatalf("write: ok %v err %v", ok, err)
+			writer := sealed(t, inner, "one")
+			for sub, tok := range map[string]string{"ada": "offline-1", "eve": "offline-eve"} {
+				if _, ok, err := writer.Write(ctx, sub, tok, 0); err != nil || !ok {
+					t.Fatalf("write: ok %v err %v", ok, err)
+				}
 			}
 			if tc.before != nil {
 				tc.before(inner)
 			}
-			reader, unreadable := sealedWith(t, inner, tc.readWith...)
-			got, _, ok, err := reader.Get(context.Background(), "ada")
-			if err != nil || !ok {
-				t.Fatalf("get: ok %v err %v", ok, err)
-			}
-			if got != tc.want || (len(*unreadable) == 1) != tc.unreadable {
-				t.Fatalf("got %q, unreadable %v", got, *unreadable)
+			got, ok, err := tc.read(t, inner).Get(ctx, "ada")
+			switch {
+			case tc.outage:
+				if err == nil || errors.Is(err, ErrUnreadable) {
+					t.Fatalf("err %v, want an outage", err)
+				}
+			case tc.unreadable:
+				if !errors.Is(err, ErrUnreadable) || !ok || got.Revision == 0 {
+					t.Fatalf("got %+v ok %v err %v, want unreadable with its revision", got, ok, err)
+				}
+			default:
+				if err != nil || !ok || got.Token != tc.want {
+					t.Fatalf("got %+v ok %v err %v", got, ok, err)
+				}
 			}
 		})
 	}
@@ -79,32 +107,32 @@ func TestSealedStore(t *testing.T) {
 
 func TestSealedStoreKeepsNothingReadable(t *testing.T) {
 	inner := NewMemoryStore()
-	s, _ := sealedWith(t, inner, "one")
-	if _, _, err := s.Write(context.Background(), "ada", "offline-1", 0); err != nil {
+	if _, _, err := sealed(t, inner, "one").Write(context.Background(), "ada", "offline-1", 0); err != nil {
 		t.Fatal(err)
 	}
-	raw, _, _, _ := inner.Get(context.Background(), "ada")
+	raw := storedFor(t, inner)
 	if strings.Contains(raw, "offline-1") || !strings.HasPrefix(raw, "v1.") {
 		t.Fatalf("stored %q", raw)
 	}
 }
 
-func TestSealedStoreWritesWithTheCurrentKey(t *testing.T) {
+func TestSealedStoreMovesValuesToTheCurrentKey(t *testing.T) {
+	ctx := context.Background()
 	inner := NewMemoryStore()
-	old, _ := sealedWith(t, inner, "one")
-	rev, _, _ := old.Write(context.Background(), "ada", "offline-1", 0)
-	before, _, _, _ := inner.Get(context.Background(), "ada")
+	if _, _, err := sealed(t, inner, "one").Write(ctx, "ada", "offline-1", 0); err != nil {
+		t.Fatal(err)
+	}
+	before := keyID(t, inner)
 
-	rotated, _ := sealedWith(t, inner, "two", "one")
-	if _, ok, err := rotated.Write(context.Background(), "ada", "offline-2", rev); err != nil || !ok {
-		t.Fatalf("ok %v err %v", ok, err)
+	got, _, err := sealed(t, inner, "two", "one").Get(ctx, "ada")
+	if err != nil || got.Token != "offline-1" {
+		t.Fatalf("got %+v err %v", got, err)
 	}
-	after, _, _, _ := inner.Get(context.Background(), "ada")
-	if strings.Split(before, ".")[1] == strings.Split(after, ".")[1] {
-		t.Fatal("the rewrite kept the previous key")
+	if keyID(t, inner) == before {
+		t.Fatal("reading under the previous key did not move the value to the current one")
 	}
-	if got, _, _, _ := mustSealed(t, inner, "two").Get(context.Background(), "ada"); got != "offline-2" {
-		t.Fatalf("the current key alone reads %q", got)
+	if got, _, err := sealed(t, inner, "two").Get(ctx, "ada"); err != nil || got.Token != "offline-1" {
+		t.Fatalf("the current key alone reads %+v, err %v", got, err)
 	}
 }
 
@@ -115,29 +143,27 @@ func TestNewLocalKeysNeedsASecret(t *testing.T) {
 }
 
 func TestAnUnreadableTokenMeansAllowAgain(t *testing.T) {
-	idp := newIdP(t, "ada", false)
+	f := newIdP(t, "ada", false)
 	inner := NewMemoryStore()
-	var failed []error
-	if err := connect(t, withStore(idp, mustSealed(t, inner, "one"), &failed), "ada"); err != nil {
+	var failed failures
+	if err := connect(t, withStore(f, sealed(t, inner, "one"), &failed), "ada"); err != nil {
 		t.Fatal(err)
 	}
 
-	d := withStore(idp, mustSealed(t, inner, "two"), &failed)
-	if d.Connected(context.Background(), "ada") {
+	d := withStore(f, sealed(t, inner, "two"), &failed)
+	if connected(t, d, "ada") {
 		t.Fatal("an unreadable token counts as connected")
 	}
-	if _, err := d.Token(context.Background(), "ada", "synaplan-app"); !errors.Is(err, ErrNotConnected) {
+	if err := token(d); !errors.Is(err, ErrNotConnected) {
 		t.Fatalf("err %v, want ErrNotConnected", err)
 	}
 	if err := connect(t, d, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if !d.Connected(context.Background(), "ada") {
+	if !connected(t, d, "ada") {
 		t.Fatal("allowing again did not connect")
 	}
-}
-
-func mustSealed(t *testing.T, inner Store, secrets ...string) *SealedStore {
-	s, _ := sealedWith(t, inner, secrets...)
-	return s
+	if _, refreshed, revoked := f.state(); len(refreshed) != 0 || len(revoked) != 0 {
+		t.Fatalf("refreshed %v, revoked %v: an unreadable token must not reach the identity provider", refreshed, revoked)
+	}
 }
