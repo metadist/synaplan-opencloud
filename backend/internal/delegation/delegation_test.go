@@ -32,12 +32,15 @@ type fakeIdP struct {
 	// whole session, as Keycloak does with "Revoke Refresh Token" on.
 	singleUse bool
 	used      map[string]bool
-	revokeURL string
-	mu        sync.Mutex
-	issued    int
-	exchanges int
-	refreshed []string
-	revoked   []string
+	// keepRefresh answers a refresh with the same refresh token, as an
+	// identity provider that does not rotate them does.
+	keepRefresh bool
+	revokeURL   string
+	mu          sync.Mutex
+	issued      int
+	exchanges   int
+	refreshed   []string
+	revoked     []string
 }
 
 func newIdP(t *testing.T, codeSub string, refuse bool) *fakeIdP {
@@ -88,6 +91,9 @@ func newIdP(t *testing.T, codeSub string, refuse bool) *fakeIdP {
 			f.issued++
 			answer["access_token"] = jwt(f.codeSub)
 			answer["refresh_token"] = fmt.Sprintf("offline-%d", f.issued)
+			if f.keepRefresh && r.Form.Get("grant_type") == "refresh_token" {
+				answer["refresh_token"] = r.Form.Get("refresh_token")
+			}
 		case "urn:ietf:params:oauth:grant-type:token-exchange":
 			f.exchanges++
 			answer["access_token"] = "for-" + r.Form.Get("audience")

@@ -64,7 +64,7 @@ func (h *Handler) DelegationStatus(w http.ResponseWriter, r *http.Request) {
 	connected, err := h.delegation.Connected(r.Context(), sub)
 	if err != nil {
 		log.Printf("delegation status: %v", err)
-		writeStoreUnavailable(w)
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot check this permission right now. Try again later."})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -98,8 +98,7 @@ func (h *Handler) DelegationConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("delegation connect: %v", err)
-		if errors.Is(err, delegation.ErrUnavailable) {
-			writeStoreUnavailable(w)
+		if writeStoreFailure(w, err) {
 			return
 		}
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Synaplan could not be allowed to work for you. Try again."})
@@ -122,8 +121,7 @@ func (h *Handler) DelegationDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("delegation disconnect: %v", err)
-		if errors.Is(err, delegation.ErrUnavailable) {
-			writeStoreUnavailable(w)
+		if writeStoreFailure(w, err) {
 			return
 		}
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan no longer works for you, but the sign-in service could not confirm it. Try again."})
@@ -132,10 +130,18 @@ func (h *Handler) DelegationDisconnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"connected": false})
 }
 
-// writeStoreUnavailable answers that the store keeping the permission
-// cannot be used right now.
-func writeStoreUnavailable(w http.ResponseWriter) {
-	writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not update this permission. Try again."})
+// writeStoreFailure answers a change to the permission that the store did
+// not take, and reports whether err was one.
+func writeStoreFailure(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, delegation.ErrUnavailable):
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not update this permission. Try again."})
+	case errors.Is(err, delegation.ErrBusy):
+		writeJSON(w, http.StatusConflict, errorResponse{Error: "This permission was changing at the same time. Try again."})
+	default:
+		return false
+	}
+	return true
 }
 
 // delegatedBearer is the Synaplan token for sub, minted from their offline

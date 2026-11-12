@@ -33,8 +33,8 @@ type KeyWrapper interface {
 // gets its own data key, wrapped by a KeyWrapper (envelope encryption), and
 // both layers are bound to the person, so a value copied to another person's
 // key does not decrypt. Revisions and leases pass through. A value read
-// under a key that is no longer current is sealed again with the current
-// one, so an old secret can be dropped once every value was read.
+// under a key that is no longer current comes back with Rewrap set, so the
+// caller writes it again, sealed with the current key, under its lease.
 type SealedStore struct {
 	inner Store
 	keys  KeyWrapper
@@ -53,21 +53,14 @@ func (s *SealedStore) Get(ctx context.Context, subject string) (Entry, bool, err
 	if err != nil || !ok {
 		return kept, ok, err
 	}
-	token, current, err := s.open(ctx, subject, kept.Token)
+	token, current, err := s.unseal(ctx, subject, kept.Token)
 	if errors.Is(err, ErrUnreadable) {
 		return Entry{Revision: kept.Revision}, true, err
 	}
 	if err != nil {
 		return Entry{}, false, err
 	}
-	if !current {
-		if value, err := s.seal(ctx, subject, token); err == nil {
-			if rev, ok, err := s.inner.Write(ctx, subject, value, kept.Revision); err == nil && ok {
-				kept.Revision = rev
-			}
-		}
-	}
-	return Entry{Token: token, Revision: kept.Revision}, true, nil
+	return Entry{Token: token, Revision: kept.Revision, Rewrap: !current}, true, nil
 }
 
 // Write encrypts the token and stores it when match is still current.
@@ -95,6 +88,9 @@ func (s *SealedStore) Lease(ctx context.Context, subject string) (context.Contex
 // Close closes the store underneath.
 func (s *SealedStore) Close() error { return s.inner.Close() }
 
+// sealedAAD binds a value to its format version and to the person, so a
+// value moved to another person's key, or read as another format, does not
+// decrypt.
 func sealedAAD(subject string) []byte {
 	return []byte("synaplan-opencloud/delegation/" + sealedVersion + "\x00" + subject)
 }
@@ -118,7 +114,9 @@ func (s *SealedStore) seal(ctx context.Context, subject, token string) (string, 
 	return strings.Join([]string{sealedVersion, keyID, enc.EncodeToString(wrapped), enc.EncodeToString(sealed)}, "."), nil
 }
 
-func (s *SealedStore) open(ctx context.Context, subject, value string) (string, bool, error) {
+// unseal decrypts value for subject. current reports whether it was sealed
+// with the key Wrap uses now.
+func (s *SealedStore) unseal(ctx context.Context, subject, value string) (string, bool, error) {
 	parts := strings.Split(value, ".")
 	if len(parts) != 4 || parts[0] != sealedVersion {
 		return "", false, fmt.Errorf("%w: not a sealed value", ErrUnreadable)
@@ -225,5 +223,9 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 	if err != nil {
 		return nil, fmt.Errorf("delegation: cipher: %w", err)
 	}
-	return cipher.NewGCM(block)
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("delegation: GCM: %w", err)
+	}
+	return aead, nil
 }

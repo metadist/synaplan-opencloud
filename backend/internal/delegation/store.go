@@ -14,16 +14,22 @@ import (
 )
 
 // ErrUnreadable means a value is kept but cannot be read with the keys at
-// hand: written under a key that was dropped, or not written by this
-// service. The person has to allow again. Any other error is an outage.
+// hand: written under a key that was dropped or that this replica does not
+// know yet, or not written by this service. It is never deleted for that
+// alone, so a rotation rolling through the replicas loses nobody; allowing
+// again replaces it. Any other error is an outage.
 var ErrUnreadable = errors.New("delegation: the kept offline token cannot be read")
 
 var errEmptyToken = errors.New("delegation: refusing to store an empty offline token")
 
 // Entry is a person's offline token and the revision it was read at.
+// Rewrap asks for the token to be written again as it is, because the value
+// was sealed with a key that is no longer current; the caller does that
+// where it already holds the person's lease.
 type Entry struct {
 	Token    string
 	Revision uint64
+	Rewrap   bool
 }
 
 // Store keeps one offline token per person where every replica of this
@@ -50,7 +56,8 @@ type Store interface {
 	// another holder has it. Work under the lease uses held, which ends
 	// before the lease could lapse; release gives the lease back.
 	Lease(ctx context.Context, subject string) (held context.Context, release func(), err error)
-	// Close ends the connection to the store, if there is one.
+	// Close ends the connection to the store, if there is one. It takes no
+	// context: it is called once, when the service stops.
 	Close() error
 }
 
@@ -199,7 +206,7 @@ func (s *NATSStore) Write(ctx context.Context, subject, token string, match uint
 	var rev uint64
 	if match == 0 {
 		rev, err = kv.Create(ctx, key, []byte(token))
-		if errors.Is(err, jetstream.ErrKeyExists) {
+		if keyExists(err) {
 			return 0, false, nil
 		}
 	} else {
@@ -252,7 +259,7 @@ func (s *NATSStore) Lease(ctx context.Context, subject string) (context.Context,
 				_ = kv.Delete(release, key, jetstream.LastRevision(rev))
 			}, nil
 		}
-		if !errors.Is(err, jetstream.ErrKeyExists) {
+		if !keyExists(err) {
 			return nil, nil, fmt.Errorf("delegation: taking a lease: %w", err)
 		}
 		select {
@@ -261,6 +268,18 @@ func (s *NATSStore) Lease(ctx context.Context, subject string) (context.Context,
 		case <-time.After(leasePoll):
 		}
 	}
+}
+
+// keyExists reports a Create that lost to a key someone else holds. Over a
+// deleted key, which every given-back lease leaves, nats.go does not map a
+// replicated bucket's answer (10164) to ErrKeyExists, so the code is read.
+func keyExists(err error) bool {
+	var apiErr *jetstream.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence ||
+			apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant
+	}
+	return errors.Is(err, jetstream.ErrKeyExists)
 }
 
 // Close disconnects from NATS.

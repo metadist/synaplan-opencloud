@@ -116,23 +116,56 @@ func TestSealedStoreKeepsNothingReadable(t *testing.T) {
 	}
 }
 
-func TestSealedStoreMovesValuesToTheCurrentKey(t *testing.T) {
+func TestSealedStoreAsksToRewrapUnderAPreviousKey(t *testing.T) {
 	ctx := context.Background()
 	inner := NewMemoryStore()
 	if _, _, err := sealed(t, inner, "one").Write(ctx, "ada", "offline-1", 0); err != nil {
 		t.Fatal(err)
 	}
+	cases := []struct {
+		name    string
+		secrets []string
+		rewrap  bool
+	}{
+		{"current key", []string{"one"}, false},
+		{"previous key", []string{"two", "one"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := storedFor(t, inner)
+			got, _, err := sealed(t, inner, tc.secrets...).Get(ctx, "ada")
+			if err != nil || got.Token != "offline-1" || got.Rewrap != tc.rewrap {
+				t.Fatalf("got %+v err %v, want rewrap %v", got, err, tc.rewrap)
+			}
+			if storedFor(t, inner) != before {
+				t.Fatal("a read wrote to the store")
+			}
+		})
+	}
+}
+
+// A token the identity provider does not rotate is written again under the
+// current key while its lease is held, so the previous secret can go.
+func TestARefreshMovesTheTokenToTheCurrentKey(t *testing.T) {
+	f := newIdP(t, "ada", false)
+	inner := NewMemoryStore()
+	var failed failures
+	if err := connect(t, withStore(f, sealed(t, inner, "one"), &failed), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.keepRefresh = true
+	f.mu.Unlock()
 	before := keyID(t, inner)
 
-	got, _, err := sealed(t, inner, "two", "one").Get(ctx, "ada")
-	if err != nil || got.Token != "offline-1" {
-		t.Fatalf("got %+v err %v", got, err)
+	if err := token(withStore(f, sealed(t, inner, "two", "one"), &failed)); err != nil {
+		t.Fatal(err)
 	}
 	if keyID(t, inner) == before {
-		t.Fatal("reading under the previous key did not move the value to the current one")
+		t.Fatal("the token is still sealed with the previous key")
 	}
-	if got, _, err := sealed(t, inner, "two").Get(ctx, "ada"); err != nil || got.Token != "offline-1" {
-		t.Fatalf("the current key alone reads %+v, err %v", got, err)
+	if !connected(t, withStore(f, sealed(t, inner, "two"), &failed), "ada") {
+		t.Fatal("the current key alone does not read the token")
 	}
 }
 
@@ -142,6 +175,8 @@ func TestNewLocalKeysNeedsASecret(t *testing.T) {
 	}
 }
 
+// An unreadable token is not connected on this replica and is replaced by
+// allowing again, but never deleted for that alone.
 func TestAnUnreadableTokenMeansAllowAgain(t *testing.T) {
 	f := newIdP(t, "ada", false)
 	inner := NewMemoryStore()
@@ -156,6 +191,9 @@ func TestAnUnreadableTokenMeansAllowAgain(t *testing.T) {
 	}
 	if err := token(d); !errors.Is(err, ErrNotConnected) {
 		t.Fatalf("err %v, want ErrNotConnected", err)
+	}
+	if !connected(t, withStore(f, sealed(t, inner, "two", "one"), &failed), "ada") {
+		t.Fatal("a replica without the key deleted the token; a rotation rolling through the replicas would lose the person")
 	}
 	if err := connect(t, d, "ada"); err != nil {
 		t.Fatal(err)

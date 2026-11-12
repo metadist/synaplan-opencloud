@@ -3,11 +3,13 @@ package delegation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/metadist/synaplan-opencloud/internal/idp"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // failingStore is a store that cannot be reached.
@@ -261,7 +263,10 @@ func TestAStoreThatFailsIsAnOutage(t *testing.T) {
 func TestMemoryStoreRevisions(t *testing.T) {
 	ctx := context.Background()
 	seed := func(s *MemoryStore) uint64 {
-		rev, _, _ := s.Write(ctx, "ada", "t1", 0)
+		rev, ok, err := s.Write(ctx, "ada", "t1", 0)
+		if err != nil || !ok {
+			t.Fatalf("seed: ok %v err %v", ok, err)
+		}
 		return rev
 	}
 	none := func(*MemoryStore) uint64 { return 0 }
@@ -289,14 +294,43 @@ func TestMemoryStoreRevisions(t *testing.T) {
 
 	s := NewMemoryStore()
 	rev := seed(s)
-	if ok, _ := s.Delete(ctx, "ada", rev+1); ok {
-		t.Fatal("a stale revision deleted the token")
+	deletes := []struct {
+		name  string
+		match uint64
+		want  bool
+	}{
+		{"a stale revision does not delete", rev + 1, false},
+		{"the read revision deletes", rev, true},
+		{"a missing token counts as deleted", rev, true},
 	}
-	if ok, _ := s.Delete(ctx, "ada", rev); !ok {
-		t.Fatal("the read revision did not delete the token")
+	for _, tc := range deletes {
+		if ok, err := s.Delete(ctx, "ada", tc.match); err != nil || ok != tc.want {
+			t.Fatalf("%s: ok %v err %v", tc.name, ok, err)
+		}
 	}
 	if again := seed(s); again <= rev {
 		t.Fatalf("revision %d after recreating, want more than %d", again, rev)
+	}
+}
+
+func TestKeyExists(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"single server", &jetstream.APIError{ErrorCode: jetstream.JSErrCodeStreamWrongLastSequence}, true},
+		{"replicated bucket", &jetstream.APIError{ErrorCode: jetstream.JSErrCodeStreamWrongLastSequenceConstant}, true},
+		{"mapped by nats.go", jetstream.ErrKeyExists, true},
+		{"another API error", &jetstream.APIError{ErrorCode: jetstream.JSErrCodeStreamNotFound}, false},
+		{"not an API error", errors.New("timeout"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := keyExists(fmt.Errorf("create: %w", tc.err)); got != tc.want {
+				t.Fatalf("keyExists = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
