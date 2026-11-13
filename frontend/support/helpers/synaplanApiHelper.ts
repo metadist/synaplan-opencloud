@@ -94,3 +94,44 @@ export async function deleteSynaplanFileQuiet(
     })
     .catch(() => {})
 }
+
+interface SynaplanModelRow {
+  id: number
+  name: string
+  service: string
+}
+
+/**
+ * The chat model Synaplan uses for the person when they pick none, as
+ * the chat dialog labels it ("name (service)"). A journey that picks a
+ * model picks this one: it works in the dev stack with real providers
+ * and in the CI test stack, where only the stub answers.
+ */
+export async function defaultChatModelLabel(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string
+): Promise<string> {
+  const headers = { Authorization: `Bearer ${token}` }
+  const trimmedBase = baseUrl.replace(/\/+$/, '')
+
+  const defaultsResp = await request.get(`${trimmedBase}/api/v1/config/models/defaults`, {
+    headers
+  })
+  if (!defaultsResp.ok()) {
+    throw new Error(`synaplan model defaults failed: ${defaultsResp.status()}`)
+  }
+  const defaults = (await defaultsResp.json()) as { defaults?: { CHAT?: number | string } }
+  const chatId = Number(defaults.defaults?.CHAT)
+
+  const modelsResp = await request.get(`${trimmedBase}/api/v1/config/models`, { headers })
+  if (!modelsResp.ok()) {
+    throw new Error(`synaplan models list failed: ${modelsResp.status()}`)
+  }
+  const models = (await modelsResp.json()) as { models?: { CHAT?: SynaplanModelRow[] } }
+  const row = models.models?.CHAT?.find((m) => m.id === chatId)
+  if (!row) {
+    throw new Error(`synaplan default chat model ${chatId} is not in the model list`)
+  }
+  return row.service ? `${row.name} (${row.service})` : row.name
+}

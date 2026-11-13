@@ -9,6 +9,7 @@ import {
   uploadFileFromDisk,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
+import { defaultChatModelLabel } from '../../support/helpers/synaplanApiHelper'
 
 /**
  * Ask Synaplan about a file: the context action is visible, the dialog
@@ -21,6 +22,7 @@ const TESTS_DIR = 'synaplan-e2e'
 const TEST_USER = 'testuser@synaplan.com'
 const TEST_PASSWORD = 'testpass123'
 const OC_API_URL = process.env.OC_API_URL ?? 'https://host.docker.internal:9200'
+const SYNAPLAN_API_URL = process.env.SYNAPLAN_API_URL ?? 'http://host.docker.internal:8000'
 const PDF_FIXTURE_PATH = fileURLToPath(
   new URL('../../support/filesForUpload/sample-lorem.pdf', import.meta.url)
 )
@@ -79,9 +81,15 @@ test('ask a question about a text file with a picked model', async ({ request })
   )
   filesToCleanup.push(remotePath)
 
+  const synaplanToken = await getAccessToken(request, TEST_USER, TEST_PASSWORD, {
+    clientId: 'synaplan-app',
+    clientSecret: 'test-oidc-secret'
+  })
+  const modelLabel = await defaultChatModelLabel(request, SYNAPLAN_API_URL, synaplanToken)
+
   await navigateToTestsFolder(userPage)
   await openChatDialog(userPage, baseName)
-  await pickFirstModel(userPage)
+  await pickModel(userPage, modelLabel)
   await askAndExpectAnswer(userPage, 'Who sent this invoice?')
 })
 
@@ -140,14 +148,13 @@ async function openChatDialog(page: Page, fileName: string) {
   expect((await models).ok()).toBe(true)
 }
 
-// Picks the first model Synaplan offers this person, or stays with the
-// default model when Synaplan lists none.
-async function pickFirstModel(page: Page) {
+// Picks a model by the label the dialog shows; "Default model" is
+// always the first option.
+async function pickModel(page: Page, label: string) {
   await page.locator('[data-testid="synaplan-chat-model"] .vs__dropdown-toggle').first().click()
-  const options = page.getByRole('option')
-  await expect(options.first()).toHaveText('Default model')
-  const target = (await options.count()) > 1 ? options.nth(1) : options.first()
-  await target.click()
+  await expect(page.getByRole('option').first()).toHaveText('Default model')
+  await page.getByRole('option', { name: label, exact: true }).click()
+  await expect(page.locator('[data-testid="synaplan-chat-model"]')).toContainText(label)
 }
 
 async function askAndExpectAnswer(page: Page, question: string) {
