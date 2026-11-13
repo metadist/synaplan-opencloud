@@ -76,3 +76,86 @@ export async function knowledgeFileNames(
   const body = (await resp.json()) as SynaplanFilesListResponse
   return (body.files ?? []).map((file) => file.filename ?? '')
 }
+
+/** Upload a text file to the person's Synaplan files; returns its id. */
+export async function uploadToSynaplan(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  name: string,
+  content: string
+): Promise<number> {
+  const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/upload`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      'files[]': { name, mimeType: 'text/plain', buffer: Buffer.from(content) },
+      process_level: 'store'
+    }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan upload failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as { files?: { id: number }[] }
+  const id = body.files?.[0]?.id
+  if (!id) throw new Error('synaplan upload returned no file id')
+  return id
+}
+
+/**
+ * The id of the person's active link to an OpenCloud, as Synaplan lists
+ * it, or 0 when there is none yet. Synaplan links a person on their first
+ * call through this OpenCloud.
+ */
+export async function openCloudLinkId(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string
+): Promise<number> {
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/me/platform-links`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan links failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as {
+    links?: { id: number; client: string; status: string }[]
+  }
+  return body.links?.find((l) => l.client === 'opencloud' && l.status === 'active')?.id ?? 0
+}
+
+/** Ask Synaplan to copy one of its files into the linked OpenCloud. */
+export async function sendToOpenCloud(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  fileId: number,
+  linkId: number
+): Promise<{ status: number; state: string; reference: string }> {
+  const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/${fileId}/send`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { destination: 'platform', identity_id: linkId }
+  })
+  const body = (await resp.json().catch(() => ({}))) as {
+    reference?: string | null
+    context?: { state?: string }
+  }
+  return {
+    status: resp.status(),
+    state: body.context?.state ?? '',
+    reference: body.reference ?? ''
+  }
+}
+
+/** Delete a file from the person's Synaplan files; ignores failures. */
+export async function deleteSynaplanFileQuiet(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  fileId: number
+): Promise<void> {
+  await request
+    .delete(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    .catch(() => {})
+}
