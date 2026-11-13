@@ -36,6 +36,10 @@ type Config struct {
 	OIDCExchangeSecret        string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience        string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
+	// Store keeps the offline tokens of people who allowed work while they
+	// are away, in the key-value store OpenCloud already runs.
+	Store PersistentStore `yaml:"store"`
+
 	Context context.Context `yaml:"-"`
 }
 
@@ -72,4 +76,21 @@ type CORS struct {
 // TokenManager is the config for using the reva token manager.
 type TokenManager struct {
 	JWTSecret string `yaml:"jwt_secret" env:"OC_JWT_SECRET;SYNAPLAN_JWT_SECRET" desc:"The secret to mint and validate jwt tokens."`
+}
+
+// PersistentStore is OpenCloud's shared store for the offline tokens.
+// The variable names are the ones OpenCloud services use for their own
+// persistent store, plus a SYNAPLAN_ alias.
+type PersistentStore struct {
+	Store                     string   `yaml:"store" env:"OC_PERSISTENT_STORE;SYNAPLAN_STORE" desc:"Where the offline tokens of people who allowed work while away are kept. 'nats-js-kv' is OpenCloud's JetStream key-value store, shared by every replica of this service. 'memory' keeps them in this process: a restart forgets them and other replicas never see them. Other values OpenCloud knows, such as redis-sentinel, are not supported here."`
+	Nodes                     []string `yaml:"nodes" env:"OC_PERSISTENT_STORE_NODES;SYNAPLAN_STORE_NODES" desc:"Addresses of OpenCloud's NATS, as host:port. A comma-separated list when there is more than one. Only applies when the store is nats-js-kv. NATS must be 2.11 or later."`
+	Database                  string   `yaml:"database" env:"SYNAPLAN_STORE_DATABASE" desc:"JetStream key-value bucket for the offline tokens."`
+	Replicas                  int      `yaml:"replicas" env:"SYNAPLAN_STORE_REPLICAS" desc:"How many NATS servers keep a copy of the bucket, in a NATS cluster. The bucket's settings are applied at every start, so they replace changes made to the bucket by hand."`
+	AuthUsername              string   `yaml:"username" env:"OC_PERSISTENT_STORE_AUTH_USERNAME;SYNAPLAN_STORE_AUTH_USERNAME" desc:"Username for OpenCloud's NATS. Only applies when the store is nats-js-kv."`
+	AuthPassword              string   `yaml:"password" env:"OC_PERSISTENT_STORE_AUTH_PASSWORD;SYNAPLAN_STORE_AUTH_PASSWORD" desc:"Password for OpenCloud's NATS. Only applies when the store is nats-js-kv."`
+	EnableTLS                 bool     `yaml:"enable_tls" env:"OC_PERSISTENT_STORE_ENABLE_TLS;SYNAPLAN_STORE_ENABLE_TLS" desc:"Use TLS to reach OpenCloud's NATS. Only applies when the store is nats-js-kv."`
+	TLSInsecure               bool     `yaml:"tls_insecure" env:"OC_INSECURE;OC_PERSISTENT_STORE_TLS_INSECURE;SYNAPLAN_STORE_TLS_INSECURE" desc:"Skip verification of NATS's certificate. Only applies when TLS is enabled and no root CA is set."`
+	TLSRootCACertificate      string   `yaml:"tls_root_ca_certificate" env:"OC_PERSISTENT_STORE_TLS_ROOT_CA_CERTIFICATE;SYNAPLAN_STORE_TLS_ROOT_CA_CERTIFICATE" desc:"Root CA used to verify NATS's certificate. When set, insecure verification is ignored."`
+	EncryptionSecret          string   `yaml:"encryption_secret" env:"SYNAPLAN_STORE_ENCRYPTION_SECRET" desc:"Secret the key that encrypts the offline tokens is derived from. Keep it like any other secret; anyone with it and a copy of the store can read the tokens. Defaults to the exchange client secret, so changing that secret then makes everyone allow again."`
+	EncryptionPreviousSecrets []string `yaml:"encryption_previous_secrets" env:"SYNAPLAN_STORE_ENCRYPTION_PREVIOUS_SECRETS" desc:"Earlier encryption secrets, still used to read tokens written before a rotation. A token moves to the current secret the next time it is used. A comma-separated list."`
 }

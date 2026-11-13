@@ -23,14 +23,24 @@ func jwt(sub string) string {
 // rotated or replaced token is told apart from the one before.
 type fakeIdP struct {
 	*httptest.Server
-	codeSub   string
-	refuse    bool
-	revokeURL string
-	mu        sync.Mutex
-	issued    int
-	exchanges int
-	refreshed []string
-	revoked   []string
+	codeSub string
+	refuse  bool
+	// dead refresh tokens are answered with invalid_grant. A nil map
+	// refuses none.
+	dead map[string]bool
+	// singleUse answers a refresh token used a second time by ending the
+	// whole session, as Keycloak does with "Revoke Refresh Token" on.
+	singleUse bool
+	used      map[string]bool
+	// keepRefresh answers a refresh with the same refresh token, as an
+	// identity provider that does not rotate them does.
+	keepRefresh bool
+	revokeURL   string
+	mu          sync.Mutex
+	issued      int
+	exchanges   int
+	refreshed   []string
+	revoked     []string
 }
 
 func newIdP(t *testing.T, codeSub string, refuse bool) *fakeIdP {
@@ -62,7 +72,16 @@ func newIdP(t *testing.T, codeSub string, refuse bool) *fakeIdP {
 		switch r.Form.Get("grant_type") {
 		case "refresh_token":
 			f.refreshed = append(f.refreshed, r.Form.Get("refresh_token"))
-			if f.refuse {
+			if f.singleUse {
+				if f.used[r.Form.Get("refresh_token")] {
+					f.refuse = true
+				}
+				if f.used == nil {
+					f.used = map[string]bool{}
+				}
+				f.used[r.Form.Get("refresh_token")] = true
+			}
+			if f.refuse || f.dead[r.Form.Get("refresh_token")] {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 				return
@@ -72,6 +91,9 @@ func newIdP(t *testing.T, codeSub string, refuse bool) *fakeIdP {
 			f.issued++
 			answer["access_token"] = jwt(f.codeSub)
 			answer["refresh_token"] = fmt.Sprintf("offline-%d", f.issued)
+			if f.keepRefresh && r.Form.Get("grant_type") == "refresh_token" {
+				answer["refresh_token"] = r.Form.Get("refresh_token")
+			}
 		case "urn:ietf:params:oauth:grant-type:token-exchange":
 			f.exchanges++
 			answer["access_token"] = "for-" + r.Form.Get("audience")
@@ -96,7 +118,7 @@ func (f *fakeIdP) state() (exchanges int, refreshed, revoked []string) {
 }
 
 func newDelegation(f *fakeIdP) *Delegation {
-	return New(Config{Provider: idp.New(f.URL, idp.Endpoints{}, f.Client()), ClientID: "synaplan-opencloud", ClientSecret: "secret", HTTPClient: f.Client()})
+	return New(Config{Provider: idp.New(f.URL, idp.Endpoints{}, f.Client()), ClientID: "synaplan-opencloud", ClientSecret: "secret", HTTPClient: f.Client(), Store: NewMemoryStore()})
 }
 
 func connect(t *testing.T, d *Delegation, sub string) error {
@@ -124,8 +146,8 @@ func TestConnect(t *testing.T) {
 			for range tc.connections {
 				err = connect(t, d, "ada")
 			}
-			if (err != nil) != tc.wantErr || d.Connected("ada") == tc.wantErr {
-				t.Fatalf("err = %v, connected = %v", err, d.Connected("ada"))
+			if (err != nil) != tc.wantErr || connected(t, d, "ada") == tc.wantErr {
+				t.Fatalf("err = %v, connected = %v", err, connected(t, d, "ada"))
 			}
 			if _, _, revoked := idp.state(); fmt.Sprint(revoked) != fmt.Sprint(tc.wantRevoked) {
 				t.Fatalf("revoked %v, want %v", revoked, tc.wantRevoked)
@@ -189,7 +211,7 @@ func TestNoToken(t *testing.T) {
 			if _, err := d.Token(context.Background(), "ada", "synaplan-app"); !errors.Is(err, ErrNotConnected) {
 				t.Fatalf("err = %v, want ErrNotConnected", err)
 			}
-			if d.Connected("ada") {
+			if connected(t, d, "ada") {
 				t.Fatal("still connected")
 			}
 		})
@@ -208,7 +230,7 @@ func TestAClientRefusalKeepsTheOfflineToken(t *testing.T) {
 	if err == nil || errors.Is(err, ErrNotConnected) {
 		t.Fatalf("err = %v, want a configuration error", err)
 	}
-	if !d.Connected("ada") {
+	if !connected(t, d, "ada") {
 		t.Fatal("a refused client forgot the person's offline token")
 	}
 }
@@ -243,7 +265,7 @@ func TestAFailedRevocationIsReportedAndTheTokenForgotten(t *testing.T) {
 	if err := d.Disconnect(context.Background(), "ada"); err == nil {
 		t.Fatal("a failed revocation was not reported")
 	}
-	if d.Connected("ada") {
+	if connected(t, d, "ada") {
 		t.Fatal("still connected")
 	}
 }
@@ -255,4 +277,14 @@ func TestSubject(t *testing.T) {
 			t.Fatalf("Subject(%q) = %q, want %q", token, got, want)
 		}
 	}
+}
+
+// connected is d.Connected for a test that expects the store to work.
+func connected(t *testing.T, d *Delegation, sub string) bool {
+	t.Helper()
+	ok, err := d.Connected(context.Background(), sub)
+	if err != nil {
+		t.Fatalf("connected: %v", err)
+	}
+	return ok
 }

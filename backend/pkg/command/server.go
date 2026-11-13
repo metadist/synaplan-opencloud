@@ -82,12 +82,31 @@ func Server(cfg *config.Config) *cobra.Command {
 					cfg.OIDCTargetAudience,
 				)
 				editor = synaplanauth.NewRequestEditor(exchanger)
+				inner, err := delegationStore(cfg, logger)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = inner.Close() }()
+				secret := cfg.Store.EncryptionSecret
+				if secret == "" {
+					logger.Warn().Msg("synaplan-opencloud: SYNAPLAN_STORE_ENCRYPTION_SECRET is not set; the offline tokens are encrypted with a key derived from the exchange client secret")
+					secret = cfg.OIDCExchangeSecret
+				}
+				keys, err := delegation.NewLocalKeys(append([]string{secret}, cfg.Store.EncryptionPreviousSecrets...)...)
+				if err != nil {
+					return fmt.Errorf("could not set up the delegation store key: %w", err)
+				}
+				store := delegation.NewSealedStore(inner, keys)
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
 						Provider:     provider,
 						ClientID:     cfg.OIDCExchangeClientID,
 						ClientSecret: cfg.OIDCExchangeSecret,
 						HTTPClient:   identityProviderClient(cfg.Insecure),
+						Store:        store,
+						StoreFailed: func(err error) {
+							logger.Warn().Err(err).Msg("synaplan-opencloud: could not use the token store")
+						},
 					}),
 					Exchanger: exchanger,
 					Audience:  cfg.OIDCTargetAudience,
@@ -175,4 +194,31 @@ func identityProviderClient(insecure bool) *stdhttp.Client {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // OC_INSECURE, development only
 	}
 	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
+}
+
+// delegationStore is the store the configuration names. There is no
+// fallback: a store that is not supported stops the service.
+func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, error) {
+	switch cfg.Store.Store {
+	case "memory":
+		logger.Warn().Msg("synaplan-opencloud: offline tokens are kept in memory; a restart forgets them and other replicas never see them")
+		return delegation.NewMemoryStore(), nil
+	case "nats-js-kv":
+		store, err := delegation.NewNATS(delegation.NATSConfig{
+			Nodes:     cfg.Store.Nodes,
+			Bucket:    cfg.Store.Database,
+			Replicas:  cfg.Store.Replicas,
+			Username:  cfg.Store.AuthUsername,
+			Password:  cfg.Store.AuthPassword,
+			EnableTLS: cfg.Store.EnableTLS,
+			Insecure:  cfg.Store.TLSInsecure,
+			RootCAs:   cfg.Store.TLSRootCACertificate,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("could not open the delegation store: %w", err)
+		}
+		return store, nil
+	default:
+		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported; set SYNAPLAN_STORE to nats-js-kv or memory (it may be inherited from OC_PERSISTENT_STORE)", cfg.Store.Store)
+	}
 }

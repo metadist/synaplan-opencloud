@@ -81,7 +81,7 @@ func TestARevokedIdentityEndsWorkWhileAway(t *testing.T) {
 	if rec := inbound(h, token); rec.Code != http.StatusNoContent {
 		t.Fatalf("status %d %s, want 204", rec.Code, rec.Body)
 	}
-	if h.delegation.Connected("ada") {
+	if connectedAda(t, h) {
 		t.Fatal("still acting for a person Synaplan revoked")
 	}
 	if got := idp.revokedTokens(); len(got) != 1 || got[0] != "offline-ada" {
@@ -118,7 +118,7 @@ func TestInboundRefusesWhatDoesNotVerify(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), tc.want) {
 				t.Fatalf("status %d %s, want 401 %s", rec.Code, rec.Body, tc.want)
 			}
-			if !h.delegation.Connected("ada") {
+			if !connectedAda(t, h) {
 				t.Fatal("an unverified notification ended work while away")
 			}
 		})
@@ -159,5 +159,44 @@ func TestAFailingKeyFetchIsNotRepeatedForEveryRequest(t *testing.T) {
 	}
 	if got := fetches.Load(); got != 1 {
 		t.Fatalf("Synaplan was asked %d times, want once", got)
+	}
+}
+
+// When the token store cannot remove a revoked person's offline token,
+// Inbound must fail (not 204) and leave the notification id unrecorded so
+// Synaplan's retry succeeds once the store is reachable again.
+func TestInboundReportsStoreFailureAndAllowsRetry(t *testing.T) {
+	synaplan := newSignedSynaplan(t)
+	defer synaplan.Close()
+	idp := fakeIdentityProvider(t, "ada")
+	store := &switchableStore{}
+	del := &Delegated{
+		Tokens:    newDelegationWithStore(idp, store),
+		Exchanger: exchanger{"u-ada": "ada"},
+		Audience:  "synaplan-app",
+	}
+	if err := del.Tokens.Connect(t.Context(), "code", "verifier", "https://cloud/callback", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(nil, synaplan.URL, nil, del)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := synaplan.notification(t, map[string]any{"type": "identity_revoked", "id": "42", "sub": "ada"})
+
+	store.down.Store(true)
+	if rec := inbound(h, token); rec.Code != http.StatusBadGateway {
+		t.Fatalf("status while store is down = %d %s, want 502", rec.Code, rec.Body)
+	}
+
+	store.down.Store(false)
+	if !connectedAda(t, h) {
+		t.Fatal("expected token to still be stored before retry")
+	}
+	if rec := inbound(h, token); rec.Code != http.StatusNoContent {
+		t.Fatalf("retry status = %d %s, want 204", rec.Code, rec.Body)
+	}
+	if connectedAda(t, h) {
+		t.Fatal("still connected after successful retry")
 	}
 }

@@ -52,18 +52,33 @@ func (h *Handler) DelegationStatus(w http.ResponseWriter, r *http.Request) {
 	sub, err := h.signedInSubject(r.Context())
 	if err != nil {
 		log.Printf("delegation status: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan could not check who you are. Try again."})
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "Synaplan could not check who you are. Try again.",
+			Code:  "identity_check_failed",
+		})
 		return
 	}
 	clientID, endpoint, err := h.delegation.Authorization(r.Context())
 	if err != nil {
 		log.Printf("delegation status: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "The sign-in service cannot be reached. Try again later."})
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "The sign-in service cannot be reached. Try again later.",
+			Code:  "idp_unreachable",
+		})
+		return
+	}
+	connected, err := h.delegation.Connected(r.Context(), sub)
+	if err != nil {
+		log.Printf("delegation status: %v", err)
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "Synaplan cannot check this permission right now. Try again later.",
+			Code:  "permission_unavailable",
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"available":         true,
-		"connected":         h.delegation.Connected(sub),
+		"connected":         connected,
 		"clientId":          clientID,
 		"authorizeEndpoint": endpoint,
 	})
@@ -92,6 +107,9 @@ func (h *Handler) DelegationConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("delegation connect: %v", err)
+		if writeStoreFailure(w, err) {
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Synaplan could not be allowed to work for you. Try again."})
 		return
 	}
@@ -107,15 +125,46 @@ func (h *Handler) DelegationDisconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sub, err := h.signedInSubject(r.Context())
-	if err == nil {
-		err = h.delegation.Disconnect(r.Context(), sub)
-	}
 	if err != nil {
 		log.Printf("delegation disconnect: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan no longer works for you, but the sign-in service could not confirm it. Try again."})
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "Synaplan could not check who you are. Try again.",
+			Code:  "identity_check_failed",
+		})
+		return
+	}
+	if err := h.delegation.Disconnect(r.Context(), sub); err != nil {
+		log.Printf("delegation disconnect: %v", err)
+		if writeStoreFailure(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "Synaplan no longer works for you, but the sign-in service could not confirm it. Try again.",
+			Code:  "revoke_unconfirmed",
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"connected": false})
+}
+
+// writeStoreFailure answers a change to the permission that the store did
+// not take, and reports whether err was one.
+func writeStoreFailure(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, delegation.ErrUnavailable):
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: "Synaplan could not update this permission. Try again.",
+			Code:  "store_unavailable",
+		})
+	case errors.Is(err, delegation.ErrBusy):
+		writeJSON(w, http.StatusConflict, errorResponse{
+			Error: "This permission was changing at the same time. Try again.",
+			Code:  "permission_busy",
+		})
+	default:
+		return false
+	}
+	return true
 }
 
 // delegatedBearer is the Synaplan token for sub, minted from their offline

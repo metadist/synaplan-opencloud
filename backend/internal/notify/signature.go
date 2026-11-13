@@ -142,3 +142,9 @@ func (s *Seen) AlreadySeen(kind, id string, now, expires time.Time) bool {
 	s.ids[key] = expires
 	return false
 }
+
+// Forget removes kind+id from the replay list so a notification whose
+// side effect could not be persisted can be retried by the sender.
+func (s *Seen) Forget(kind, id string) {
+	delete(s.ids, kind+"\x00"+id)
+}

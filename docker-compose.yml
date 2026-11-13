@@ -15,6 +15,7 @@ services:
       STORAGE_USERS_HTTP_ADDR: 0.0.0.0:9158
       STORAGE_USERS_DATA_SERVER_URL: http://opencloud:9158/data
       IDM_ADMIN_PASSWORD: admin
+      NATS_NATS_HOST: 0.0.0.0
       PROXY_ENABLE_BASIC_AUTH: "true"
       PROXY_TLS: "false"
       PROXY_CSP_CONFIG_FILE_LOCATION: /etc/opencloud/csp.yaml
@@ -91,10 +92,13 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
+      SYNAPLAN_STORE_NODES: opencloud:9233
       GOPATH: /tmp/go-cache/gopath
       GOCACHE: /tmp/go-cache/build
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - opencloud
     volumes:
       - ./backend:/app
       - go-cache:/tmp/go-cache

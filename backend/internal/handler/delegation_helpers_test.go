@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
@@ -86,13 +87,60 @@ func (e exchanger) Exchange(userID, bearer string) (string, error) {
 }
 
 func newDelegation(p *identityProvider) *delegation.Delegation {
+	return newDelegationWithStore(p, delegation.NewMemoryStore())
+}
+
+func newDelegationWithStore(p *identityProvider, store delegation.Store) *delegation.Delegation {
 	return delegation.New(delegation.Config{
 		Provider:     idp.New(p.URL, idp.Endpoints{}, p.Client()),
 		ClientID:     "synaplan-opencloud",
 		ClientSecret: "secret",
 		HTTPClient:   p.Client(),
+		Store:        store,
 	})
 }
+
+type switchableStore struct {
+	mem  *delegation.MemoryStore
+	down atomic.Bool
+}
+
+func (s *switchableStore) store() *delegation.MemoryStore {
+	if s.mem == nil {
+		s.mem = delegation.NewMemoryStore()
+	}
+	return s.mem
+}
+
+func (s *switchableStore) Get(ctx context.Context, sub string) (delegation.Entry, bool, error) {
+	if s.down.Load() {
+		return delegation.Entry{}, false, errors.New("nats down")
+	}
+	return s.store().Get(ctx, sub)
+}
+
+func (s *switchableStore) Write(ctx context.Context, sub, tok string, match uint64) (uint64, bool, error) {
+	if s.down.Load() {
+		return 0, false, errors.New("nats down")
+	}
+	return s.store().Write(ctx, sub, tok, match)
+}
+
+func (s *switchableStore) Delete(ctx context.Context, sub string, match uint64) (bool, error) {
+	if s.down.Load() {
+		return false, errors.New("nats down")
+	}
+	return s.store().Delete(ctx, sub, match)
+}
+
+func (s *switchableStore) Lease(ctx context.Context, sub string) (context.Context, func(), error) {
+	if s.down.Load() {
+		return nil, nil, errors.New("nats down")
+	}
+	return s.store().Lease(ctx, sub)
+}
+
+func (s *switchableStore) Close() error { return nil }
 
 // delegated is what New needs for people "ada" (reva user u-ada) and "eve"
 // (u-eve), with sub connected if it is not empty.
@@ -112,4 +160,15 @@ func delegated(t *testing.T, p *identityProvider, sub string) *Delegated {
 func signedIn(userID, bearer string) context.Context {
 	ctx := revactx.ContextSetUser(context.Background(), &userpb.User{Id: &userpb.UserId{OpaqueId: userID}})
 	return synaplanauth.ContextWithOIDCToken(ctx, bearer)
+}
+
+// connectedAda is whether ada is connected, for a test that expects the
+// store to work.
+func connectedAda(t *testing.T, h *Handler) bool {
+	t.Helper()
+	ok, err := h.delegation.Connected(context.Background(), "ada")
+	if err != nil {
+		t.Fatalf("connected: %v", err)
+	}
+	return ok
 }

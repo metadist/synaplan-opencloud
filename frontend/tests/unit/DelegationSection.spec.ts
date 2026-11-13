@@ -145,4 +145,38 @@ describe('DelegationSection', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toContain('stopped')
   })
+
+  it('shows the outage sentence and a retry button when loading the permission fails', async () => {
+    access.load.mockRejectedValueOnce({
+      response: { data: { code: 'permission_unavailable' } }
+    })
+    const wrapper = mountCard()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-delegation"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toBe(
+      'Synaplan cannot check this permission right now. Try again later.'
+    )
+
+    access.load.mockImplementationOnce(async () => {
+      access.status.value = { available: true, connected: true }
+    })
+    await wrapper.get('[data-testid="synaplan-delegation-retry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-delegation-error"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="synaplan-delegation-disconnect"]').exists()).toBe(true)
+  })
+
+  it('says the permission was not updated when Stop hits a store outage instead of claiming it stopped', async () => {
+    access.status.value = { available: true, connected: true }
+    access.disconnect.mockRejectedValue({
+      response: { data: { code: 'store_unavailable' } }
+    })
+    const wrapper = mountCard()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-delegation-disconnect"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-delegation-error"]').text()).toBe(
+      'Synaplan could not update this permission. Try again.'
+    )
+  })
 })

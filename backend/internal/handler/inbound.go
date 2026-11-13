@@ -79,6 +79,10 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 	if claims.Type == "identity_revoked" && claims.Subject != "" {
 		if err := h.delegation.Disconnect(r.Context(), claims.Subject); err != nil {
 			log.Printf("identity revoked: %v", err)
+			if writeStoreFailure(w, err) {
+				h.forgetHandled(claims)
+				return
+			}
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -88,6 +92,12 @@ func (h *Handler) alreadyHandled(claims notify.Claims, now time.Time) bool {
 	h.notifications.mu.Lock()
 	defer h.notifications.mu.Unlock()
 	return h.notifications.seen.AlreadySeen(claims.Type, claims.ID, now, claims.ExpiresAt.Time)
+}
+
+func (h *Handler) forgetHandled(claims notify.Claims) {
+	h.notifications.mu.Lock()
+	defer h.notifications.mu.Unlock()
+	h.notifications.seen.Forget(claims.Type, claims.ID)
 }
 
 // synaplanSigner returns the issuer Synaplan's notifications carry and the
