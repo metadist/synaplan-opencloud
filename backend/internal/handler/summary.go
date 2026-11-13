@@ -225,6 +225,9 @@ type uploadProvenance struct {
 	SourceID     string
 	SourceEtag   string
 	Overwrite    bool
+	// KeepSynced, when set, tells Synaplan whether this copy follows later
+	// edits of the file. Unset leaves what Synaplan has.
+	KeepSynced *bool
 }
 
 func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadProvenance) error {
@@ -260,6 +263,15 @@ func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadPro
 	if prov.Overwrite {
 		if err := mw.WriteField("overwrite", "1"); err != nil {
 			return fmt.Errorf("write overwrite: %w", err)
+		}
+	}
+	if prov.KeepSynced != nil {
+		value := "0"
+		if *prov.KeepSynced {
+			value = "1"
+		}
+		if err := mw.WriteField("keep_synced", value); err != nil {
+			return fmt.Errorf("write keep_synced: %w", err)
 		}
 	}
 	return nil

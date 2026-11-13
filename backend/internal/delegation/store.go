@@ -323,6 +323,12 @@ func keyExists(err error) bool {
 	return errors.Is(err, jetstream.ErrKeyExists)
 }
 
+// JetStream is the connection this store uses, for other buckets of this
+// service on the same NATS.
+func (s *NATSStore) JetStream() jetstream.JetStream {
+	return s.js
+}
+
 // Close disconnects from NATS.
 func (s *NATSStore) Close() error {
 	if s == nil || s.conn == nil {

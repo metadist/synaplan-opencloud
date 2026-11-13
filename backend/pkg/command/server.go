@@ -25,6 +25,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/idp"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
+	"github.com/metadist/synaplan-opencloud/internal/synced"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
 	"github.com/metadist/synaplan-opencloud/pkg/config"
 	"github.com/metadist/synaplan-opencloud/pkg/config/parser"
@@ -98,6 +99,10 @@ func Server(cfg *config.Config) *cobra.Command {
 					return fmt.Errorf("could not set up the delegation store key: %w", err)
 				}
 				store := delegation.NewSealedStore(inner, keys)
+				kept, err := syncedStore(cfg, inner)
+				if err != nil {
+					return err
+				}
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
 						Provider:     provider,
@@ -113,6 +118,7 @@ func Server(cfg *config.Config) *cobra.Command {
 					Audience:      cfg.OIDCTargetAudience,
 					UserClaim:     cfg.UserOIDCClaim,
 					UserAttribute: cfg.UserCS3Claim,
+					Synced:        kept,
 				}
 			}
 
@@ -121,7 +127,7 @@ func Server(cfg *config.Config) *cobra.Command {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
 			if delegated != nil && cfg.MachineAuthAPIKey == "" {
-				logger.Info().Msg("synaplan-opencloud: OC_MACHINE_AUTH_API_KEY is not set; watched files are only sent when a person checks a watch themselves")
+				logger.Info().Msg("synaplan-opencloud: OC_MACHINE_AUTH_API_KEY is not set; watched files are only sent when a person checks a watch themselves, and files are not kept up to date")
 			}
 			go h.RunReconciler(ctx)
 
@@ -160,6 +166,7 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Post("/api/synaplan/knowledge", h.AddToKnowledge)
 				r.Get("/api/synaplan/knowledge/groups", h.KnowledgeGroups)
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
+				r.Post("/api/synaplan/knowledge/sync", h.KnowledgeSyncNow)
 				r.Post("/api/synaplan/cloud/status", h.CloudStatus)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
@@ -206,6 +213,21 @@ func identityProviderClient(insecure bool) *stdhttp.Client {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // OC_INSECURE, development only
 	}
 	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
+}
+
+// syncedStore keeps the files people keep up to date where the offline
+// tokens are: a bucket of its own on the same NATS connection, or this
+// process's memory.
+func syncedStore(cfg *config.Config, tokens delegation.Store) (synced.Store, error) {
+	nats, ok := tokens.(*delegation.NATSStore)
+	if !ok {
+		return synced.NewMemoryStore(), nil
+	}
+	store, err := synced.NewNATS(nats.JetStream(), cfg.Store.SyncedDatabase, cfg.Store.Replicas)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the store of kept files: %w", err)
+	}
+	return store, nil
 }
 
 // delegationStore is the store the configuration names. There is no

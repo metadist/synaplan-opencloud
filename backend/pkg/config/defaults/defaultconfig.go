@@ -31,10 +31,11 @@ func DefaultConfig() *config.Config {
 		UserOIDCClaim: "preferred_username",
 		UserCS3Claim:  "username",
 		Store: config.PersistentStore{
-			Store:    "nats-js-kv",
-			Nodes:    []string{"127.0.0.1:9233"},
-			Database: "synaplan-delegation",
-			Replicas: 1,
+			Store:          "nats-js-kv",
+			Nodes:          []string{"127.0.0.1:9233"},
+			Database:       "synaplan-delegation",
+			SyncedDatabase: "synaplan-synced",
+			Replicas:       1,
 		},
 		HTTP: config.HTTP{
 			Addr:      "127.0.0.1:9106",
@@ -67,6 +68,7 @@ func Sanitize(cfg *config.Config) {
 	}
 	cfg.Store.Store = strings.TrimSpace(cfg.Store.Store)
 	cfg.Store.Database = strings.TrimSpace(cfg.Store.Database)
+	cfg.Store.SyncedDatabase = strings.TrimSpace(cfg.Store.SyncedDatabase)
 	cfg.Store.Nodes = cleanList(cfg.Store.Nodes)
 	cfg.Store.EncryptionPreviousSecrets = cleanList(cfg.Store.EncryptionPreviousSecrets)
 }

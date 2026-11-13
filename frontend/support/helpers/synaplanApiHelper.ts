@@ -12,6 +12,7 @@ import { APIRequestContext } from '@playwright/test'
 interface SynaplanFile {
   id: number
   filename?: string
+  text_preview?: string
 }
 
 interface SynaplanFilesListResponse {
@@ -75,4 +76,26 @@ export async function knowledgeFileNames(
   }
   const body = (await resp.json()) as SynaplanFilesListResponse
   return (body.files ?? []).map((file) => file.filename ?? '')
+}
+
+/**
+ * The start of the text Synaplan extracted from a file in a knowledge
+ * group, by file name, or undefined when the group holds no such file.
+ */
+export async function knowledgeTextPreview(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  groupKey: string,
+  fileName: string
+): Promise<string | undefined> {
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/files`, {
+    params: { group_key: groupKey },
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan files list failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as SynaplanFilesListResponse
+  return (body.files ?? []).find((file) => file.filename === fileName)?.text_preview
 }
