@@ -1,11 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
+	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
 
@@ -68,4 +73,28 @@ func refuseOpenCloudToken(ctx context.Context, req *http.Request) error {
 		return errOpenCloudTokenForwarded
 	}
 	return nil
+}
+
+// withBody gives a generated call the request body its operation does not
+// declare. Synaplan's cloud watch routes read a JSON or multipart body but
+// publish none in the OpenAPI spec, so their generated calls send none;
+// this keeps them on the generated client and its credential editors.
+func withBody(contentType string, body io.Reader) synaplanapi.RequestEditorFn {
+	return func(_ context.Context, req *http.Request) error {
+		req.Header.Set("Content-Type", contentType)
+		if b, ok := body.(*bytes.Reader); ok {
+			req.ContentLength = int64(b.Len())
+		}
+		req.Body = io.NopCloser(body)
+		return nil
+	}
+}
+
+// withJSON is withBody for a JSON value.
+func withJSON(v any) (synaplanapi.RequestEditorFn, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("encoding request body: %w", err)
+	}
+	return withBody("application/json", bytes.NewReader(raw)), nil
 }

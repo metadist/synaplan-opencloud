@@ -47,12 +47,13 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize and knowledge actions', () => {
+  it('groups the translate, summarize, knowledge and watch actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
       'summarize',
-      'add-to-knowledge'
+      'add-to-knowledge',
+      'watch'
     ])
   })
 
@@ -63,12 +64,20 @@ describe('useSynaplanActionsExtension', () => {
     })
 
     it.each([
-      ['a folder', options({ isFolder: true })],
-      ['an unsupported mime type', options({ mimeType: 'image/png' })],
-      ['multiple resources', { resources: [{}, {}] } as unknown as FileActionOptions]
-    ])('hides the group for %s', (_, opts) => {
+      ['a folder', options({ isFolder: true }), ['watch']],
+      ['an unsupported mime type', options({ mimeType: 'image/png' }), ['watch']],
+      ['a supported file', options(), ['translate', 'summarize', 'add-to-knowledge', 'watch']]
+    ])('offers only what fits %s', (_, opts, visible) => {
       const { action } = useSynaplanActionsExtension()
-      expect(action.isVisible(opts)).toBe(false)
+      expect(action.isVisible(opts)).toBe(true)
+      expect(
+        action.children.filter((child) => child.isVisible(opts)).map((child) => child.name)
+      ).toEqual(visible)
+    })
+
+    it('hides the group for multiple resources', () => {
+      const { action } = useSynaplanActionsExtension()
+      expect(action.isVisible({ resources: [{}, {}] } as unknown as FileActionOptions)).toBe(false)
     })
 
     it('hides the group when the user is not signed in', () => {

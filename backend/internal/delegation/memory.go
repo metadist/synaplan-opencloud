@@ -104,5 +104,16 @@ func (s *MemoryStore) Lease(ctx context.Context, subject string) (context.Contex
 	}
 }
 
+// Subjects lists the people with a kept token, in no particular order.
+func (s *MemoryStore) Subjects(context.Context) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	subjects := make([]string, 0, len(s.entries))
+	for subject := range s.entries {
+		subjects = append(subjects, subject)
+	}
+	return subjects, nil
+}
+
 // Close does nothing; there is no connection to end.
 func (s *MemoryStore) Close() error { return nil }

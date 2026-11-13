@@ -279,6 +279,25 @@ func TestSubject(t *testing.T) {
 	}
 }
 
+func TestClaim(t *testing.T) {
+	token := "h." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"ada","preferred_username":"ada.l","n":1}`)) + ".s"
+	cases := []struct {
+		name, token, claim, want string
+	}{
+		{"a string claim", token, "preferred_username", "ada.l"},
+		{"a claim that is not a string", token, "n", ""},
+		{"a missing claim", token, "email", ""},
+		{"not a token", "not-a-jwt", "sub", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Claim(tc.token, tc.claim); got != tc.want {
+				t.Fatalf("Claim = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // connected is d.Connected for a test that expects the store to work.
 func connected(t *testing.T, d *Delegation, sub string) bool {
 	t.Helper()

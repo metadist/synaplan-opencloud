@@ -30,6 +30,12 @@ type Delegated struct {
 	Tokens    *delegation.Delegation
 	Exchanger synaplanauth.TokenExchanger
 	Audience  string
+	// UserClaim names the claim of the person's token that OpenCloud's
+	// proxy maps to the user attribute UserAttribute (PROXY_USER_OIDC_CLAIM
+	// and PROXY_USER_CS3_CLAIM). Watches find a person's OpenCloud user by
+	// it while that person is away.
+	UserClaim     string
+	UserAttribute string
 }
 
 // Handler holds the state shared by all endpoints:
@@ -45,6 +51,7 @@ type Delegated struct {
 //   - delegation holds the offline tokens of people who allowed this
 //     service to act for them while they are away.
 //   - notifications verifies what Synaplan sends to /inbound.
+//   - RunReconciler keeps the watches of people who are away moving.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -61,6 +68,8 @@ type Handler struct {
 	delegation  *delegation.Delegation
 	exchanger   synaplanauth.TokenExchanger
 	audience    string
+	userClaim   string
+	userAttr    string
 
 	notifications notifications
 }
@@ -97,6 +106,8 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		h.delegation = delegated.Tokens
 		h.exchanger = delegated.Exchanger
 		h.audience = delegated.Audience
+		h.userClaim = delegated.UserClaim
+		h.userAttr = delegated.UserAttribute
 	}
 	h.synaplanAPI, err = synaplanapi.NewClientWithResponses(
 		synaplanURL,
