@@ -49,6 +49,10 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext('Synaplan does not know this OpenCloud yet. Ask your administrator.')
     case 'watches_off':
       return $gettext('Watching folders is turned off in Synaplan. Ask your administrator.')
+    case 'reads_unavailable':
+      return $gettext('Synaplan cannot read folders in this OpenCloud. Ask your administrator.')
+    case 'reads_everything':
+      return $gettext('Synaplan may read all your folders, so one cannot be left out.')
     default:
       return fallback
   }

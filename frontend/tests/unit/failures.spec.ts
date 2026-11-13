@@ -28,7 +28,12 @@ describe('sentenceFor', () => {
     ],
     ['watch_cap', 'You are watching as many folders and files as you can. Stop a watch first.'],
     ['cloud_not_linked', 'Synaplan does not know this OpenCloud yet. Ask your administrator.'],
-    ['watches_off', 'Watching folders is turned off in Synaplan. Ask your administrator.']
+    ['watches_off', 'Watching folders is turned off in Synaplan. Ask your administrator.'],
+    [
+      'reads_unavailable',
+      'Synaplan cannot read folders in this OpenCloud. Ask your administrator.'
+    ],
+    ['reads_everything', 'Synaplan may read all your folders, so one cannot be left out.']
   ])('maps %s to its sentence', (code, sentence) => {
     const error = { response: { data: { code, error: 'ignored' } } }
     expect(sentenceFor($gettext, error, 'fallback')).toBe(sentence)
