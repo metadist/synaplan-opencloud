@@ -36,6 +36,12 @@ type Config struct {
 	OIDCExchangeSecret        string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience        string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
+	// Watches read the files of a person who is away through the CS3
+	// gateway, as that person, with OpenCloud's machine auth.
+	MachineAuthAPIKey string `yaml:"machine_auth_api_key" env:"OC_MACHINE_AUTH_API_KEY;SYNAPLAN_MACHINE_AUTH_API_KEY" desc:"OpenCloud's machine auth API key. Watches use it to read a person's files while that person is away, and only for people who allowed Synaplan to work while they are away. Empty turns that off: watched files are then only sent when the person checks a watch themselves."`
+	UserOIDCClaim     string `yaml:"user_oidc_claim" env:"SYNAPLAN_USER_OIDC_CLAIM" desc:"Claim of the person's token that names their OpenCloud user. Set it to OpenCloud's PROXY_USER_OIDC_CLAIM."`
+	UserCS3Claim      string `yaml:"user_cs3_claim" env:"SYNAPLAN_USER_CS3_CLAIM" desc:"OpenCloud user attribute that claim is matched against: 'username', 'mail' or 'userid'. Set it to OpenCloud's PROXY_USER_CS3_CLAIM."`
+
 	// Store keeps the offline tokens of people who allowed work while they
 	// are away, in the key-value store OpenCloud already runs.
 	Store PersistentStore `yaml:"store"`

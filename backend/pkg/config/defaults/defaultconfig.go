@@ -27,7 +27,9 @@ func DefaultConfig() *config.Config {
 		Service: config.Service{
 			Name: "synaplan",
 		},
-		RevaGateway: shared.DefaultRevaConfig().Address,
+		RevaGateway:   shared.DefaultRevaConfig().Address,
+		UserOIDCClaim: "preferred_username",
+		UserCS3Claim:  "username",
 		Store: config.PersistentStore{
 			Store:    "nats-js-kv",
 			Nodes:    []string{"127.0.0.1:9233"},

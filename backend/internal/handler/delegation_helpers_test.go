@@ -140,6 +140,13 @@ func (s *switchableStore) Lease(ctx context.Context, sub string) (context.Contex
 	return s.store().Lease(ctx, sub)
 }
 
+func (s *switchableStore) Subjects(ctx context.Context) ([]string, error) {
+	if s.down.Load() {
+		return nil, errors.New("nats down")
+	}
+	return s.store().Subjects(ctx)
+}
+
 func (s *switchableStore) Close() error { return nil }
 
 // delegated is what New needs for people "ada" (reva user u-ada) and "eve"

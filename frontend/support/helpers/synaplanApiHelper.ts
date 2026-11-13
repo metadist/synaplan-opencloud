@@ -11,6 +11,7 @@ import { APIRequestContext } from '@playwright/test'
 
 interface SynaplanFile {
   id: number
+  filename?: string
 }
 
 interface SynaplanFilesListResponse {
@@ -53,4 +54,25 @@ export async function wipeKnowledgeGroup(
       )
     }
   }
+}
+
+/**
+ * The names of the files Synaplan keeps in a knowledge group, via its
+ * /api/v1/files listing.
+ */
+export async function knowledgeFileNames(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  groupKey: string
+): Promise<string[]> {
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/files`, {
+    params: { group_key: groupKey },
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan files list failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as SynaplanFilesListResponse
+  return (body.files ?? []).map((file) => file.filename ?? '')
 }

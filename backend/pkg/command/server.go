@@ -63,6 +63,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			}
 
 			cs3 := cs3reader.New(gws, cfg.Insecure)
+			cs3.SetMachineAuth(cfg.MachineAuthAPIKey)
 
 			var editor synaplanapi.RequestEditorFn
 			var delegated *handler.Delegated
@@ -108,8 +109,10 @@ func Server(cfg *config.Config) *cobra.Command {
 							logger.Warn().Err(err).Msg("synaplan-opencloud: could not use the token store")
 						},
 					}),
-					Exchanger: exchanger,
-					Audience:  cfg.OIDCTargetAudience,
+					Exchanger:     exchanger,
+					Audience:      cfg.OIDCTargetAudience,
+					UserClaim:     cfg.UserOIDCClaim,
+					UserAttribute: cfg.UserCS3Claim,
 				}
 			}
 
@@ -117,6 +120,10 @@ func Server(cfg *config.Config) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
+			if delegated != nil && cfg.MachineAuthAPIKey == "" {
+				logger.Info().Msg("synaplan-opencloud: OC_MACHINE_AUTH_API_KEY is not set; watched files are only sent when a person checks a watch themselves")
+			}
+			go h.RunReconciler(ctx)
 
 			mux := chi.NewMux()
 			mux.Use(
@@ -159,6 +166,10 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)
 				r.Post("/api/synaplan/delegation", h.DelegationConnect)
 				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
+				r.Get("/api/synaplan/watches/options", h.WatchOptions)
+				r.Post("/api/synaplan/watches", h.WatchStart)
+				r.Delete("/api/synaplan/watches", h.WatchStop)
+				r.Post("/api/synaplan/watches/reconcile", h.WatchReconcileNow)
 			})
 
 			server := &stdhttp.Server{

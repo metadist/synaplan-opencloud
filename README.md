@@ -6,7 +6,7 @@
 
 OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/synaplan) AI features into OpenCloud. When both sides share a login provider, each person's OpenCloud login is exchanged for their own Synaplan account with [RFC 8693 token exchange](https://datatracker.ietf.org/doc/html/rfc8693). A shared API key is also supported; in that mode every person uses the same Synaplan account.
 
-From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). A summary or translation can be saved into your personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
+From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). A folder or a file can be watched: Synaplan keeps its files searchable in a knowledge folder, or runs one of your tasks on new ones. A summary or translation can be saved into your personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
 
 A file Synaplan can search carries the Synaplan bird in the file list, with its state (searchable, being made searchable, changed since, failed) as the label. The bird needs Synaplan's cloud file state (`CLOUD_FILES_ENABLED` on Synaplan); without it the file list shows no bird. The Synaplan tab in the file sidebar names that same state and the knowledge folder, and removes the file from it. The tab is shown for a file only, and only when Synaplan reports that cloud file state is on.
 
@@ -83,6 +83,16 @@ The offline tokens are kept in OpenCloud's NATS JetStream key-value store, one k
 The development compose sets the address to `opencloud:9233` and `NATS_NATS_HOST=0.0.0.0` so this service can reach NATS on the compose network; the port is not published on the host.
 
 This needs, on the exchange client in Keycloak: the standard flow with PKCE (S256), a redirect URI covering where the extension is served from (the callback is built into its assets with a content hash, so `<that URL>/*`; with OpenCloud serving it, `<OpenCloud URL>/*`), and the `offline_access` scope. OpenCloud's content security policy must let its pages frame that callback and Keycloak: `frame-ancestors 'self'` and Keycloak's origin in `frame-src` (see `dev/docker/opencloud.csp.config.yaml`). The development server of the extension always runs on port 9210 (`strictPort`), so the realm can allow it.
+
+#### Watches
+
+*Watch with Synaplan…* on a folder or a file starts a watch in Synaplan: its files are kept searchable in a knowledge folder, or one of the person's own tasks runs on new ones. Synaplan holds the watches; this service keeps no list of its own. OpenCloud does not tell an extension when a file changes, so the backend checks: it tells Synaplan which files a watch covers and at which version, and uploads the ones Synaplan asks for. *Check now* in the dialog does that at once, with the person's own session. Every ten minutes the backend does it for everyone who allowed Synaplan to work while they are away. It then reads their files through the CS3 gateway as them, with a reva token that OpenCloud's machine auth mints for their user; the user is found the way OpenCloud's proxy finds them at sign-in, by a claim of the token minted from their offline token. Without the machine auth key, files are only sent when a person checks a watch, and the dialog says so. Synaplan must know this OpenCloud (`PLATFORM_LINKS_OIDC_CLOUD_*`, below).
+
+| Var | Purpose |
+|-----|---------|
+| `OC_MACHINE_AUTH_API_KEY` / `SYNAPLAN_MACHINE_AUTH_API_KEY` | OpenCloud's machine auth key. Watches read a person's files with it while that person is away, and only for people who allowed that. Empty turns it off. |
+| `SYNAPLAN_USER_OIDC_CLAIM` | Claim of the person's token that names their OpenCloud user, as OpenCloud's `PROXY_USER_OIDC_CLAIM`. Default `preferred_username`. |
+| `SYNAPLAN_USER_CS3_CLAIM` | OpenCloud user attribute that claim matches, as OpenCloud's `PROXY_USER_CS3_CLAIM`: `username`, `mail` or `userid`. Default `username`. |
 
 #### Notifications from Synaplan
 

@@ -43,6 +43,12 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan no longer works for you, but the sign-in service could not confirm it. Try again.'
       )
+    case 'watch_cap':
+      return $gettext('You are watching as many folders and files as you can. Stop a watch first.')
+    case 'cloud_not_linked':
+      return $gettext('Synaplan does not know this OpenCloud yet. Ask your administrator.')
+    case 'watches_off':
+      return $gettext('Watching folders is turned off in Synaplan. Ask your administrator.')
     default:
       return fallback
   }
