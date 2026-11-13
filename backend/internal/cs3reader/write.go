@@ -320,7 +320,7 @@ func (r *Reader) SaveChild(ctx context.Context, folderID, filename string, conte
 		return "", errors.New("cs3reader: not a folder")
 	}
 	space := &provider.ResourceId{StorageId: rid.GetStorageId(), SpaceId: rid.GetSpaceId()}
-	folder := strings.Trim(utils.MakeRelativePath(statRes.GetInfo().GetPath()), "/")
+	folder := spaceRelative(statRes.GetInfo().GetPath())
 
 	rel, err := freeName(gwCtx, gwc, space, folder, name)
 	if err != nil {
@@ -330,4 +330,11 @@ func (r *Reader) SaveChild(ctx context.Context, folderID, filename string, conte
 		return "", err
 	}
 	return strings.TrimPrefix(rel, "/"), nil
+}
+
+// spaceRelative turns a path inside a space into the form shown to people
+// and passed on as a relative reference: no leading "./" or "/", and "" for
+// the space root.
+func spaceRelative(p string) string {
+	return strings.Trim(strings.TrimPrefix(utils.MakeRelativePath(p), "."), "/")
 }
