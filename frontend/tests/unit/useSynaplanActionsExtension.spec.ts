@@ -4,7 +4,8 @@ const userRef = { user: null as { id: string } | null }
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
   useModals: () => ({ dispatchModal: vi.fn() }),
-  useMessages: () => ({ showErrorMessage: vi.fn() }),
+  useMessages: () => ({ showErrorMessage: vi.fn(), showMessage: vi.fn() }),
+  useClientService: () => ({ httpAuthenticated: { get: vi.fn(), put: vi.fn() } }),
   useUserStore: () => userRef,
   useConfigStore: () => ({ serverUrl: 'https://oc.example.com/' })
 }))
@@ -47,13 +48,14 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize, knowledge and from-Synaplan actions', () => {
+  it('groups the translate, summarize, knowledge, from-Synaplan and read-folder actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
       'summarize',
       'add-to-knowledge',
-      'from-synaplan'
+      'from-synaplan',
+      'let-synaplan-read'
     ])
   })
 
@@ -63,7 +65,7 @@ describe('useSynaplanActionsExtension', () => {
       expect(action.isVisible(options())).toBe(true)
     })
 
-    it('shows the group for one folder, for From Synaplan', () => {
+    it('shows the group for one folder, for From Synaplan and reading the folder', () => {
       const { action } = useSynaplanActionsExtension()
       expect(action.isVisible(options({ isFolder: true }))).toBe(true)
     })

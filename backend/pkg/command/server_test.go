@@ -37,3 +37,31 @@ func TestDelegationStore(t *testing.T) {
 		})
 	}
 }
+
+func TestPreferencesStore(t *testing.T) {
+	cases := []struct {
+		name    string
+		store   config.PersistentStore
+		wantErr string
+	}{
+		{name: "memory", store: config.PersistentStore{Store: "memory"}},
+		{name: "nats-js-kv", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, PreferencesDatabase: "synaplan-preferences"}},
+		{name: "nats-js-kv without a bucket", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, Database: "synaplan-delegation"}, wantErr: "bucket"},
+		{name: "nats-js-kv without nodes", store: config.PersistentStore{Store: "nats-js-kv", PreferencesDatabase: "synaplan-preferences"}, wantErr: "address"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := preferencesStore(&config.Config{Store: tc.store})
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = store.Close()
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err %v, want one naming %q", err, tc.wantErr)
+			}
+		})
+	}
+}

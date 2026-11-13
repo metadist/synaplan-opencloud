@@ -107,6 +107,31 @@ const leasePoll = 100 * time.Millisecond
 // token stays until the person disconnects. Leases expire on their own,
 // which needs NATS 2.11 or later.
 func NewNATS(cfg NATSConfig) (*NATSStore, error) {
+	bucket := strings.TrimSpace(cfg.Bucket)
+	if bucket == "" {
+		return nil, errors.New("delegation: nats-js-kv needs a bucket")
+	}
+	if cfg.Replicas < 0 {
+		return nil, errors.New("delegation: nats-js-kv replicas must not be negative")
+	}
+	conn, js, err := DialNATS(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &NATSStore{conn: conn, js: js, bucket: jetstream.KeyValueConfig{
+		Bucket:         bucket,
+		Description:    "Offline tokens for Synaplan work while a person is away",
+		History:        1,
+		Storage:        jetstream.FileStorage,
+		Replicas:       cfg.Replicas,
+		LimitMarkerTTL: leaseTTL,
+	}}, nil
+}
+
+// DialNATS connects to OpenCloud's NATS with cfg's nodes, credentials and
+// TLS settings, retrying in the background while NATS is not up yet. The
+// bucket in cfg is not opened.
+func DialNATS(cfg NATSConfig) (*nats.Conn, jetstream.JetStream, error) {
 	var nodes []string
 	for _, n := range cfg.Nodes {
 		if trimmed := strings.TrimSpace(n); trimmed != "" {
@@ -114,14 +139,7 @@ func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 		}
 	}
 	if len(nodes) == 0 {
-		return nil, errors.New("delegation: nats-js-kv needs the address of OpenCloud's NATS")
-	}
-	bucket := strings.TrimSpace(cfg.Bucket)
-	if bucket == "" {
-		return nil, errors.New("delegation: nats-js-kv needs a bucket")
-	}
-	if cfg.Replicas < 0 {
-		return nil, errors.New("delegation: nats-js-kv replicas must not be negative")
+		return nil, nil, errors.New("delegation: nats-js-kv needs the address of OpenCloud's NATS")
 	}
 
 	options := nats.GetDefaultOptions()
@@ -138,33 +156,26 @@ func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 	if cfg.EnableTLS {
 		if cfg.RootCAs != "" {
 			if err := nats.RootCAs(cfg.RootCAs)(&options); err != nil {
-				return nil, fmt.Errorf("delegation: NATS root CA: %w", err)
+				return nil, nil, fmt.Errorf("delegation: NATS root CA: %w", err)
 			}
 		} else if err := (nats.Secure(&tls.Config{
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: cfg.Insecure,
 		}))(&options); err != nil {
-			return nil, fmt.Errorf("delegation: NATS TLS: %w", err)
+			return nil, nil, fmt.Errorf("delegation: NATS TLS: %w", err)
 		}
 	}
 
 	conn, err := options.Connect()
 	if err != nil {
-		return nil, fmt.Errorf("delegation: connecting to OpenCloud's NATS: %w", err)
+		return nil, nil, fmt.Errorf("delegation: connecting to OpenCloud's NATS: %w", err)
 	}
 	js, err := jetstream.New(conn)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("delegation: JetStream: %w", err)
+		return nil, nil, fmt.Errorf("delegation: JetStream: %w", err)
 	}
-	return &NATSStore{conn: conn, js: js, bucket: jetstream.KeyValueConfig{
-		Bucket:         bucket,
-		Description:    "Offline tokens for Synaplan work while a person is away",
-		History:        1,
-		Storage:        jetstream.FileStorage,
-		Replicas:       cfg.Replicas,
-		LimitMarkerTTL: leaseTTL,
-	}}, nil
+	return conn, js, nil
 }
 
 // open returns the bucket, creating or updating it the first time NATS

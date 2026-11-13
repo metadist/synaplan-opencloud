@@ -74,6 +74,7 @@ The offline tokens are kept in OpenCloud's NATS JetStream key-value store, one k
 | `SYNAPLAN_STORE` / `OC_PERSISTENT_STORE` | `nats-js-kv` (default) or `memory`. `memory` keeps the tokens in this process: a restart forgets them and other replicas never see them; the backend warns at start. Other values OpenCloud accepts in `OC_PERSISTENT_STORE`, such as `redis-sentinel`, stop the backend; set `SYNAPLAN_STORE` then. |
 | `SYNAPLAN_STORE_NODES` / `OC_PERSISTENT_STORE_NODES` | Addresses of OpenCloud's NATS, `host:port`, comma-separated. Default `127.0.0.1:9233`. OpenCloud's NATS listens on localhost unless `NATS_NATS_HOST` is set. |
 | `SYNAPLAN_STORE_DATABASE` | Key-value bucket for the tokens. Default `synaplan-delegation`. |
+| `SYNAPLAN_STORE_PREFERENCES_DATABASE` | Key-value bucket for each person's own settings (below). Default `synaplan-preferences`. |
 | `SYNAPLAN_STORE_REPLICAS` | Copies of the bucket in a NATS cluster. Default `1`. The bucket's settings are applied at every start. |
 | `SYNAPLAN_STORE_AUTH_USERNAME` / `SYNAPLAN_STORE_AUTH_PASSWORD` (`OC_PERSISTENT_STORE_AUTH_*`) | Credentials for NATS, when it requires them. |
 | `SYNAPLAN_STORE_ENABLE_TLS` / `SYNAPLAN_STORE_TLS_INSECURE` / `SYNAPLAN_STORE_TLS_ROOT_CA_CERTIFICATE` (`OC_PERSISTENT_STORE_*`, `OC_INSECURE`) | TLS to NATS. Insecure skips verification and is ignored when a root CA is set. |
@@ -83,6 +84,10 @@ The offline tokens are kept in OpenCloud's NATS JetStream key-value store, one k
 The development compose sets the address to `opencloud:9233` and `NATS_NATS_HOST=0.0.0.0` so this service can reach NATS on the compose network; the port is not published on the host.
 
 This needs, on the exchange client in Keycloak: the standard flow with PKCE (S256), a redirect URI covering where the extension is served from (the callback is built into its assets with a content hash, so `<that URL>/*`; with OpenCloud serving it, `<OpenCloud URL>/*`), and the `offline_access` scope. OpenCloud's content security policy must let its pages frame that callback and Keycloak: `frame-ancestors 'self'` and Keycloak's origin in `frame-src` (see `dev/docker/opencloud.csp.config.yaml`). The development server of the extension always runs on port 9210 (`strictPort`), so the realm can allow it.
+
+#### What Synaplan may read
+
+On the Synaplan page each person chooses what Synaplan may read of their files: only what they watch (the default), also folders they allow, or all of their files. *Let Synaplan read this folder* in a folder's Synaplan menu adds that folder. The backend replaces the path the browser sends with the one OpenCloud knows for the folder's id, as that person sees it, and reports the setting to Synaplan as the person (`PUT /api/v1/platform-links/read-scope`), which enforces it. Synaplan does not hand the setting back to a cloud, so the backend keeps a copy for the page in its own bucket of the same store as the offline tokens (`SYNAPLAN_STORE_PREFERENCES_DATABASE`), written only after Synaplan took it. With the shared API key there is no person, and the page shows no setting.
 
 #### Notifications from Synaplan
 

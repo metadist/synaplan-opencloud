@@ -27,6 +27,7 @@ const ocStub = (tag: string) =>
 
 const globalStubs = {
   'oc-button': ocStub('oc-button'),
+  AccountCard: true,
   DelegationSection: true
 }
 
@@ -97,5 +98,20 @@ describe('Synaplan view', () => {
     await wrapper.get('[data-testid="synaplan-test-btn"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="synaplan-account"]').text()).toContain('ada@example.com')
+  })
+
+  it('says in one sentence when Synaplan cannot be reached', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    get.mockRejectedValueOnce(new Error('Network Error'))
+    const wrapper = mountView()
+    await wrapper.get('[data-testid="synaplan-test-btn"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-error"]').text()).toBe(
+      'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
+    )
+  })
+
+  it("shows the person's own settings", () => {
+    expect(mountView().findComponent({ name: 'AccountCard' }).exists()).toBe(true)
   })
 })
