@@ -85,41 +85,38 @@ func TestSettings(t *testing.T) {
 	tests := []struct {
 		name        string
 		permissions PermissionChecker
-		exchanger   bool
+		sharedKey   bool
 		store       settings.Store
 		want        settingsResponse
 	}{
 		{
 			name:        "a person in organisation mode",
 			permissions: &fakePermissions{},
-			exchanger:   true,
 			store:       storeWith(t, &settings.Values{DefaultAnswerLanguage: "de", UseUserLanguage: true}),
 			want:        settingsResponse{Mode: "organisation", DefaultAnswerLanguage: "de", UseUserLanguage: true},
 		},
 		{
 			name:        "an administrator",
 			permissions: &fakePermissions{admin: true},
-			exchanger:   true,
 			store:       storeWith(t, nil),
 			want:        settingsResponse{Mode: "organisation", IsAdmin: true, DefaultAnswerLanguage: "en"},
 		},
 		{
 			name:        "OpenCloud cannot tell",
 			permissions: &fakePermissions{admin: true, err: errors.New("gateway down")},
+			sharedKey:   true,
 			store:       failingSettings{},
 			want:        settingsResponse{Mode: "shared", DefaultAnswerLanguage: "en"},
 		},
 		{
-			name: "no permission check",
-			want: settingsResponse{Mode: "shared", DefaultAnswerLanguage: "en"},
+			name:      "no permission check",
+			sharedKey: true,
+			want:      settingsResponse{Mode: "shared", DefaultAnswerLanguage: "en"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := &Handler{permissions: tt.permissions, settings: tt.store}
-			if tt.exchanger {
-				h.exchanger = exchanger{}
-			}
+			h := &Handler{permissions: tt.permissions, settings: tt.store, sharedKey: tt.sharedKey}
 			rr := httptest.NewRecorder()
 			h.Settings(rr, httptest.NewRequest(http.MethodGet, "/api/synaplan/settings", nil))
 			if rr.Code != http.StatusOK {

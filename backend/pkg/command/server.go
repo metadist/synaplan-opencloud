@@ -133,6 +133,10 @@ func Server(cfg *config.Config) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
+			h.SetMaxCopyBytes(cfg.MaxCopyBytes)
+			if cfg.SynaplanAPIKey != "" {
+				h.UseSharedKey()
+			}
 
 			mux := chi.NewMux()
 			mux.Use(
@@ -173,6 +177,8 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/knowledge/groups", h.KnowledgeGroups)
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
 				r.Post("/api/synaplan/cloud/status", h.CloudStatus)
+				r.Get("/api/synaplan/from-synaplan", h.ListSynaplanFiles)
+				r.Post("/api/synaplan/from-synaplan", h.CopyFromSynaplan)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)

@@ -92,7 +92,7 @@ func (h *Handler) resolveLanguage(ctx context.Context, uiLanguage string) string
 // connectionMode names how people here reach Synaplan, with the names the
 // Nextcloud app uses for the same setups.
 func (h *Handler) connectionMode() string {
-	if h.exchanger == nil {
+	if h.sharedKey {
 		return "shared"
 	}
 	return "organisation"
