@@ -2,16 +2,14 @@ package delegation
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/base32"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/metadist/synaplan-opencloud/internal/natskv"
 )
 
 // ErrUnreadable means a value is kept but cannot be read with the keys at
@@ -80,12 +78,7 @@ type NATSConfig struct {
 // the offline tokens. The bucket lives on NATS's own disk, so it survives
 // a restart of this service and of NATS.
 type NATSStore struct {
-	conn   *nats.Conn
-	js     jetstream.JetStream
-	bucket jetstream.KeyValueConfig
-
-	mu sync.Mutex
-	kv jetstream.KeyValue
+	bucket *natskv.Bucket
 }
 
 // leaseTTL is how long NATS keeps a lease whose holder never gave it back,
@@ -99,94 +92,38 @@ const leaseHold = leaseTTL / 2
 // leasePoll is how often a waiting replica tries a held lease again.
 const leasePoll = 100 * time.Millisecond
 
-// NewNATS prepares the connection to OpenCloud's NATS. Like OpenCloud's own
-// services it does not wait for NATS: the connection is retried in the
-// background and the bucket is opened, or created, on first use, so this
-// service starts while NATS is still starting. JetStream file storage is the
-// default, which is what survives a restart; tokens have no TTL, because a
-// token stays until the person disconnects. Leases expire on their own,
-// which needs NATS 2.11 or later.
+// NewNATS prepares the connection to OpenCloud's NATS (see natskv.New).
+// JetStream file storage is the default, which is what survives a restart;
+// tokens have no TTL, because a token stays until the person disconnects.
+// Leases expire on their own, which needs NATS 2.11 or later.
 func NewNATS(cfg NATSConfig) (*NATSStore, error) {
-	var nodes []string
-	for _, n := range cfg.Nodes {
-		if trimmed := strings.TrimSpace(n); trimmed != "" {
-			nodes = append(nodes, trimmed)
-		}
-	}
-	if len(nodes) == 0 {
-		return nil, errors.New("delegation: nats-js-kv needs the address of OpenCloud's NATS")
-	}
-	bucket := strings.TrimSpace(cfg.Bucket)
-	if bucket == "" {
-		return nil, errors.New("delegation: nats-js-kv needs a bucket")
-	}
-	if cfg.Replicas < 0 {
-		return nil, errors.New("delegation: nats-js-kv replicas must not be negative")
-	}
-
-	options := nats.GetDefaultOptions()
-	options.Name = "synaplan-opencloud"
-	options.Servers = nodes
-	options.Timeout = 5 * time.Second
-	options.MaxReconnect = -1
-	options.ReconnectWait = time.Second
-	options.RetryOnFailedConnect = true
-	if cfg.Username != "" {
-		options.User = cfg.Username
-		options.Password = cfg.Password
-	}
-	if cfg.EnableTLS {
-		if cfg.RootCAs != "" {
-			if err := nats.RootCAs(cfg.RootCAs)(&options); err != nil {
-				return nil, fmt.Errorf("delegation: NATS root CA: %w", err)
-			}
-		} else if err := (nats.Secure(&tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: cfg.Insecure,
-		}))(&options); err != nil {
-			return nil, fmt.Errorf("delegation: NATS TLS: %w", err)
-		}
-	}
-
-	conn, err := options.Connect()
-	if err != nil {
-		return nil, fmt.Errorf("delegation: connecting to OpenCloud's NATS: %w", err)
-	}
-	js, err := jetstream.New(conn)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("delegation: JetStream: %w", err)
-	}
-	return &NATSStore{conn: conn, js: js, bucket: jetstream.KeyValueConfig{
-		Bucket:         bucket,
+	bucket, err := natskv.New(natskv.Config{
+		Nodes:     cfg.Nodes,
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+		EnableTLS: cfg.EnableTLS,
+		Insecure:  cfg.Insecure,
+		RootCAs:   cfg.RootCAs,
+	}, jetstream.KeyValueConfig{
+		Bucket:         cfg.Bucket,
 		Description:    "Offline tokens for Synaplan work while a person is away",
 		History:        1,
 		Storage:        jetstream.FileStorage,
 		Replicas:       cfg.Replicas,
 		LimitMarkerTTL: leaseTTL,
-	}}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("delegation: %w", err)
+	}
+	return &NATSStore{bucket: bucket}, nil
 }
 
-// open returns the bucket, creating or updating it the first time NATS
-// answers. No lock is held while NATS is asked, so callers waiting for a
-// NATS that is down do not queue behind each other.
 func (s *NATSStore) open(ctx context.Context) (jetstream.KeyValue, error) {
-	s.mu.Lock()
-	kv := s.kv
-	s.mu.Unlock()
-	if kv != nil {
-		return kv, nil
-	}
-	kv, err := s.js.CreateOrUpdateKeyValue(ctx, s.bucket)
+	kv, err := s.bucket.Open(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("delegation: opening the %s bucket: %w", s.bucket.Bucket, err)
+		return nil, fmt.Errorf("delegation: %w", err)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.kv == nil {
-		s.kv = kv
-	}
-	return s.kv, nil
+	return kv, nil
 }
 
 // Get reads the person's token.
@@ -300,11 +237,10 @@ func keyExists(err error) bool {
 
 // Close disconnects from NATS.
 func (s *NATSStore) Close() error {
-	if s == nil || s.conn == nil {
+	if s == nil {
 		return nil
 	}
-	s.conn.Close()
-	return nil
+	return s.bucket.Close()
 }
 
 // natsKey encodes subject so it is one NATS key. A subject may contain
