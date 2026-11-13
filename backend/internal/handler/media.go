@@ -19,7 +19,6 @@ import (
 
 const (
 	maxImagePromptRunes = 4000
-	maxImageBytes       = 50 << 20
 	maxMediaBodyBytes   = 64 << 10
 	imageTimeout        = 5 * time.Minute
 )
@@ -59,6 +58,10 @@ func (h *Handler) GenerateImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.refuseSharedKey(w) {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), imageTimeout)
 	defer cancel()
 	resp, err := h.synaplanAPI.PostApiMediaGenerateWithResponse(ctx, synaplanapi.PostApiMediaGenerateJSONRequestBody{
@@ -67,7 +70,7 @@ func (h *Handler) GenerateImage(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("media/generate: %v", err)
-		writeJSON(w, http.StatusBadGateway, publicFailure(err))
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
 		return
 	}
 	if resp.StatusCode() == http.StatusUnprocessableEntity {
@@ -102,6 +105,9 @@ func (h *Handler) SaveImage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: errMsg})
 		return
 	}
+	if h.refuseSharedKey(w) {
+		return
+	}
 	if h.cs3 == nil {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: storage is not configured"})
 		return
@@ -109,7 +115,7 @@ func (h *Handler) SaveImage(w http.ResponseWriter, r *http.Request) {
 
 	content, err := h.fetchGenerated(r.Context(), ref)
 	if errors.Is(err, errImageTooLarge) {
-		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "This image is too large to save here.", Code: "file_too_large"})
+		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "This file is too large to copy here.", Code: "file_too_large"})
 		return
 	}
 	if err != nil {
@@ -120,7 +126,7 @@ func (h *Handler) SaveImage(w http.ResponseWriter, r *http.Request) {
 	saved, err := h.cs3.Save(r.Context(), name, content)
 	if err != nil {
 		log.Printf("media/save: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: " + err.Error()})
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "The file was not copied. It is still in Synaplan.", Code: "copy_failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, saveFileResponse{Path: saved})
@@ -171,8 +177,8 @@ func parseGeneratedFile(raw string) (generatedFile, bool) {
 	}
 }
 
-// fetchGenerated reads a generated file from Synaplan, at most
-// maxImageBytes of it.
+// fetchGenerated reads a generated file from Synaplan, at most the copy
+// cap (SYNAPLAN_MAX_COPY_BYTES) of it.
 func (h *Handler) fetchGenerated(ctx context.Context, ref generatedFile) ([]byte, error) {
 	var (
 		resp *http.Response
@@ -187,14 +193,15 @@ func (h *Handler) fetchGenerated(ctx context.Context, ref generatedFile) ([]byte
 		return nil, fmt.Errorf("fetching generated file: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxImageBytes+1))
+	limit := h.copyLimit()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading generated file: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, wrapUpstreamStatus("fetching generated file", resp.StatusCode, body)
 	}
-	if len(body) > maxImageBytes {
+	if int64(len(body)) > limit {
 		return nil, errImageTooLarge
 	}
 	return body, nil

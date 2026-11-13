@@ -63,6 +63,18 @@ type Handler struct {
 	audience    string
 
 	notifications notifications
+
+	// maxCopyBytes is SYNAPLAN_MAX_COPY_BYTES. Zero means the default.
+	maxCopyBytes int64
+	// sharedKey is set when every Synaplan call uses one API key.
+	// Listing files then lists the key owner's files, for every
+	// signed-in OpenCloud user, so From Synaplan stays closed.
+	sharedKey bool
+}
+
+// UseSharedKey records that outbound Synaplan calls use one API key.
+func (h *Handler) UseSharedKey() {
+	h.sharedKey = true
 }
 
 // New creates a new Handler. The editor is the synaplanapi

@@ -154,7 +154,7 @@ func TestFetchGeneratedReadsTheFileFromSynaplan(t *testing.T) {
 	}{
 		{"sharded upload", generatedFile{uploadPath: "04/000/00004/2026/11/m.png"}, "/api/v1/files/uploads/04/000/00004/2026/11/m.png", http.StatusOK, png, png, nil},
 		{"by id", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusOK, png, png, nil},
-		{"too large", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusOK, bytes.Repeat([]byte("a"), maxImageBytes+1), nil, errImageTooLarge},
+		{"too large", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusOK, bytes.Repeat([]byte("a"), 65), nil, errImageTooLarge},
 		{"not theirs", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusForbidden, []byte(`{"error":"denied"}`), nil, errClientInput},
 	}
 	for _, tc := range cases {
@@ -171,6 +171,7 @@ func TestFetchGeneratedReadsTheFileFromSynaplan(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			h.SetMaxCopyBytes(64)
 
 			got, err := h.fetchGenerated(context.Background(), tc.ref)
 			if tc.wantErr != nil {
@@ -181,6 +182,27 @@ func TestFetchGeneratedReadsTheFileFromSynaplan(t *testing.T) {
 			}
 			if err != nil || !bytes.Equal(got, tc.want) {
 				t.Fatalf("got %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestImagesStayClosedWithTheSharedKey(t *testing.T) {
+	cases := []struct {
+		name, path, body string
+		serve            func(*Handler, http.ResponseWriter, *http.Request)
+	}{
+		{"generate", "/api/synaplan/media", `{"prompt":"a red square"}`, (*Handler).GenerateImage},
+		{"save", "/api/synaplan/media/save", `{"url":"/api/v1/files/42/download","name":"a.png"}`, (*Handler).SaveImage},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &Handler{}
+			h.UseSharedKey()
+			rr := httptest.NewRecorder()
+			tc.serve(h, rr, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
+			if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"code":"shared_key"`) {
+				t.Fatalf("status = %d, body %s", rr.Code, rr.Body.String())
 			}
 		})
 	}

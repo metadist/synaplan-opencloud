@@ -28,7 +28,17 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
     case 'image_unavailable':
       return $gettext('This Synaplan has no model that makes images. Ask your administrator.')
     case 'file_too_large':
-      return $gettext('This image is too large to save here.')
+      return $gettext('This file is too large to copy here.')
+    case 'copy_failed':
+      return $gettext('The file was not copied. It is still in Synaplan.')
+    case 'shared_key':
+      return $gettext(
+        'From Synaplan needs each person signed in to Synaplan. This installation uses one shared key.'
+      )
+    case 'synaplan_unreachable':
+      return $gettext(
+        'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
+      )
     case 'synaplan_error':
       return $gettext(
         'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
