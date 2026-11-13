@@ -46,11 +46,7 @@
           </li>
         </ul>
         <p v-else class="ext:pl-6 ext:text-sm ext:text-role-on-surface-variant">
-          {{
-            $gettext(
-              'No folder yet. Choose "Let Synaplan read this folder" in a folder\'s Synaplan menu.'
-            )
-          }}
+          {{ $gettext('No folder yet.') }}
         </p>
       </template>
       <oc-button

@@ -4,7 +4,6 @@ import { useTranslationExtension } from './useTranslationExtension'
 import { useSummarizeExtension } from './useSummarizeExtension'
 import { useKnowledgeExtension } from './useKnowledgeExtension'
 import { useFromSynaplanExtension } from './useFromSynaplanExtension'
-import { useReadFolderExtension } from './useReadFolderExtension'
 import { useSynaplanBrandIcon } from '../composables/useSynaplanBrandIcon'
 
 export const useSynaplanActionsExtension = (): ActionExtension => {
@@ -14,8 +13,7 @@ export const useSynaplanActionsExtension = (): ActionExtension => {
     useTranslationExtension(),
     useSummarizeExtension(),
     useKnowledgeExtension(),
-    useFromSynaplanExtension(),
-    useReadFolderExtension()
+    useFromSynaplanExtension()
   ].map(({ action }) => action)
 
   return {

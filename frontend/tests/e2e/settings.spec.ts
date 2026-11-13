@@ -1,11 +1,15 @@
 import { APIRequestContext, Page, expect, test } from '@playwright/test'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
-import { openSynaplanMenu } from '../../support/helpers/contextMenuHelper'
-import { deleteFileQuiet, ensureFolder, getPersonalSpace } from '../../support/helpers/filesHelper'
+import {
+  deleteFileQuiet,
+  ensureFolder,
+  getPersonalSpace,
+  getResourceId
+} from '../../support/helpers/filesHelper'
 
 /**
  * A person's own Synaplan settings: on the Synaplan page they choose what
- * Synaplan may read, and a folder's Synaplan menu allows that folder. The
+ * Synaplan may read and remove a folder they allowed. The
  * Go service reports each change to Synaplan as the person and keeps it
  * in OpenCloud's NATS only once Synaplan took it, so a saved setting that
  * survives a reload has crossed OpenCloud, the token exchange and
@@ -67,25 +71,21 @@ async function saveSettings(page: Page) {
   await expect(page.locator('[data-testid="synaplan-settings-error"]')).toHaveCount(0)
 }
 
-async function findFileRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
-}
-
-async function navigateToTestsFolder(page: Page) {
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  await (await findFileRow(page, TESTS_DIR)).click()
-}
-
 async function seedFolder(request: APIRequestContext, prefix: string) {
   const name = `${prefix}-${Date.now()}`
   const remotePath = `${TESTS_DIR}/${name}`
   await ensureFolder(request, webDavUrl, accessToken, remotePath)
   foldersToCleanup.push(remotePath)
-  return { name, remotePath }
+  return remotePath
+}
+
+async function allowFolder(request: APIRequestContext, id: string) {
+  const resp = await request.put(`${OC_API_URL}/api/synaplan/preferences`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    data: { mode: 'allowed', folders: [{ id, path: 'Everything' }] }
+  })
+  expect(resp.ok(), await resp.text()).toBe(true)
+  return (await resp.json()).readScope.folders as { id: string; path: string }[]
 }
 
 test('a person chooses what Synaplan may read, and the choice is kept', async () => {
@@ -105,17 +105,12 @@ test('a person chooses what Synaplan may read, and the choice is kept', async ()
   await saveSettings(userPage)
 })
 
-test('a folder is allowed from its Synaplan menu and removed on the Synaplan page', async ({
+test('an allowed folder carries its OpenCloud path and is removed on the Synaplan page', async ({
   request
 }) => {
-  const { name, remotePath } = await seedFolder(request, 'read')
-
-  await navigateToTestsFolder(userPage)
-  await openSynaplanMenu(await findFileRow(userPage, name))
-  await userPage.locator('.oc-files-actions-let-synaplan-read-trigger').click()
-  await expect(userPage.getByText('Synaplan may read this folder.')).toBeVisible({
-    timeout: 15_000
-  })
+  const remotePath = await seedFolder(request, 'read')
+  const id = await getResourceId(request, webDavUrl, accessToken, remotePath)
+  expect(await allowFolder(request, id)).toEqual([{ id, path: remotePath }])
 
   await openSettings(userPage)
   await expect(userPage.locator('[data-testid="synaplan-settings-read-allowed"]')).toBeChecked()
@@ -133,20 +128,17 @@ test('a folder is allowed from its Synaplan menu and removed on the Synaplan pag
   await expect(folder).toHaveCount(0)
 })
 
-test('a folder deleted meanwhile is not allowed, and the person is told', async ({ request }) => {
-  const { name, remotePath } = await seedFolder(request, 'gone')
-
-  await navigateToTestsFolder(userPage)
-  const row = await findFileRow(userPage, name)
+test('a folder deleted after it was allowed leaves the setting on the next save', async ({
+  request
+}) => {
+  const remotePath = await seedFolder(request, 'gone')
+  const id = await getResourceId(request, webDavUrl, accessToken, remotePath)
+  await allowFolder(request, id)
   await deleteFileQuiet(request, webDavUrl, accessToken, remotePath)
 
-  await openSynaplanMenu(row)
-  await userPage.locator('.oc-files-actions-let-synaplan-read-trigger').click()
-  await expect(
-    userPage.getByText('This folder is no longer there. Reload the folder and try again.')
-  ).toBeVisible({ timeout: 15_000 })
-
   await openSettings(userPage)
-  await userPage.locator('[data-testid="synaplan-settings-read-allowed"]').check()
-  await expect(userPage.locator('[data-testid="synaplan-settings-folder"]')).toHaveCount(0)
+  const folder = userPage.locator('[data-testid="synaplan-settings-folder"]')
+  await expect(folder).toHaveCount(1)
+  await saveSettings(userPage)
+  await expect(folder).toHaveCount(0)
 })

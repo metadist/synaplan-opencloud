@@ -87,7 +87,7 @@ This needs, on the exchange client in Keycloak: the standard flow with PKCE (S25
 
 #### What Synaplan may read
 
-On the Synaplan page each person chooses what Synaplan may read of their files: only what they watch (the default), also folders they allow, or all of their files. *Let Synaplan read this folder* in a folder's Synaplan menu adds that folder. The backend replaces the path the browser sends with the one OpenCloud knows for the folder's id, as that person sees it, and reports the setting to Synaplan as the person (`PUT /api/v1/platform-links/read-scope`), which enforces it. Synaplan does not hand the setting back to a cloud, so the backend keeps a copy for the page in its own bucket of the same store as the offline tokens (`SYNAPLAN_STORE_PREFERENCES_DATABASE`), written only after Synaplan took it. With the shared API key there is no person, and the page shows no setting.
+On the Synaplan page each person chooses what Synaplan may read of their files: only what they watch (the default), also folders they allow, or all of their files. The page lists the allowed folders and removes one. The backend replaces the path the browser sends with the one OpenCloud knows for the folder's id, as that person sees it, and reports the setting to Synaplan as the person (`PUT /api/v1/platform-links/read-scope`), which enforces it. Synaplan does not hand the setting back to a cloud, so the backend keeps a copy for the page in its own bucket of the same store as the offline tokens (`SYNAPLAN_STORE_PREFERENCES_DATABASE`), written only after Synaplan took it. With the shared API key there is no person, and the page shows no setting.
 
 #### Notifications from Synaplan
 

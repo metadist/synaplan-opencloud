@@ -54,13 +54,5 @@ export function useReadScope() {
     return data.readScope ?? scope
   }
 
-  /** Adds folder to the allowed ones and switches to "also folders I allow". */
-  async function allowFolder(folder: ReadFolder): Promise<ReadScope> {
-    const current = await load()
-    const folders = (current.readScope?.folders ?? []).filter((f) => f.id !== folder.id)
-    const mode = current.readScope?.mode === 'all' ? 'all' : 'allowed'
-    return save({ mode, folders: [...folders, folder] })
-  }
-
-  return { login, load, save, allowFolder }
+  return { login, load, save }
 }

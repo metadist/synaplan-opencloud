@@ -41,34 +41,4 @@ describe('useReadScope', () => {
     expect(saved).toEqual(kept)
     expect(put.mock.calls[0][0]).toBe('/api/synaplan/preferences')
   })
-
-  it.each([
-    ['watched', 'allowed'],
-    ['allowed', 'allowed'],
-    ['all', 'all']
-  ])('allowing a folder in %s mode saves %s mode', async (current, expected) => {
-    get.mockResolvedValueOnce({
-      data: {
-        available: true,
-        readScope: {
-          mode: current,
-          folders: [
-            { id: 'f1', path: 'Old' },
-            { id: 'f2', path: 'B' }
-          ]
-        }
-      }
-    })
-    put.mockImplementationOnce((_url, body) =>
-      Promise.resolve({ data: { available: true, readScope: body } })
-    )
-    await useReadScope().allowFolder({ id: 'f1', path: 'New' })
-    expect(put.mock.calls[0][1]).toEqual({
-      mode: expected,
-      folders: [
-        { id: 'f2', path: 'B' },
-        { id: 'f1', path: 'New' }
-      ]
-    })
-  })
 })
