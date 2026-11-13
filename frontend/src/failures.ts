@@ -27,6 +27,20 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
       )
+    case 'identity_check_failed':
+      return $gettext('Synaplan could not check who you are. Try again.')
+    case 'idp_unreachable':
+      return $gettext('The sign-in service cannot be reached. Try again later.')
+    case 'permission_unavailable':
+      return $gettext('Synaplan cannot check this permission right now. Try again later.')
+    case 'store_unavailable':
+      return $gettext('Synaplan could not update this permission. Try again.')
+    case 'permission_busy':
+      return $gettext('This permission was changing at the same time. Try again.')
+    case 'revoke_unconfirmed':
+      return $gettext(
+        'Synaplan no longer works for you, but the sign-in service could not confirm it. Try again.'
+      )
     default:
       return fallback
   }

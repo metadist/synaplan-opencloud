@@ -169,6 +169,31 @@ func TestARefreshMovesTheTokenToTheCurrentKey(t *testing.T) {
 	}
 }
 
+// Reconnecting when the identity provider returns the same refresh token
+// still rewraps a token sealed under a previous key without revoking it.
+func TestReconnectRewrapsUnchangedTokenWithoutRevokingIt(t *testing.T) {
+	f := newIdP(t, "ada", false)
+	inner := NewMemoryStore()
+	var failed failures
+	if err := connect(t, withStore(f, sealed(t, inner, "one"), &failed), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	before := keyID(t, inner)
+	f.mu.Lock()
+	f.issued = 0
+	f.mu.Unlock()
+
+	if err := connect(t, withStore(f, sealed(t, inner, "two", "one"), &failed), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if keyID(t, inner) == before {
+		t.Fatal("reconnecting did not rewrap the unchanged token under the current key")
+	}
+	if _, _, revoked := f.state(); len(revoked) != 0 {
+		t.Fatalf("revoked %v, want unchanged token kept active", revoked)
+	}
+}
+
 func TestNewLocalKeysNeedsASecret(t *testing.T) {
 	if _, err := NewLocalKeys("", ""); err == nil {
 		t.Fatal("keys without a secret")

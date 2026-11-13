@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/metadist/synaplan-opencloud/pkg/config"
+	"github.com/metadist/synaplan-opencloud/pkg/config/defaults"
 )
 
 // fullOIDCConfig returns a config with all four OIDC token-exchange
@@ -98,5 +99,57 @@ func TestValidate_NoSynaplanURL(t *testing.T) {
 	err := Validate(cfg)
 	if err == nil || !strings.Contains(err.Error(), "SYNAPLAN_URL") {
 		t.Fatalf("a config without SYNAPLAN_URL should fail naming it, got: %v", err)
+	}
+}
+
+func TestValidate_StoreSettings(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(*config.Config)
+		wantErr string
+	}{
+		{
+			name:   "default nats-js-kv validates",
+			mutate: func(cfg *config.Config) { defaults.EnsureDefaults(cfg) },
+		},
+		{
+			name:   "memory validates",
+			mutate: func(cfg *config.Config) { cfg.Store.Store = "memory" },
+		},
+		{
+			name:    "unsupported store fails naming OC_PERSISTENT_STORE",
+			mutate:  func(cfg *config.Config) { cfg.Store.Store = "redis-sentinel" },
+			wantErr: "OC_PERSISTENT_STORE",
+		},
+		{
+			name: "empty nodes on nats-js-kv fails",
+			mutate: func(cfg *config.Config) {
+				defaults.EnsureDefaults(cfg)
+				cfg.Store.Nodes = []string{" ", ""}
+				defaults.Sanitize(cfg)
+			},
+			wantErr: "SYNAPLAN_STORE_NODES",
+		},
+		{
+			name: "negative replicas fails",
+			mutate: func(cfg *config.Config) {
+				defaults.EnsureDefaults(cfg)
+				cfg.Store.Replicas = -1
+			},
+			wantErr: "SYNAPLAN_STORE_REPLICAS",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := fullOIDCConfig()
+			tc.mutate(cfg)
+			err := Validate(cfg)
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("err = %v, want mentioning %q", err, tc.wantErr)
+			}
+		})
 	}
 }

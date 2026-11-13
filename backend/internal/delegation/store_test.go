@@ -213,7 +213,12 @@ func TestReplicasShareTheStore(t *testing.T) {
 				f.mu.Lock()
 				f.singleUse = true
 				f.mu.Unlock()
-				replicas := []*Delegation{replica(), replica(), replica()}
+				// More replicas than storeAttempts proves waiting replicas use the
+				// revision read under the lease instead of thrashing on stale reads.
+				replicas := make([]*Delegation, storeAttempts+3)
+				for i := range replicas {
+					replicas[i] = replica()
+				}
 				errs := make([]error, len(replicas))
 				var wg sync.WaitGroup
 				for i, d := range replicas {
@@ -257,6 +262,16 @@ func TestAStoreThatFailsIsAnOutage(t *testing.T) {
 	ok, connErr := d.Connected(context.Background(), "ada")
 	if !errors.Is(err, ErrUnavailable) || !errors.Is(connErr, ErrUnavailable) || ok || failed.count() == 0 {
 		t.Fatalf("connect %v, connected %v %v, failures %d", err, ok, connErr, failed.count())
+	}
+
+	// A caller that cancelled its own context is not a store outage in the log.
+	var cancelledFailures failures
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelledDel := withStore(f, NewMemoryStore(), &cancelledFailures)
+	_, _ = cancelledDel.Token(cancelledCtx, "ada", "synaplan-app")
+	if n := cancelledFailures.count(); n != 0 {
+		t.Fatalf("caller cancellation reported %d store failures", n)
 	}
 }
 
@@ -356,10 +371,19 @@ func TestMemoryStoreLease(t *testing.T) {
 	} else {
 		again()
 	}
+	if len(s.leases) != 0 {
+		t.Fatalf("released leases left %d entries behind", len(s.leases))
+	}
 }
 
 func TestNewNATSNeedsAnAddressAndABucket(t *testing.T) {
-	for _, cfg := range []NATSConfig{{}, {Nodes: []string{"nats://127.0.0.1:1"}}} {
+	for _, cfg := range []NATSConfig{
+		{},
+		{Nodes: []string{"nats://127.0.0.1:1"}},
+		{Nodes: []string{"  ", ""}, Bucket: "synaplan-delegation"},
+		{Nodes: []string{"nats://127.0.0.1:1"}, Bucket: "   "},
+		{Nodes: []string{"nats://127.0.0.1:1"}, Bucket: "synaplan-delegation", Replicas: -1},
+	} {
 		if _, err := NewNATS(cfg); err == nil {
 			t.Fatalf("NewNATS accepted %+v", cfg)
 		}

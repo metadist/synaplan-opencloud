@@ -118,7 +118,7 @@ func (s *SealedStore) seal(ctx context.Context, subject, token string) (string, 
 // with the key Wrap uses now.
 func (s *SealedStore) unseal(ctx context.Context, subject, value string) (string, bool, error) {
 	parts := strings.Split(value, ".")
-	if len(parts) != 4 || parts[0] != sealedVersion {
+	if len(parts) != 4 || parts[0] != sealedVersion || parts[1] == "" || len(parts[1]) > 64 {
 		return "", false, fmt.Errorf("%w: not a sealed value", ErrUnreadable)
 	}
 	enc := base64.RawURLEncoding

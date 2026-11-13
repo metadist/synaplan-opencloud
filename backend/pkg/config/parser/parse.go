@@ -54,5 +54,22 @@ func Validate(cfg *config.Config) error {
 	if hasAPIKey && !strings.HasPrefix(cfg.SynaplanAPIKey, "sk_") {
 		return errors.New("synaplan-opencloud: SYNAPLAN_API_KEY must start with 'sk_' (Synaplan API key format)")
 	}
+	if !hasAPIKey && cfg.Store.Store != "" {
+		switch cfg.Store.Store {
+		case "nats-js-kv":
+			if len(cfg.Store.Nodes) == 0 {
+				return errors.New("synaplan-opencloud: SYNAPLAN_STORE_NODES must name at least one NATS address when SYNAPLAN_STORE is nats-js-kv")
+			}
+			if cfg.Store.Database == "" {
+				return errors.New("synaplan-opencloud: SYNAPLAN_STORE_DATABASE must not be empty when SYNAPLAN_STORE is nats-js-kv")
+			}
+		case "memory":
+		default:
+			return errors.New("synaplan-opencloud: store " + `"` + cfg.Store.Store + `"` + " is not supported; set SYNAPLAN_STORE to nats-js-kv or memory (it may be inherited from OC_PERSISTENT_STORE)")
+		}
+		if cfg.Store.Replicas < 0 {
+			return errors.New("synaplan-opencloud: SYNAPLAN_STORE_REPLICAS must not be negative")
+		}
+	}
 	return nil
 }

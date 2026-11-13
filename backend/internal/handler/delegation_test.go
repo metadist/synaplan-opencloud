@@ -89,3 +89,35 @@ func TestDelegationConnectRefuses(t *testing.T) {
 		})
 	}
 }
+
+func TestDelegationStoreOutageAnswers502WithCode(t *testing.T) {
+	idp := fakeIdentityProvider(t, "ada")
+	store := &switchableStore{mem: nil}
+	store.down.Store(true)
+	h := newDelegationHandler(t, &Delegated{
+		Tokens:    newDelegationWithStore(idp, store),
+		Exchanger: exchanger{"u-ada": "ada"},
+		Audience:  "synaplan-app",
+	})
+
+	code, body := status(t, h, "u-ada", tokenFor("ada"))
+	if code != http.StatusBadGateway || body["code"] != "permission_unavailable" {
+		t.Fatalf("status while store is down = %d %v, want 502 permission_unavailable", code, body)
+	}
+
+	rec := httptest.NewRecorder()
+	h.DelegationConnect(rec, httptest.NewRequestWithContext(signedIn("u-ada", tokenFor("ada")), http.MethodPost, "/api/synaplan/delegation", strings.NewReader(`{"code":"c","verifier":"v","redirectUri":"https://cloud/callback"}`)))
+	var errBody map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &errBody)
+	if rec.Code != http.StatusBadGateway || errBody["code"] != "store_unavailable" {
+		t.Fatalf("connect while store is down = %d %v, want 502 store_unavailable", rec.Code, errBody)
+	}
+
+	rec = httptest.NewRecorder()
+	h.DelegationDisconnect(rec, httptest.NewRequestWithContext(signedIn("u-ada", tokenFor("ada")), http.MethodDelete, "/api/synaplan/delegation", nil))
+	errBody = nil
+	_ = json.Unmarshal(rec.Body.Bytes(), &errBody)
+	if rec.Code != http.StatusBadGateway || errBody["code"] != "store_unavailable" {
+		t.Fatalf("disconnect while store is down = %d %v, want 502 store_unavailable", rec.Code, errBody)
+	}
+}

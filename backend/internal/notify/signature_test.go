@@ -66,6 +66,10 @@ func TestSeenReplay(t *testing.T) {
 	if seen.AlreadySeen("identity_revoked", "9", at(1300), at(1600)) {
 		t.Fatal("an id was still remembered after its token expired")
 	}
+	seen.Forget("identity_revoked", "9")
+	if seen.AlreadySeen("identity_revoked", "9", at(1301), at(1600)) {
+		t.Fatal("a forgotten id was still rejected as a replay")
+	}
 }
 
 func TestPrecheckNeedsNoKey(t *testing.T) {

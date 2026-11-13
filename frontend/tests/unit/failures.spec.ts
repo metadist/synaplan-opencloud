@@ -15,6 +15,15 @@ describe('sentenceFor', () => {
     [
       'synaplan_error',
       'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
+    ],
+    ['identity_check_failed', 'Synaplan could not check who you are. Try again.'],
+    ['idp_unreachable', 'The sign-in service cannot be reached. Try again later.'],
+    ['permission_unavailable', 'Synaplan cannot check this permission right now. Try again later.'],
+    ['store_unavailable', 'Synaplan could not update this permission. Try again.'],
+    ['permission_busy', 'This permission was changing at the same time. Try again.'],
+    [
+      'revoke_unconfirmed',
+      'Synaplan no longer works for you, but the sign-in service could not confirm it. Try again.'
     ]
   ])('maps %s to its sentence', (code, sentence) => {
     const error = { response: { data: { code, error: 'ignored' } } }

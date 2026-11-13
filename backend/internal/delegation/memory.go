@@ -14,12 +14,17 @@ type MemoryStore struct {
 	mu       sync.Mutex
 	revision uint64
 	entries  map[string]Entry
-	leases   map[string]chan struct{}
+	leases   map[string]*memLease
+}
+
+type memLease struct {
+	ch   chan struct{}
+	refs int
 }
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{entries: map[string]Entry{}, leases: map[string]chan struct{}{}}
+	return &MemoryStore{entries: map[string]Entry{}, leases: map[string]*memLease{}}
 }
 
 // Get reads the person's token.
@@ -67,18 +72,34 @@ func (s *MemoryStore) Lease(ctx context.Context, subject string) (context.Contex
 	s.mu.Lock()
 	lease, ok := s.leases[subject]
 	if !ok {
-		lease = make(chan struct{}, 1)
+		lease = &memLease{ch: make(chan struct{}, 1)}
 		s.leases[subject] = lease
 	}
+	lease.refs++
 	s.mu.Unlock()
+
+	dropRef := func() {
+		s.mu.Lock()
+		lease.refs--
+		if lease.refs == 0 {
+			delete(s.leases, subject)
+		}
+		s.mu.Unlock()
+	}
+
 	select {
-	case lease <- struct{}{}:
+	case lease.ch <- struct{}{}:
+		var once sync.Once
 		held, cancel := context.WithCancel(ctx)
 		return held, func() {
-			cancel()
-			<-lease
+			once.Do(func() {
+				cancel()
+				<-lease.ch
+				dropRef()
+			})
 		}, nil
 	case <-ctx.Done():
+		dropRef()
 		return nil, nil, fmt.Errorf("delegation: waiting for a lease: %w", ctx.Err())
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,16 +107,26 @@ const leasePoll = 100 * time.Millisecond
 // token stays until the person disconnects. Leases expire on their own,
 // which needs NATS 2.11 or later.
 func NewNATS(cfg NATSConfig) (*NATSStore, error) {
-	if len(cfg.Nodes) == 0 {
+	var nodes []string
+	for _, n := range cfg.Nodes {
+		if trimmed := strings.TrimSpace(n); trimmed != "" {
+			nodes = append(nodes, trimmed)
+		}
+	}
+	if len(nodes) == 0 {
 		return nil, errors.New("delegation: nats-js-kv needs the address of OpenCloud's NATS")
 	}
-	if cfg.Bucket == "" {
+	bucket := strings.TrimSpace(cfg.Bucket)
+	if bucket == "" {
 		return nil, errors.New("delegation: nats-js-kv needs a bucket")
+	}
+	if cfg.Replicas < 0 {
+		return nil, errors.New("delegation: nats-js-kv replicas must not be negative")
 	}
 
 	options := nats.GetDefaultOptions()
 	options.Name = "synaplan-opencloud"
-	options.Servers = cfg.Nodes
+	options.Servers = nodes
 	options.Timeout = 5 * time.Second
 	options.MaxReconnect = -1
 	options.ReconnectWait = time.Second
@@ -147,8 +158,9 @@ func NewNATS(cfg NATSConfig) (*NATSStore, error) {
 		return nil, fmt.Errorf("delegation: JetStream: %w", err)
 	}
 	return &NATSStore{conn: conn, js: js, bucket: jetstream.KeyValueConfig{
-		Bucket:         cfg.Bucket,
+		Bucket:         bucket,
 		Description:    "Offline tokens for Synaplan work while a person is away",
+		History:        1,
 		Storage:        jetstream.FileStorage,
 		Replicas:       cfg.Replicas,
 		LimitMarkerTTL: leaseTTL,
@@ -221,13 +233,16 @@ func (s *NATSStore) Write(ctx context.Context, subject, token string, match uint
 	return rev, true, nil
 }
 
-// Delete removes the token when match is still current.
+// Delete removes the token when match is still current. Purge with a
+// bounded marker TTL wipes the sealed value immediately and lets NATS
+// drop the delete marker too, so a disconnected person leaves no trace
+// on disk.
 func (s *NATSStore) Delete(ctx context.Context, subject string, match uint64) (bool, error) {
 	kv, err := s.open(ctx)
 	if err != nil {
 		return false, err
 	}
-	err = kv.Delete(ctx, natsKey(subject), jetstream.LastRevision(match))
+	err = kv.Purge(ctx, natsKey(subject), jetstream.LastRevision(match), jetstream.PurgeTTL(leaseTTL))
 	if errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 		return false, nil
 	}
@@ -241,7 +256,8 @@ func (s *NATSStore) Delete(ctx context.Context, subject string, match uint64) (b
 }
 
 // Lease creates the person's lease key with a TTL of its own. NATS removes
-// a lease that was never given back, so no replica compares clocks.
+// a lease that was never given back, so no replica compares clocks, and a
+// released lease purges its marker with a TTL so lease keys do not pile up.
 func (s *NATSStore) Lease(ctx context.Context, subject string) (context.Context, func(), error) {
 	kv, err := s.open(ctx)
 	if err != nil {
@@ -256,7 +272,7 @@ func (s *NATSStore) Lease(ctx context.Context, subject string) (context.Context,
 				cancel()
 				release, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 				defer done()
-				_ = kv.Delete(release, key, jetstream.LastRevision(rev))
+				_ = kv.Purge(release, key, jetstream.LastRevision(rev), jetstream.PurgeTTL(leaseTTL))
 			}, nil
 		}
 		if !keyExists(err) {
