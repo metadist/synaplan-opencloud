@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   IN_PROGRESS_TTL_MS,
   SETTLED_TTL_MS,
+  cloudFilesEnabled,
   cloudMarks,
   invalidateCloudStatus,
   loadCloudStatus,
@@ -22,6 +23,7 @@ function answer(state: string) {
 describe('cloudStatus cache', () => {
   beforeEach(() => {
     for (const key of Object.keys(cloudMarks)) delete cloudMarks[key]
+    cloudFilesEnabled.value = false
     invalidateCloudStatus('f1')
     vi.useRealTimers()
   })
@@ -53,6 +55,183 @@ describe('cloudStatus cache', () => {
     queueCloudStatus({ post }, { id: 'f1', version: 'v1' }, 1_001)
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(post).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the newer mark when an older answer arrives last', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockResolvedValueOnce(answer('changed'))
+    const first = loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(markFor('f1')?.state).toBe('changed')
+    expect(cloudFilesEnabled.value).toBe(true)
+    release({
+      data: {
+        enabled: false,
+        items: [{ id: 'f1', state: 'searchable', file_id: 9, knowledge_folder: null }]
+      }
+    })
+    await first
+    expect(markFor('f1')?.state).toBe('changed')
+    expect(cloudFilesEnabled.value).toBe(true)
+
+    queueCloudStatus({ post }, { id: 'f1', version: 'v2' }, 3_000)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(post).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not let an older batch turn cloud file state off over a newer file', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockResolvedValueOnce(answer('changed'))
+    const first = loadCloudStatus(
+      { post },
+      [
+        { id: 'f1', version: 'v1' },
+        { id: 'f2', version: 'v1' }
+      ],
+      1_000
+    )
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(markFor('f1')?.state).toBe('changed')
+    expect(cloudFilesEnabled.value).toBe(true)
+    release({ data: { enabled: false, items: [] } })
+    await first
+    expect(cloudFilesEnabled.value).toBe(true)
+    expect(markFor('f1')?.state).toBe('changed')
+  })
+
+  it('does not restore marks from a lookup that started before cloud file state turned off', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockResolvedValueOnce({ data: { enabled: false, items: [] } })
+    const first = loadCloudStatus(
+      { post },
+      [
+        { id: 'f1', version: 'v1' },
+        { id: 'f2', version: 'v1' }
+      ],
+      1_000
+    )
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+    release({
+      data: {
+        enabled: true,
+        items: [
+          { id: 'f1', state: 'searchable', file_id: 9, knowledge_folder: { name: 'Invoices' } },
+          { id: 'f2', state: 'searchable', file_id: 8, knowledge_folder: { name: 'Invoices' } }
+        ]
+      }
+    })
+    await first
+    expect(cloudFilesEnabled.value).toBe(false)
+    expect(markFor('f1')).toBeUndefined()
+    expect(markFor('f2')).toBeUndefined()
+  })
+
+  it('applies an older enabled answer when the newer lookup failed', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockRejectedValueOnce(new Error('down'))
+    const first = loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    await loadCloudStatus({ post }, [{ id: 'f2', version: 'v1' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+    release(answer('searchable'))
+    await first
+    expect(cloudFilesEnabled.value).toBe(true)
+    expect(markFor('f1')?.state).toBe('searchable')
+  })
+
+  it('does not restore a file from a lookup that started before the turn-off', async () => {
+    let release: (value: { data: unknown }) => void = () => {}
+    const slow = new Promise<{ data: unknown }>((resolve) => {
+      release = resolve
+    })
+    const post = vi
+      .fn()
+      .mockImplementationOnce(() => slow)
+      .mockResolvedValueOnce({ data: { enabled: false, items: [] } })
+      .mockResolvedValueOnce(answer('changed'))
+    const first = loadCloudStatus(
+      { post },
+      [
+        { id: 'f1', version: 'v1' },
+        { id: 'f2', version: 'v1' }
+      ],
+      1_000
+    )
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v3' }], 3_000)
+    expect(cloudFilesEnabled.value).toBe(true)
+    expect(markFor('f1')?.state).toBe('changed')
+    release({
+      data: {
+        enabled: true,
+        items: [
+          { id: 'f1', state: 'searchable', file_id: 9, knowledge_folder: { name: 'Invoices' } },
+          { id: 'f2', state: 'searchable', file_id: 8, knowledge_folder: { name: 'Invoices' } }
+        ]
+      }
+    })
+    await first
+    expect(markFor('f1')?.state).toBe('changed')
+    expect(markFor('f2')).toBeUndefined()
+  })
+
+  it('drops cached marks when cloud file state turns off', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(answer('searchable'))
+      .mockResolvedValueOnce({ data: { enabled: false, items: [] } })
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    expect(markFor('f1')?.state).toBe('searchable')
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+    expect(markFor('f1')).toBeUndefined()
+  })
+
+  it('records cloud file state only when the answer says it is on', async () => {
+    const post = vi.fn().mockResolvedValue({ data: { enabled: false, items: [] } })
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    expect(cloudFilesEnabled.value).toBe(false)
+
+    post.mockResolvedValue(answer('searchable'))
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(true)
+  })
+
+  it('leaves cloud file state on when a later answer is unreachable', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(answer('searchable'))
+      .mockResolvedValueOnce({ data: { enabled: true, unreachable: true, items: [] } })
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    expect(cloudFilesEnabled.value).toBe(true)
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v2' }], 2_000)
+    expect(cloudFilesEnabled.value).toBe(true)
+    expect(markFor('f1')?.state).toBe('searchable')
   })
 
   it('treats an unreachable answer like a failed one', async () => {

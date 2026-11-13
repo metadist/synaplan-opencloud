@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { z } from 'zod'
 
 /**
@@ -15,6 +15,13 @@ export type CloudMark = {
 }
 
 export const cloudMarks = reactive<Record<string, CloudMark>>({})
+
+/**
+ * True only after cloud/status has answered `enabled: true`. The file
+ * sidebar uses this so the tab stays absent while cloud file state is off.
+ * An unreachable answer leaves the flag as it was.
+ */
+export const cloudFilesEnabled = ref(false)
 
 const statusSchema = z.object({
   enabled: z.boolean().optional(),
@@ -44,6 +51,18 @@ const IN_PROGRESS = new Set(['adding', 'updating'])
 
 const pending = new Map<string, Item>()
 const fetchedAt = new Map<string, { version: string; at: number }>()
+/** The newest in-flight lookup for a file. An older answer must not replace it. */
+const latestLookup = new Map<string, number>()
+let lookupTicket = 0
+/** Lookups are numbered as they start. A failed one does not count as applied. */
+let capabilitySeq = 0
+/** The highest lookup whose answer was applied to the on/off flag. */
+let appliedCapability = 0
+/**
+ * The lookup that last reported cloud file state off. Anything that started
+ * earlier must not put marks back, even after a later answer says it is on.
+ */
+let disabledAtCapability = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 let client: Http | undefined
 
@@ -77,11 +96,28 @@ export function queueCloudStatus(http: Http, item: Item, now = Date.now()) {
   }, 40)
 }
 
-export async function loadCloudStatus(http: Http, items: Item[], now = Date.now()) {
-  if (!items.length) return
+/**
+ * Asks Synaplan and stores the marks. Returns false when this lookup is
+ * still the newest for its files and Synaplan did not answer. A slower
+ * answer for an older version returns true and changes nothing: the newer
+ * lookup owns the file.
+ */
+export async function loadCloudStatus(
+  http: Http,
+  items: Item[],
+  now = Date.now()
+): Promise<boolean> {
+  if (!items.length) return true
+  const capability = ++capabilitySeq
+  const tickets = new Map<string, number>()
   for (const item of items) {
+    const ticket = ++lookupTicket
+    latestLookup.set(item.id, ticket)
+    tickets.set(item.id, ticket)
     fetchedAt.set(item.id, { version: item.version, at: now })
   }
+  const owns = (id: string) => latestLookup.get(id) === tickets.get(id)
+
   let data: z.infer<typeof statusSchema>
   try {
     const res = await http.post('/api/synaplan/cloud/status', { items }, { schema: statusSchema })
@@ -89,22 +125,45 @@ export async function loadCloudStatus(http: Http, items: Item[], now = Date.now(
     if (data.unreachable) throw new Error('synaplan unreachable')
   } catch {
     // Ask again on the next look instead of showing a stale bird.
-    for (const item of items) fetchedAt.delete(item.id)
-    return
+    // A newer lookup for the same file keeps the cache it just wrote.
+    let stillMine = false
+    for (const item of items) {
+      if (!owns(item.id)) continue
+      stillMine = true
+      fetchedAt.delete(item.id)
+    }
+    return !stillMine
   }
+
+  const owned = items.filter((item) => owns(item.id))
+  if (capability > appliedCapability) {
+    appliedCapability = capability
+    cloudFilesEnabled.value = data.enabled === true
+    if (data.enabled !== true) {
+      // The bird reads marks on their own. A turn-off must not leave them up.
+      disabledAtCapability = capability
+      for (const id of Object.keys(cloudMarks)) delete cloudMarks[id]
+      return true
+    }
+  } else if (data.enabled !== true) {
+    return true
+  }
+  if (disabledAtCapability > capability || !owned.length) return true
   const moving: Item[] = []
   for (const item of data.items) {
+    if (!owns(item.id)) continue
     cloudMarks[item.id] = {
       state: item.state,
       folder: item.knowledge_folder?.name ?? '',
       fileId: item.file_id ?? 0
     }
     if (IN_PROGRESS.has(item.state)) {
-      const asked = items.find((requested) => requested.id === item.id)
+      const asked = owned.find((requested) => requested.id === item.id)
       if (asked) moving.push(asked)
     }
   }
-  scheduleFollowUp(http, moving)
+  if (moving.length) scheduleFollowUp(http, moving)
+  return true
 }
 
 let followUp: ReturnType<typeof setTimeout> | undefined

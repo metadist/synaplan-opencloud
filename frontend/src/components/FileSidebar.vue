@@ -1,0 +1,124 @@
+<template>
+  <div
+    v-if="cloudFilesEnabled"
+    class="ext:flex ext:flex-col ext:gap-3 ext:p-2 ext:text-sm"
+    data-testid="synaplan-sidebar"
+  >
+    <p v-if="loading">{{ $gettext('Loading…') }}</p>
+    <p v-else-if="unavailable" data-testid="synaplan-sidebar-unavailable">
+      {{ $gettext("Couldn't check Synaplan right now.") }}
+    </p>
+    <template v-else-if="row">
+      <p data-testid="synaplan-sidebar-state">{{ stateSentence }}</p>
+      <p v-if="folderName" data-testid="synaplan-sidebar-folder">
+        {{ $gettext('Knowledge folder') }}: {{ folderName }}
+      </p>
+      <oc-button
+        v-if="fileId"
+        appearance="outline"
+        :disabled="removing"
+        data-testid="synaplan-sidebar-remove"
+        @click="onRemove"
+      >
+        {{ $gettext('Remove from the knowledge folder') }}
+      </oc-button>
+    </template>
+    <p v-else data-testid="synaplan-sidebar-not-searchable">
+      {{ $gettext('This file is not searchable by AI.') }}
+    </p>
+    <p v-if="message" data-testid="synaplan-sidebar-message">{{ message }}</p>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { useClientService } from '@opencloud-eu/web-pkg'
+import { useGettext } from 'vue3-gettext'
+import { z } from 'zod'
+import {
+  cloudFilesEnabled,
+  invalidateCloudStatus,
+  loadCloudStatus,
+  markFor
+} from '../composables/cloudStatus'
+import { sentenceFor } from '../failures'
+
+const props = defineProps<{
+  resource?: { id?: string; etag?: string; name?: string }
+}>()
+
+const { $gettext } = useGettext()
+const { httpAuthenticated } = useClientService()
+const loading = ref(true)
+const removing = ref(false)
+const unavailable = ref(false)
+const message = ref('')
+let refreshTicket = 0
+
+const row = computed(() => {
+  const id = props.resource?.id
+  if (!id) return undefined
+  const mark = markFor(id)
+  return mark && mark.state !== 'none' ? mark : undefined
+})
+const folderName = computed(() => row.value?.folder ?? '')
+const fileId = computed(() => row.value?.fileId ?? 0)
+const stateSentence = computed(() => {
+  switch (row.value?.state) {
+    case 'adding':
+      return $gettext('Being made searchable.')
+    case 'updating':
+      return $gettext('Changed, updating.')
+    case 'changed':
+      return $gettext('Changed since it was made searchable.')
+    case 'failed':
+      return $gettext('Synaplan could not make this file searchable.')
+    default:
+      return $gettext('Searchable by AI.')
+  }
+})
+
+async function refresh() {
+  const ticket = ++refreshTicket
+  loading.value = true
+  message.value = ''
+  const id = props.resource?.id
+  if (!id) {
+    if (ticket === refreshTicket) loading.value = false
+    return
+  }
+  // Keep the previous mark until a newer answer replaces it. A failed
+  // lookup must not look like "not in the knowledge folder".
+  const ok = await loadCloudStatus(httpAuthenticated, [{ id, version: props.resource?.etag ?? '' }])
+  if (ticket !== refreshTicket) return
+  unavailable.value = !ok
+  loading.value = false
+}
+
+// The panel stays mounted while the person clicks through files. A new
+// etag is a new version, so it is loaded again even when the id is unchanged.
+watch(() => `${props.resource?.id ?? ''}\0${props.resource?.etag ?? ''}`, refresh, {
+  immediate: true
+})
+
+async function onRemove() {
+  const id = props.resource?.id
+  if (!id) return
+  removing.value = true
+  try {
+    await httpAuthenticated.delete(`/api/synaplan/knowledge?resourceId=${encodeURIComponent(id)}`, {
+      schema: z.object({ removed: z.boolean() })
+    })
+    invalidateCloudStatus(id)
+    if (props.resource?.id !== id) return
+    unavailable.value = false
+    message.value = $gettext('Removed from the knowledge folder. It is no longer searchable.')
+  } catch (e) {
+    console.error('synaplan sidebar remove failed', e)
+    if (props.resource?.id !== id) return
+    message.value = sentenceFor($gettext, e, $gettext('Could not remove the file'))
+  } finally {
+    removing.value = false
+  }
+}
+</script>
