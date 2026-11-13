@@ -244,10 +244,21 @@ func (h *Handler) askReconcile(ctx context.Context, watchID int, batch []cs3read
 	return wanted, nil
 }
 
-// uploadWatchFile streams one file version to the watch. Synaplan decides
-// whether it can read a file by the extension of its name, so the name is
-// always sent.
+// uploadWatchFile streams one file version to the watch.
 func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID int, file cs3reader.Resource) error {
+	return uploadFile(ctx, files, file, func(contentType string, body io.Reader) (int, []byte, error) {
+		resp, err := h.synaplanAPI.CloudWatchFileWithResponse(ctx, strconv.Itoa(watchID), withBody(contentType, body))
+		if err != nil {
+			return 0, nil, err
+		}
+		return resp.StatusCode(), resp.Body, nil
+	})
+}
+
+// uploadFile streams one file version to Synaplan as the multipart form its
+// cloud uploads read; send makes the call. Synaplan decides whether it can
+// read a file by the extension of its name, so the name is always sent.
+func uploadFile(ctx context.Context, files watchFiles, file cs3reader.Resource, send func(contentType string, body io.Reader) (int, []byte, error)) error {
 	opened, err := files.Open(ctx, file.ID)
 	if err != nil {
 		return err
@@ -257,29 +268,29 @@ func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	go func() {
-		err := writeWatchFile(mw, file, opened)
+		err := writeUploadForm(mw, file, opened)
 		if err == nil {
 			err = mw.Close()
 		}
 		_ = pw.CloseWithError(err)
 	}()
-	resp, err := h.synaplanAPI.CloudWatchFileWithResponse(ctx, strconv.Itoa(watchID), withBody(mw.FormDataContentType(), pr))
+	status, body, err := send(mw.FormDataContentType(), pr)
 	_ = pr.Close()
 	if err != nil {
 		return fmt.Errorf("upload %s: %w", file.Name, err)
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("upload %s: %w", file.Name, upstream(resp.StatusCode(), resp.Body))
+	if status != http.StatusOK {
+		return fmt.Errorf("upload %s: %w", file.Name, upstream(status, body))
 	}
 	return nil
 }
 
-// writeWatchFile writes the fields Synaplan's watch upload reads, and the
+// writeUploadForm writes the fields Synaplan's cloud uploads read, and the
 // bytes with the file's own content type: Synaplan reads the type from the
 // part, and a bare CreateFormFile would say application/octet-stream.
-// The version is the etag the reconcile named, so Synaplan files the bytes
+// The version is the etag the listing named, so Synaplan files the bytes
 // under the version it asked for.
-func writeWatchFile(mw *multipart.Writer, file cs3reader.Resource, opened *cs3reader.File) error {
+func writeUploadForm(mw *multipart.Writer, file cs3reader.Resource, opened *cs3reader.File) error {
 	for _, field := range [][2]string{{"id", file.ID}, {"version", file.Etag}, {"name", file.Name}, {"path", file.Path}} {
 		if err := mw.WriteField(field[0], field[1]); err != nil {
 			return err

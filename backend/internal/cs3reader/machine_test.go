@@ -22,7 +22,9 @@ type fakeGateway struct {
 	auth     *gateway.AuthenticateResponse
 	stat     *provider.StatResponse
 	list     *provider.ListContainerResponse
+	spaces   *provider.ListStorageSpacesResponse
 	gotAuth  *gateway.AuthenticateRequest
+	gotRef   *provider.Reference
 	gotToken string
 }
 
@@ -31,9 +33,15 @@ func (f *fakeGateway) Authenticate(_ context.Context, in *gateway.AuthenticateRe
 	return f.auth, nil
 }
 
-func (f *fakeGateway) Stat(ctx context.Context, _ *provider.StatRequest, _ ...grpc.CallOption) (*provider.StatResponse, error) {
+func (f *fakeGateway) Stat(ctx context.Context, in *provider.StatRequest, _ ...grpc.CallOption) (*provider.StatResponse, error) {
 	f.remember(ctx)
+	f.gotRef = in.GetRef()
 	return f.stat, nil
+}
+
+func (f *fakeGateway) ListStorageSpaces(ctx context.Context, _ *provider.ListStorageSpacesRequest, _ ...grpc.CallOption) (*provider.ListStorageSpacesResponse, error) {
+	f.remember(ctx)
+	return f.spaces, nil
 }
 
 func (f *fakeGateway) ListContainer(ctx context.Context, _ *provider.ListContainerRequest, _ ...grpc.CallOption) (*provider.ListContainerResponse, error) {
@@ -174,4 +182,56 @@ func TestStatResourceAndList(t *testing.T) {
 			t.Fatal("want an error")
 		}
 	})
+}
+
+func TestStatPath(t *testing.T) {
+	root := &provider.ResourceId{StorageId: "s", SpaceId: "sp", OpaqueId: "sp"}
+	spaces := &provider.ListStorageSpacesResponse{Status: status(rpc.Code_CODE_OK), StorageSpaces: []*provider.StorageSpace{
+		{SpaceType: "project", Root: &provider.ResourceId{StorageId: "s", SpaceId: "other", OpaqueId: "other"}, Owner: &userpb.User{Id: &userpb.UserId{OpaqueId: "ada-id"}}},
+		{SpaceType: "personal", Root: &provider.ResourceId{StorageId: "s", SpaceId: "bob", OpaqueId: "bob"}, Owner: &userpb.User{Id: &userpb.UserId{OpaqueId: "bob-id"}}},
+		{SpaceType: "personal", Root: root, Owner: &userpb.User{Id: &userpb.UserId{OpaqueId: "ada-id"}}},
+	}}
+	folder := &provider.ResourceInfo{
+		Id:   &provider.ResourceId{StorageId: "s", SpaceId: "sp", OpaqueId: "f"},
+		Name: "2026", Path: "./Invoices/2026", Etag: "e1",
+		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
+	}
+	ada := revactx.ContextSetUser(revactx.ContextSetToken(context.Background(), "reva-ada"), &userpb.User{Id: &userpb.UserId{OpaqueId: "ada-id"}})
+	cases := []struct {
+		name    string
+		ctx     context.Context
+		stat    *provider.StatResponse
+		want    Resource
+		wantErr error
+	}{
+		{
+			name: "a folder in the person's own space",
+			ctx:  ada,
+			stat: &provider.StatResponse{Status: status(rpc.Code_CODE_OK), Info: folder},
+			want: Resource{ID: "s$sp!f", Name: "2026", Path: "Invoices/2026", Etag: "e1", IsFolder: true},
+		},
+		{name: "no such path", ctx: ada, stat: &provider.StatResponse{Status: status(rpc.Code_CODE_NOT_FOUND)}, wantErr: ErrNotFound},
+		{name: "nobody on the context", ctx: revactx.ContextSetToken(context.Background(), "reva-ada"), wantErr: errors.New("any")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gw := &fakeGateway{spaces: spaces, stat: tc.stat}
+			got, err := readerWith(gw, "").StatPath(tc.ctx, "/Invoices/2026/")
+			if tc.wantErr != nil {
+				if err == nil || (errors.Is(tc.wantErr, ErrNotFound) && !errors.Is(err, ErrNotFound)) {
+					t.Fatalf("err %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+			if gw.gotRef.GetResourceId() != root || gw.gotRef.GetPath() != "./Invoices/2026" {
+				t.Fatalf("stat asked for %v", gw.gotRef)
+			}
+		})
+	}
 }

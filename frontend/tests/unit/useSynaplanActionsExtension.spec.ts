@@ -47,13 +47,14 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize, knowledge and watch actions', () => {
+  it('groups the translate, summarize, knowledge, watch and read-folder actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
       'summarize',
       'add-to-knowledge',
-      'watch'
+      'watch',
+      'read-folder'
     ])
   })
 
@@ -64,7 +65,7 @@ describe('useSynaplanActionsExtension', () => {
     })
 
     it.each([
-      ['a folder', options({ isFolder: true }), ['watch']],
+      ['a folder', options({ isFolder: true }), ['watch', 'read-folder']],
       ['an unsupported mime type', options({ mimeType: 'image/png' }), ['watch']],
       ['a supported file', options(), ['translate', 'summarize', 'add-to-knowledge', 'watch']]
     ])('offers only what fits %s', (_, opts, visible) => {

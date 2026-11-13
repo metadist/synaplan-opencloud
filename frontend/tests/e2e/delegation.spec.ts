@@ -1,5 +1,10 @@
 import { APIRequestContext, Page, expect, test } from '@playwright/test'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
+import {
+  allowWorkWhileAway as allow,
+  openDelegationSection as openSection,
+  stopWorkWhileAway as stop
+} from '../../support/helpers/delegationHelper'
 
 /**
  * Working while the person is away: on the Synaplan page the person allows
@@ -33,32 +38,6 @@ async function connected(request: APIRequestContext, token: string): Promise<boo
   })
   expect(resp.ok(), await resp.text()).toBe(true)
   return (await resp.json()).connected
-}
-
-async function openSection(page: Page) {
-  if (!new URL(page.url()).pathname.endsWith('/synaplan')) {
-    await page.goto('/synaplan')
-  }
-  const connect = page.locator('[data-testid="synaplan-delegation-connect"]')
-  const disconnect = page.locator('[data-testid="synaplan-delegation-disconnect"]')
-  await expect(connect.or(disconnect)).toBeVisible({ timeout: 15_000 })
-  return { connect, disconnect }
-}
-
-async function allow(page: Page): Promise<void> {
-  const { connect, disconnect } = await openSection(page)
-  if (await connect.isVisible()) {
-    await connect.click()
-  }
-  await expect(disconnect).toBeVisible({ timeout: 20_000 })
-}
-
-async function stop(page: Page): Promise<void> {
-  const { connect, disconnect } = await openSection(page)
-  if (await disconnect.isVisible()) {
-    await disconnect.click()
-  }
-  await expect(connect).toBeVisible({ timeout: 15_000 })
 }
 
 test('allow, stop and allow again to work while away', async ({ request }) => {

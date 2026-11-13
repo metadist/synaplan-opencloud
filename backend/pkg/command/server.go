@@ -170,6 +170,8 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Post("/api/synaplan/watches", h.WatchStart)
 				r.Delete("/api/synaplan/watches", h.WatchStop)
 				r.Post("/api/synaplan/watches/reconcile", h.WatchReconcileNow)
+				r.Get("/api/synaplan/read-scope", h.ReadScope)
+				r.Put("/api/synaplan/read-scope", h.SetReadScope)
 			})
 
 			server := &stdhttp.Server{

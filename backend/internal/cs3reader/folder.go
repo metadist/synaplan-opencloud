@@ -54,6 +54,31 @@ func (r *Reader) StatResource(ctx context.Context, resourceID string) (Resource,
 	return resourceOf(res.GetInfo()), nil
 }
 
+// StatPath stats a file or a folder by its path in the personal space of
+// the user on ctx, the form a task's folder step names a folder in.
+func (r *Reader) StatPath(ctx context.Context, relPath string) (Resource, error) {
+	gwc, gwCtx, err := r.gateway(ctx)
+	if err != nil {
+		return Resource{}, err
+	}
+	root, err := personalRoot(gwCtx, gwc)
+	if err != nil {
+		return Resource{}, err
+	}
+	res, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: &provider.Reference{ResourceId: root, Path: utils.MakeRelativePath(strings.Trim(relPath, "/"))}})
+	if err != nil {
+		return Resource{}, fmt.Errorf("cs3reader: stat: %w", err)
+	}
+	switch res.GetStatus().GetCode() {
+	case rpc.Code_CODE_OK:
+	case rpc.Code_CODE_NOT_FOUND:
+		return Resource{}, ErrNotFound
+	default:
+		return Resource{}, fmt.Errorf("cs3reader: stat: %s", res.GetStatus().GetMessage())
+	}
+	return resourceOf(res.GetInfo()), nil
+}
+
 // List returns the direct children of a folder.
 func (r *Reader) List(ctx context.Context, folderID string) ([]Resource, error) {
 	gwc, gwCtx, err := r.gateway(ctx)
