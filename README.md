@@ -8,6 +8,8 @@ OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/s
 
 From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). From a folder, "From Synaplan…" copies one of your Synaplan files into it. The default cap is 100 MB, which is what Cloudflare accepts; `SYNAPLAN_MAX_COPY_BYTES` raises it where a larger body is allowed, because a film does not fit in 100 MB. The file stays in Synaplan. A summary or a translation is saved next to the file it came from. With no source file, it is saved in the personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
 
+On the Synaplan page you can describe an image; Synaplan makes it with your default image model and it is saved into your personal space under `Synaplan/Images`. The image stays in Synaplan as well.
+
 A file Synaplan can search carries the Synaplan bird in the file list, with its state (searchable, being made searchable, changed since, failed) as the label. The bird needs Synaplan's cloud file state (`CLOUD_FILES_ENABLED` on Synaplan); without it the file list shows no bird. The Synaplan tab in the file sidebar names that same state and the knowledge folder, and removes the file from it. The tab is shown for a file only, and only when Synaplan reports that cloud file state is on.
 
 ![Screenshot](docs/screenshot.png)

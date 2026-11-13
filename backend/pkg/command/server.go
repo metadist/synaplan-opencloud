@@ -162,6 +162,8 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Post("/api/synaplan/from-synaplan", h.CopyFromSynaplan)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
+				r.Post("/api/synaplan/media", h.GenerateImage)
+				r.Post("/api/synaplan/media/save", h.SaveImage)
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)
 				r.Post("/api/synaplan/delegation", h.DelegationConnect)
 				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)

@@ -22,7 +22,7 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | Path | What lives there |
 | ---- | ---------------- |
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
-| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications) sharing the `Handler` struct in `handler.go`. |
+| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `media.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
 | `backend/internal/delegation/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
