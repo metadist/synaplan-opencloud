@@ -88,7 +88,7 @@ func TestTranslationUnavailable(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer synaplan.Close()
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}

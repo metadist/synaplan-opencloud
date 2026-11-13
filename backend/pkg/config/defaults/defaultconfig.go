@@ -27,12 +27,15 @@ func DefaultConfig() *config.Config {
 		Service: config.Service{
 			Name: "synaplan",
 		},
-		RevaGateway: shared.DefaultRevaConfig().Address,
+		RevaGateway:           shared.DefaultRevaConfig().Address,
+		DefaultAnswerLanguage: "en",
+		UseUserLanguage:       true,
 		Store: config.PersistentStore{
-			Store:    "nats-js-kv",
-			Nodes:    []string{"127.0.0.1:9233"},
-			Database: "synaplan-delegation",
-			Replicas: 1,
+			Store:            "nats-js-kv",
+			Nodes:            []string{"127.0.0.1:9233"},
+			Database:         "synaplan-delegation",
+			SettingsDatabase: "synaplan-settings",
+			Replicas:         1,
 		},
 		HTTP: config.HTTP{
 			Addr:      "127.0.0.1:9106",
@@ -40,7 +43,7 @@ func DefaultConfig() *config.Config {
 			Namespace: "eu.opencloud.synaplan",
 			CORS: config.CORS{
 				AllowedOrigins:   []string{"*"},
-				AllowedMethods:   []string{"GET", "POST", "DELETE"},
+				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
 				AllowedHeaders:   []string{"Authorization", "Origin", "Content-Type", "Accept", "X-Requested-With", "X-Request-Id"},
 				AllowCredentials: true,
 			},
@@ -65,6 +68,8 @@ func Sanitize(cfg *config.Config) {
 	}
 	cfg.Store.Store = strings.TrimSpace(cfg.Store.Store)
 	cfg.Store.Database = strings.TrimSpace(cfg.Store.Database)
+	cfg.Store.SettingsDatabase = strings.TrimSpace(cfg.Store.SettingsDatabase)
+	cfg.DefaultAnswerLanguage = strings.TrimSpace(cfg.DefaultAnswerLanguage)
 	cfg.Store.Nodes = cleanList(cfg.Store.Nodes)
 	cfg.Store.EncryptionPreviousSecrets = cleanList(cfg.Store.EncryptionPreviousSecrets)
 	// 100 MiB: Cloudflare's body limit. Keep this in step with

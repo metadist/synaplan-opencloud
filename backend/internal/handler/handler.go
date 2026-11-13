@@ -4,6 +4,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -18,6 +19,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
+	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
@@ -30,6 +32,21 @@ type Delegated struct {
 	Tokens    *delegation.Delegation
 	Exchanger synaplanauth.TokenExchanger
 	Audience  string
+}
+
+// PermissionChecker tells whether the signed-in person holds an OpenCloud
+// permission (see internal/cs3permission).
+type PermissionChecker interface {
+	Has(ctx context.Context, permission string) (bool, error)
+}
+
+// Admin is what the administrator's settings need: who counts as an
+// administrator, where the settings are kept, and the configured values
+// that apply until an administrator saves others.
+type Admin struct {
+	Permissions PermissionChecker
+	Settings    settings.Store
+	Defaults    settings.Values
 }
 
 // Handler holds the state shared by all endpoints:
@@ -45,6 +62,8 @@ type Delegated struct {
 //   - delegation holds the offline tokens of people who allowed this
 //     service to act for them while they are away.
 //   - notifications verifies what Synaplan sends to /inbound.
+//   - permissions, settings and settingsDefaults serve the
+//     administrator's settings on the Synaplan page.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -70,6 +89,10 @@ type Handler struct {
 	// Listing files then lists the key owner's files, for every
 	// signed-in OpenCloud user, so From Synaplan stays closed.
 	sharedKey bool
+
+	permissions      PermissionChecker
+	settings         settings.Store
+	settingsDefaults settings.Values
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.
@@ -81,7 +104,7 @@ func (h *Handler) UseSharedKey() {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated, admin Admin) (*Handler, error) {
 	target, err := url.Parse(synaplanURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing synaplan url: %w", err)
@@ -103,6 +126,10 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		httpClient:  &http.Client{},
 		cs3:         cs3,
 		assetProxy:  assetProxy,
+
+		permissions:      admin.Permissions,
+		settings:         admin.Settings,
+		settingsDefaults: admin.Defaults,
 	}
 	h.notifications.seen = notify.NewSeen()
 	if delegated != nil {

@@ -82,7 +82,7 @@ func TestListSynaplanFiles(t *testing.T) {
 				_, _ = w.Write([]byte(`{"success":true,"files":[{"id":7,"filename":"a.txt"}]}`))
 			}))
 			defer synaplan.Close()
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
