@@ -17,6 +17,7 @@ describe('sentenceFor', () => {
       'synaplan_error',
       'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
     ],
+    ['rate_limited', 'Synaplan is busy or your limit is reached. Try again later.'],
     ['identity_check_failed', 'Synaplan could not check who you are. Try again.'],
     ['idp_unreachable', 'The sign-in service cannot be reached. Try again later.'],
     ['permission_unavailable', 'Synaplan cannot check this permission right now. Try again later.'],

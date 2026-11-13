@@ -23,3 +23,19 @@ test('in-app synaplan view test connection succeeds', async () => {
   await expect(account).toBeVisible({ timeout: 15_000 })
   await expect(account).toContainText('testuser@synaplan.com')
 })
+
+test('ask Synaplan a question in general on the Synaplan page', async () => {
+  test.setTimeout(90_000)
+  await userPage.goto('/synaplan')
+  await expect(userPage.locator('[data-testid="synaplan-ask"]')).toBeVisible()
+
+  const submit = userPage.locator('[data-testid="synaplan-ask-submit"]')
+  await expect(submit).toBeDisabled()
+  await userPage.locator('[data-testid="synaplan-ask-question"]').fill('Say hello.')
+  await submit.click()
+
+  const result = userPage.locator('[data-testid="synaplan-ask-result"]')
+  await expect(result).toBeVisible({ timeout: 60_000 })
+  await expect(result).not.toBeEmpty()
+  await expect(userPage.locator('[data-testid="synaplan-ask-error"]')).toBeHidden()
+})

@@ -3,6 +3,7 @@ import { useGettext } from 'vue3-gettext'
 import { useTranslationExtension } from './useTranslationExtension'
 import { useSummarizeExtension } from './useSummarizeExtension'
 import { useKnowledgeExtension } from './useKnowledgeExtension'
+import { useChatExtension } from './useChatExtension'
 import { useSynaplanBrandIcon } from '../composables/useSynaplanBrandIcon'
 
 export const useSynaplanActionsExtension = (): ActionExtension => {
@@ -11,6 +12,7 @@ export const useSynaplanActionsExtension = (): ActionExtension => {
   const children = [
     useTranslationExtension(),
     useSummarizeExtension(),
+    useChatExtension(),
     useKnowledgeExtension()
   ].map(({ action }) => action)
 
