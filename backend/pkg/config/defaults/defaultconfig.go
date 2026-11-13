@@ -56,18 +56,6 @@ func EnsureDefaults(cfg *config.Config) {
 	if cfg.TokenManager == nil {
 		cfg.TokenManager = &config.TokenManager{}
 	}
-	if cfg.Store.Store == "" {
-		cfg.Store.Store = "nats-js-kv"
-	}
-	if cfg.Store.Store == "nats-js-kv" && len(cfg.Store.Nodes) == 0 {
-		cfg.Store.Nodes = []string{"127.0.0.1:9233"}
-	}
-	if cfg.Store.Database == "" {
-		cfg.Store.Database = "synaplan-delegation"
-	}
-	if cfg.Store.Replicas == 0 {
-		cfg.Store.Replicas = 1
-	}
 }
 
 // Sanitize sanitizes the config.
