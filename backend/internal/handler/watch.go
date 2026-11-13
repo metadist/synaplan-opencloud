@@ -275,23 +275,33 @@ func (h *Handler) watchesOn(ctx context.Context, targetID string) ([]watch, erro
 }
 
 // worksWhileAway reports whether watched files are sent while the
-// signed-in person is away: this service can read files without a browser
-// session, and the person allowed Synaplan to work for them.
+// signed-in person is away.
 func (h *Handler) worksWhileAway(ctx context.Context) bool {
+	return h.awaySubject(ctx) != ""
+}
+
+// awaySubject is the signed-in person's subject when this service works
+// for them while they are away: it can read files without a browser
+// session, and the person allowed Synaplan to work for them. It is ""
+// otherwise.
+func (h *Handler) awaySubject(ctx context.Context) string {
 	if !h.delegation.Configured() || !h.cs3.CanImpersonate() {
-		return false
+		return ""
 	}
 	sub, err := h.signedInSubject(ctx)
 	if err != nil {
-		log.Printf("watch: who is signed in: %v", err)
-		return false
+		log.Printf("away: who is signed in: %v", err)
+		return ""
 	}
 	connected, err := h.delegation.Connected(ctx, sub)
 	if err != nil {
-		log.Printf("watch: allowed while away: %v", err)
-		return false
+		log.Printf("away: allowed while away: %v", err)
+		return ""
 	}
-	return connected
+	if !connected {
+		return ""
+	}
+	return sub
 }
 
 // watchFiles is how a watch reaches the files it follows. The reva token

@@ -10,6 +10,7 @@ import (
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
+	"github.com/metadist/synaplan-opencloud/internal/synced"
 )
 
 // knowledgeGroupMaxLen caps how many characters we accept for a
@@ -23,6 +24,8 @@ type knowledgeRequest struct {
 	// Overwrite replaces the knowledge copy of this same OpenCloud
 	// file instead of adding a second one.
 	Overwrite bool `json:"overwrite"`
+	// KeepSynced asks for later edits of the file to follow in Synaplan.
+	KeepSynced bool `json:"keepSynced"`
 }
 
 type knowledgeResponse struct {
@@ -31,6 +34,10 @@ type knowledgeResponse struct {
 	ChunksCreated       int    `json:"chunksCreated"`
 	ExtractedTextLength int    `json:"extractedTextLength"`
 	SynaplanFileID      int    `json:"synaplanFileId"`
+	// KeptUpToDate says whether later edits follow. It is false when they
+	// were asked for but this service cannot read the person's files while
+	// they are away.
+	KeptUpToDate bool `json:"keptUpToDate"`
 }
 
 // AddToKnowledge reads a file from OpenCloud storage via CS3 and
@@ -60,7 +67,16 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Edits only follow when the background pass can read the file for the
+	// person; without that, Synaplan would wait for uploads that never come.
+	var keeper string
+	if req.KeepSynced && h.synced != nil {
+		keeper = h.awaySubject(r.Context())
+	}
+	keepSynced := keeper != ""
+
 	var uploaded *uploadedFile
+	var version string
 	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
 			return "", fmt.Errorf("%w: %q", errUnsupportedType, file.MimeType)
@@ -69,6 +85,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 			SourceID:   req.ResourceID,
 			SourceEtag: file.Etag,
 			Overwrite:  req.Overwrite,
+			KeepSynced: &keepSynced,
 		})
 		if err != nil {
 			return "", fmt.Errorf("synaplan upload: %w", err)
@@ -77,10 +94,21 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 			return "", errNoText
 		}
 		uploaded = u
+		version = file.Etag
 		return "", nil
 	})
 	if !ok {
 		return
+	}
+
+	if keepSynced {
+		err := h.synced.Put(r.Context(), synced.File{Subject: keeper, ResourceID: req.ResourceID, Etag: version, GroupKey: groupKey})
+		if err != nil {
+			log.Printf("knowledge: keeping the file up to date: %v", err)
+			keepSynced = false
+		}
+	} else {
+		h.forgetKept(r.Context(), req.ResourceID)
 	}
 
 	writeJSON(w, http.StatusOK, knowledgeResponse{
@@ -89,6 +117,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		ChunksCreated:       uploaded.ChunksCreated,
 		ExtractedTextLength: uploaded.ExtractedTextLength,
 		SynaplanFileID:      uploaded.ID,
+		KeptUpToDate:        keepSynced,
 	})
 }
 

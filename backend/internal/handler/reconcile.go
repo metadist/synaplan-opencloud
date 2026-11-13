@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	// reconcileInterval spaces the passes over everyone's watches.
-	// OpenCloud does not tell an extension about file changes, so a pass
-	// is how a new or changed file in a watched folder is noticed.
+	// reconcileInterval spaces the passes over everyone's watches and kept
+	// files. OpenCloud does not tell an extension about file changes, so a
+	// pass is how a new or changed file is noticed.
 	reconcileInterval = 10 * time.Minute
 	// passTimeout bounds one pass, and one "check now".
 	passTimeout = 8 * time.Minute
@@ -32,11 +32,11 @@ const (
 	reconcileBatch = 500
 )
 
-// RunReconciler checks the watches of everyone who allowed Synaplan to
-// work for them while they are away, now and every reconcileInterval,
-// until ctx ends. It needs organisation login and OpenCloud's machine-auth
-// key; without them it returns at once and watched files are only sent
-// when a person checks a watch themselves.
+// RunReconciler checks the watches and the files kept up to date of
+// everyone who allowed Synaplan to work for them while they are away, now
+// and every reconcileInterval, until ctx ends. It needs organisation login
+// and OpenCloud's machine-auth key; without them it returns at once and
+// files are only sent when a person checks themselves.
 func (h *Handler) RunReconciler(ctx context.Context) {
 	if !h.delegation.Configured() || !h.cs3.CanImpersonate() {
 		return
@@ -76,6 +76,11 @@ func (h *Handler) reconcileEveryone(ctx context.Context) {
 		}
 		if _, err := h.reconcileWatches(away, h.cs3, ""); err != nil {
 			log.Printf("reconcile: %v", err)
+		}
+		if h.synced != nil {
+			if _, err := h.keepFilesCurrent(away, h.cs3, sub); err != nil {
+				log.Printf("reconcile: kept files: %v", err)
+			}
 		}
 	}
 }

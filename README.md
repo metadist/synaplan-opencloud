@@ -74,6 +74,7 @@ The offline tokens are kept in OpenCloud's NATS JetStream key-value store, one k
 | `SYNAPLAN_STORE` / `OC_PERSISTENT_STORE` | `nats-js-kv` (default) or `memory`. `memory` keeps the tokens in this process: a restart forgets them and other replicas never see them; the backend warns at start. Other values OpenCloud accepts in `OC_PERSISTENT_STORE`, such as `redis-sentinel`, stop the backend; set `SYNAPLAN_STORE` then. |
 | `SYNAPLAN_STORE_NODES` / `OC_PERSISTENT_STORE_NODES` | Addresses of OpenCloud's NATS, `host:port`, comma-separated. Default `127.0.0.1:9233`. OpenCloud's NATS listens on localhost unless `NATS_NATS_HOST` is set. |
 | `SYNAPLAN_STORE_DATABASE` | Key-value bucket for the tokens. Default `synaplan-delegation`. |
+| `SYNAPLAN_STORE_SYNCED_DATABASE` | Key-value bucket for the searchable files people keep up to date (below). Default `synaplan-synced`. With the `memory` store they are kept in this process instead. |
 | `SYNAPLAN_STORE_REPLICAS` | Copies of the bucket in a NATS cluster. Default `1`. The bucket's settings are applied at every start. |
 | `SYNAPLAN_STORE_AUTH_USERNAME` / `SYNAPLAN_STORE_AUTH_PASSWORD` (`OC_PERSISTENT_STORE_AUTH_*`) | Credentials for NATS, when it requires them. |
 | `SYNAPLAN_STORE_ENABLE_TLS` / `SYNAPLAN_STORE_TLS_INSECURE` / `SYNAPLAN_STORE_TLS_ROOT_CA_CERTIFICATE` (`OC_PERSISTENT_STORE_*`, `OC_INSECURE`) | TLS to NATS. Insecure skips verification and is ignored when a root CA is set. |
@@ -93,6 +94,10 @@ This needs, on the exchange client in Keycloak: the standard flow with PKCE (S25
 | `OC_MACHINE_AUTH_API_KEY` / `SYNAPLAN_MACHINE_AUTH_API_KEY` | OpenCloud's machine auth key. Watches read a person's files with it while that person is away, and only for people who allowed that. Empty turns it off. |
 | `SYNAPLAN_USER_OIDC_CLAIM` | Claim of the person's token that names their OpenCloud user, as OpenCloud's `PROXY_USER_OIDC_CLAIM`. Default `preferred_username`. |
 | `SYNAPLAN_USER_CS3_CLAIM` | OpenCloud user attribute that claim matches, as OpenCloud's `PROXY_USER_CS3_CLAIM`: `username`, `mail` or `userid`. Default `username`. |
+
+#### Keeping searchable files up to date
+
+*Keep it up to date when the file changes* in the knowledge dialog asks Synaplan to follow later edits of a file. It is only offered as kept when the background pass can read the file for the person: they allowed Synaplan to work while they are away and the machine auth key is set; otherwise the dialog says why edits will not follow. Synaplan offers no way to list a person's kept files by their OpenCloud id, so the backend keeps that list in OpenCloud's NATS key-value store (`SYNAPLAN_STORE_SYNCED_DATABASE`), one key per person and file: the file, its knowledge folder, and the version Synaplan last took. Each pass checks those files: it tells Synaplan which changed or were deleted (`POST /api/v1/platform-links/sources/events`, at most 500 per request) and uploads the new bytes of the ones Synaplan asks for. Only the gateway answering that a file is not found counts as a deletion; a gateway that fails skips the file until the next pass. The kept version moves on only after Synaplan took the event and, when it asked for one, the upload succeeded, so a failed upload is tried again. `POST /api/synaplan/knowledge/sync` runs the same check for the signed-in person at once, with their own session. Removing a file from the knowledge folder stops following it.
 
 #### Notifications from Synaplan
 
