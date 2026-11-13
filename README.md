@@ -6,7 +6,7 @@
 
 OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/synaplan) AI features into OpenCloud. When both sides share a login provider, each person's OpenCloud login is exchanged for their own Synaplan account with [RFC 8693 token exchange](https://datatracker.ietf.org/doc/html/rfc8693). A shared API key is also supported; in that mode every person uses the same Synaplan account.
 
-From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). A summary or translation can be saved into your personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
+From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). From a folder, "From Synaplan…" copies one of your Synaplan files into it. The default cap is 100 MB, which is what Cloudflare accepts; `SYNAPLAN_MAX_COPY_BYTES` raises it where a larger body is allowed, because a film does not fit in 100 MB. The file stays in Synaplan. A summary or a translation is saved next to the file it came from. With no source file, it is saved in the personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
 
 A file Synaplan can search carries the Synaplan bird in the file list, with its state (searchable, being made searchable, changed since, failed) as the label. The bird needs Synaplan's cloud file state (`CLOUD_FILES_ENABLED` on Synaplan); without it the file list shows no bird. The Synaplan tab in the file sidebar names that same state and the knowledge folder, and removes the file from it. The tab is shown for a file only, and only when Synaplan reports that cloud file state is on.
 
@@ -97,7 +97,7 @@ For single-tenant deployments where Synaplan and OpenCloud don't share an identi
 | `SYNAPLAN_URL` | Base URL of the Synaplan instance. |
 | `SYNAPLAN_API_KEY` | Synaplan API key (`sk_…`). Sent as `X-API-Key` on every outbound call. |
 
-**Caveat:** in this mode every call to Synaplan looks like the same user. There is no per-user identity, no per-OC-user audit trail, no per-user quotas, and you cannot revoke access for an individual OpenCloud user without revoking the key for everyone. Prefer Mode A unless you understand and accept these tradeoffs.
+**Caveat:** in this mode every call to Synaplan looks like the same user. There is no per-user identity, no per-OC-user audit trail, no per-user quotas, and you cannot revoke access for an individual OpenCloud user without revoking the key for everyone. "From Synaplan" is closed in this mode: the file list would be the key owner's files, and any signed-in OpenCloud user could copy them. Prefer Mode A unless you understand and accept these tradeoffs.
 
 When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` variables are ignored.
 
@@ -107,6 +107,7 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 |-----|---------|
 | `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
 | `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. |
+| `SYNAPLAN_MAX_COPY_BYTES` | Largest file, in bytes, copied from Synaplan into a folder. Defaults to 104857600 (100 MB), Cloudflare's body limit. Raise it where a larger body is allowed. A film does not fit in the default, and the service buffers the file, so the process needs the memory. |
 
 The backend downloads file contents from OpenCloud's storage data server, so that server must be reachable from the backend. On the OpenCloud side set `STORAGE_USERS_HTTP_ADDR` to a non-loopback address and `STORAGE_USERS_DATA_SERVER_URL` to a URL the backend can resolve (for example `http://opencloud:9158/data`).
 

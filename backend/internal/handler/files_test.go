@@ -55,6 +55,19 @@ func TestRemoveFromKnowledge_RequiresResourceID(t *testing.T) {
 	}
 }
 
+func TestSaveToSpace_WithSourceNeedsStorage(t *testing.T) {
+	body := `{"filename":"note.md","text":"hello","resourceId":"storage$space!file"}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/synaplan/files", strings.NewReader(body))
+	(&Handler{}).SaveToSpace(rr, req)
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "storage is not configured") {
+		t.Fatalf("body = %q", rr.Body.String())
+	}
+}
+
 func TestSaveToSpace_RejectsOversizedBody(t *testing.T) {
 	body := `{"filename":"note.md","text":"` + strings.Repeat("a", maxSaveBodyBytes) + `"}`
 	rr := httptest.NewRecorder()

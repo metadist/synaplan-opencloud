@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -18,19 +19,21 @@ const maxSavedTextBytes = 2 << 20
 const maxSaveBodyBytes = maxSavedTextBytes + 64<<10
 
 type saveFileRequest struct {
-	Filename string `json:"filename"`
-	Text     string `json:"text"`
+	Filename   string `json:"filename"`
+	Text       string `json:"text"`
+	ResourceID string `json:"resourceId"`
 }
 
 type saveFileResponse struct {
 	Path string `json:"path"`
 }
 
-// SaveToSpace writes a text result (a summary or a translation) into
-// the signed-in user's personal space, under Synaplan/Documents when
-// the name ends in a document extension. The path in the response is
-// where the file landed, including a " (2)" suffix when the name was
-// already taken.
+// SaveToSpace writes a text result (a summary or a translation).
+// When resourceId names the source file, the result is saved in that
+// file's folder, next to the source, through SaveChild. Without it,
+// Save picks the personal Synaplan folder and SaveChild writes there.
+// The path in the response is where the file landed, including a
+// " (2)" suffix when the name was already taken.
 func (h *Handler) SaveToSpace(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSaveBodyBytes)
 	var req saveFileRequest
@@ -62,13 +65,33 @@ func (h *Handler) SaveToSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saved, err := h.cs3.Save(r.Context(), name, []byte(text))
+	saved, err := h.saveText(r.Context(), name, []byte(text), strings.TrimSpace(req.ResourceID))
 	if err != nil {
 		log.Printf("save to space: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: " + err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, saveFileResponse{Path: saved})
+}
+
+// saveText is the one write of a text result. A source file selects
+// its own folder; otherwise the personal Synaplan folder is the target.
+// Both end in SaveChild. A folder the person cannot write, such as a
+// read-only share, falls back to the personal Synaplan folder. The
+// path in the response is where the file landed.
+func (h *Handler) saveText(ctx context.Context, name string, text []byte, resourceID string) (string, error) {
+	if resourceID != "" {
+		folderID, err := h.cs3.ParentFolderID(ctx, resourceID)
+		if err == nil {
+			saved, saveErr := h.cs3.SaveChild(ctx, folderID, name, text)
+			if saveErr == nil {
+				return saved, nil
+			}
+			err = saveErr
+		}
+		log.Printf("save beside source: %v", err)
+	}
+	return h.cs3.Save(ctx, name, text)
 }
 
 func cleanSavedName(raw string) (string, string) {
