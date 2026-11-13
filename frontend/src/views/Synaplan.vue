@@ -71,6 +71,7 @@
       </p>
 
       <DelegationSection />
+      <AdminSettings />
     </div>
   </div>
 </template>
@@ -80,6 +81,7 @@ import { computed, ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
+import AdminSettings from '../components/AdminSettings.vue'
 import DelegationSection from '../components/DelegationSection.vue'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 

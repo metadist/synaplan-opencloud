@@ -25,7 +25,10 @@ describe('sentenceFor', () => {
     [
       'revoke_unconfirmed',
       'Synaplan no longer works for you, but the sign-in service could not confirm it. Try again.'
-    ]
+    ],
+    ['admin_only', 'Only an administrator can change this.'],
+    ['unsupported_language', 'Choose one of the listed languages.'],
+    ['settings_unavailable', 'The settings were not saved. Try again in a minute.']
   ])('maps %s to its sentence', (code, sentence) => {
     const error = { response: { data: { code, error: 'ignored' } } }
     expect(sentenceFor($gettext, error, 'fallback')).toBe(sentence)

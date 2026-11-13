@@ -14,6 +14,9 @@ type summarizeRequest struct {
 	ResourceID  string `json:"resourceId"`
 	SummaryType string `json:"summaryType"`
 	Length      string `json:"length"`
+	// Language is the person's OpenCloud interface language; the
+	// administrator decides whether it wins over the default.
+	Language string `json:"language"`
 }
 
 type summarizeResponse struct {
@@ -21,8 +24,8 @@ type summarizeResponse struct {
 }
 
 // Summarize reads a file from OpenCloud storage via CS3 and returns
-// a Synaplan-generated summary of the requested type and length. No
-// translation — outputLanguage is left unset.
+// a Synaplan-generated summary of the requested type and length, in the
+// answer language the administrator set up.
 func (h *Handler) Summarize(w http.ResponseWriter, r *http.Request) {
 	var req summarizeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -44,13 +47,14 @@ func (h *Handler) Summarize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	language := h.resolveLanguage(r.Context(), req.Language)
 	result, ok := h.runSummaryPipeline(w, r, req.ResourceID, "summarize", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		text, fileID, cleanup, err := h.prepareSummaryInput(ctx, file)
 		defer cleanup()
 		if err != nil {
 			return "", err
 		}
-		return h.generateSummary(ctx, text, fileID, summaryType, length, nil)
+		return h.generateSummary(ctx, text, fileID, summaryType, length, &language)
 	})
 	if !ok {
 		return

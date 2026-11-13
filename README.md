@@ -71,10 +71,11 @@ The offline tokens are kept in OpenCloud's NATS JetStream key-value store, one k
 
 | Var | Purpose |
 |-----|---------|
-| `SYNAPLAN_STORE` / `OC_PERSISTENT_STORE` | `nats-js-kv` (default) or `memory`. `memory` keeps the tokens in this process: a restart forgets them and other replicas never see them; the backend warns at start. Other values OpenCloud accepts in `OC_PERSISTENT_STORE`, such as `redis-sentinel`, stop the backend; set `SYNAPLAN_STORE` then. |
+| `SYNAPLAN_STORE` / `OC_PERSISTENT_STORE` | `nats-js-kv` (default) or `memory`. `memory` keeps the tokens and the administrator's settings in this process: a restart forgets them and other replicas never see them; the backend warns at start. Other values OpenCloud accepts in `OC_PERSISTENT_STORE`, such as `redis-sentinel`, stop the backend; set `SYNAPLAN_STORE` then. |
 | `SYNAPLAN_STORE_NODES` / `OC_PERSISTENT_STORE_NODES` | Addresses of OpenCloud's NATS, `host:port`, comma-separated. Default `127.0.0.1:9233`. OpenCloud's NATS listens on localhost unless `NATS_NATS_HOST` is set. |
 | `SYNAPLAN_STORE_DATABASE` | Key-value bucket for the tokens. Default `synaplan-delegation`. |
-| `SYNAPLAN_STORE_REPLICAS` | Copies of the bucket in a NATS cluster. Default `1`. The bucket's settings are applied at every start. |
+| `SYNAPLAN_STORE_SETTINGS_DATABASE` | Key-value bucket for the administrator's settings (see [Administrator settings](#administrator-settings)). Default `synaplan-settings`. |
+| `SYNAPLAN_STORE_REPLICAS` | Copies of each bucket in a NATS cluster. Default `1`. The buckets' settings are applied at every start. |
 | `SYNAPLAN_STORE_AUTH_USERNAME` / `SYNAPLAN_STORE_AUTH_PASSWORD` (`OC_PERSISTENT_STORE_AUTH_*`) | Credentials for NATS, when it requires them. |
 | `SYNAPLAN_STORE_ENABLE_TLS` / `SYNAPLAN_STORE_TLS_INSECURE` / `SYNAPLAN_STORE_TLS_ROOT_CA_CERTIFICATE` (`OC_PERSISTENT_STORE_*`, `OC_INSECURE`) | TLS to NATS. Insecure skips verification and is ignored when a root CA is set. |
 | `SYNAPLAN_STORE_ENCRYPTION_SECRET` | Secret the key that encrypts the tokens is derived from. Set it: without it the exchange client secret is used, and changing that secret makes everyone allow again. |
@@ -105,8 +106,16 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 
 | Var | Purpose |
 |-----|---------|
-| `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files. |
+| `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files and to ask whether a person is an administrator. |
 | `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. |
+| `SYNAPLAN_DEFAULT_ANSWER_LANGUAGE` | Language Synaplan answers in (ISO 639-1). Default `en`. Applies until an administrator saves another on the Synaplan page. |
+| `SYNAPLAN_USE_USER_LANGUAGE` | Answer in each person's OpenCloud interface language when it is supported, with the default as the fallback. Default `true`. Applies until an administrator saves another choice. |
+
+#### Administrator settings
+
+The Synaplan page shows everyone whether Synaplan answers and what it offers clouds (from its open `/.well-known/synaplan-configuration`), how people here reach Synaplan (organisation login or the shared key), and the answer language in force. A person with OpenCloud's `Accounts.ReadWrite` permission (the Admin role by default), asked through the CS3 gateway's `CheckPermission`, can change the answer language there; summaries then come in that language. The choice applies to every replica, so it is kept in OpenCloud's NATS (`SYNAPLAN_STORE_SETTINGS_DATABASE`, the same `SYNAPLAN_STORE_*` connection as the offline tokens), in both auth modes; until it is saved, or while NATS cannot be read, the two variables above apply.
+
+There is nothing to register in Synaplan: with a shared identity provider Synaplan knows this OpenCloud from its own configuration (`PLATFORM_LINKS_OIDC_CLOUD_*`) and links each person on their first call.
 
 The backend downloads file contents from OpenCloud's storage data server, so that server must be reachable from the backend. On the OpenCloud side set `STORAGE_USERS_HTTP_ADDR` to a non-loopback address and `STORAGE_USERS_DATA_SERVER_URL` to a URL the backend can resolve (for example `http://opencloud:9158/data`).
 

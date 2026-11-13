@@ -72,7 +72,7 @@ func TestARevokedIdentityEndsWorkWhileAway(t *testing.T) {
 	synaplan := newSignedSynaplan(t)
 	defer synaplan.Close()
 	idp := fakeIdentityProvider(t, "ada")
-	h, err := New(nil, synaplan.URL, nil, delegated(t, idp, "ada"))
+	h, err := New(nil, synaplan.URL, nil, delegated(t, idp, "ada"), Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestInboundRefusesWhatDoesNotVerify(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			h, err := New(nil, synaplan.URL, nil, delegated(t, idp, "ada"))
+			h, err := New(nil, synaplan.URL, nil, delegated(t, idp, "ada"), Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +126,7 @@ func TestInboundRefusesWhatDoesNotVerify(t *testing.T) {
 }
 
 func TestInboundIsOffWithoutOrganisationLogin(t *testing.T) {
-	h, err := New(nil, "http://synaplan.invalid", nil, nil)
+	h, err := New(nil, "http://synaplan.invalid", nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestAFailingKeyFetchIsNotRepeatedForEveryRequest(t *testing.T) {
 	defer synaplan.Close()
 	signer := newSignedSynaplan(t)
 	defer signer.Close()
-	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"), Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestInboundReportsStoreFailureAndAllowsRetry(t *testing.T) {
 	if err := del.Tokens.Connect(t.Context(), "code", "verifier", "https://cloud/callback", "ada"); err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(nil, synaplan.URL, nil, del)
+	h, err := New(nil, synaplan.URL, nil, del, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

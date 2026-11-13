@@ -43,6 +43,12 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan no longer works for you, but the sign-in service could not confirm it. Try again.'
       )
+    case 'admin_only':
+      return $gettext('Only an administrator can change this.')
+    case 'unsupported_language':
+      return $gettext('Choose one of the listed languages.')
+    case 'settings_unavailable':
+      return $gettext('The settings were not saved. Try again in a minute.')
     default:
       return fallback
   }

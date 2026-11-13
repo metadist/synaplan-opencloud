@@ -19,10 +19,13 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/version"
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 
+	"github.com/metadist/synaplan-opencloud/internal/cs3permission"
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/idp"
+	"github.com/metadist/synaplan-opencloud/internal/natskv"
+	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
@@ -113,7 +116,20 @@ func Server(cfg *config.Config) *cobra.Command {
 				}
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated)
+			settingsStore, err := adminSettingsStore(cfg, logger)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = settingsStore.Close() }()
+
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, handler.Admin{
+				Permissions: cs3permission.New(gws),
+				Settings:    settingsStore,
+				Defaults: settings.Values{
+					DefaultAnswerLanguage: cfg.DefaultAnswerLanguage,
+					UseUserLanguage:       cfg.UseUserLanguage,
+				},
+			})
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
@@ -148,6 +164,9 @@ func Server(cfg *config.Config) *cobra.Command {
 			mux.Group(func(r chi.Router) {
 				r.Use(synaplanauth.Middleware)
 				r.Get("/api/synaplan/me", h.Me)
+				r.Get("/api/synaplan/instance", h.InstanceStatus)
+				r.Get("/api/synaplan/settings", h.Settings)
+				r.Put("/api/synaplan/settings", h.SaveSettings)
 				r.Post("/api/synaplan/translate", h.Translate)
 				r.Post("/api/synaplan/summarize", h.Summarize)
 				r.Post("/api/synaplan/knowledge", h.AddToKnowledge)
@@ -205,15 +224,16 @@ func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, e
 		logger.Warn().Msg("synaplan-opencloud: offline tokens are kept in memory; a restart forgets them and other replicas never see them")
 		return delegation.NewMemoryStore(), nil
 	case "nats-js-kv":
+		nats := natsConfig(cfg)
 		store, err := delegation.NewNATS(delegation.NATSConfig{
-			Nodes:     cfg.Store.Nodes,
+			Nodes:     nats.Nodes,
 			Bucket:    cfg.Store.Database,
 			Replicas:  cfg.Store.Replicas,
-			Username:  cfg.Store.AuthUsername,
-			Password:  cfg.Store.AuthPassword,
-			EnableTLS: cfg.Store.EnableTLS,
-			Insecure:  cfg.Store.TLSInsecure,
-			RootCAs:   cfg.Store.TLSRootCACertificate,
+			Username:  nats.Username,
+			Password:  nats.Password,
+			EnableTLS: nats.EnableTLS,
+			Insecure:  nats.Insecure,
+			RootCAs:   nats.RootCAs,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("could not open the delegation store: %w", err)
@@ -221,5 +241,36 @@ func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, e
 		return store, nil
 	default:
 		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported; set SYNAPLAN_STORE to nats-js-kv or memory (it may be inherited from OC_PERSISTENT_STORE)", cfg.Store.Store)
+	}
+}
+
+// adminSettingsStore keeps the administrator's settings in the store the
+// configuration names, in both auth modes. Like the token store it has no
+// fallback.
+func adminSettingsStore(cfg *config.Config, logger log.Logger) (settings.Store, error) {
+	switch cfg.Store.Store {
+	case "memory":
+		logger.Warn().Msg("synaplan-opencloud: the administrator's settings are kept in memory; a restart forgets them and other replicas never see them")
+		return settings.NewMemoryStore(), nil
+	case "nats-js-kv":
+		store, err := settings.NewNATS(natsConfig(cfg), cfg.Store.SettingsDatabase, cfg.Store.Replicas)
+		if err != nil {
+			return nil, fmt.Errorf("could not open the settings store: %w", err)
+		}
+		return store, nil
+	default:
+		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported; set SYNAPLAN_STORE to nats-js-kv or memory (it may be inherited from OC_PERSISTENT_STORE)", cfg.Store.Store)
+	}
+}
+
+// natsConfig is how both stores reach OpenCloud's NATS.
+func natsConfig(cfg *config.Config) natskv.Config {
+	return natskv.Config{
+		Nodes:     cfg.Store.Nodes,
+		Username:  cfg.Store.AuthUsername,
+		Password:  cfg.Store.AuthPassword,
+		EnableTLS: cfg.Store.EnableTLS,
+		Insecure:  cfg.Store.TLSInsecure,
+		RootCAs:   cfg.Store.TLSRootCACertificate,
 	}
 }
