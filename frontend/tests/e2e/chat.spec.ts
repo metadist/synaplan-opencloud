@@ -154,7 +154,7 @@ async function pickModel(page: Page, label: string) {
   await page.locator('[data-testid="synaplan-chat-model"] .vs__dropdown-toggle').first().click()
   await expect(page.getByRole('option').first()).toHaveText('Default model')
   await page.getByRole('option', { name: label, exact: true }).click()
-  await expect(page.locator('[data-testid="synaplan-chat-model"]')).toContainText(label)
+  await expect(page.locator('[data-testid="synaplan-chat-model"]').first()).toContainText(label)
 }
 
 async function askAndExpectAnswer(page: Page, question: string) {
