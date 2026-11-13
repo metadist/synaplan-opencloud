@@ -13,6 +13,8 @@ describe('sentenceFor', () => {
       'no_text',
       'Synaplan found no text in this file. It may be a scan or protected by a password.'
     ],
+    ['image_unavailable', 'This Synaplan has no model that makes images. Ask your administrator.'],
+    ['file_too_large', 'This image is too large to save here.'],
     [
       'synaplan_error',
       'Synaplan could not finish this. Try again in a minute, or ask your administrator.'

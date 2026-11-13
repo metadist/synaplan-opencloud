@@ -25,6 +25,10 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       )
     case 'translation_unavailable':
       return $gettext('This Synaplan cannot translate a file. Ask your administrator.')
+    case 'image_unavailable':
+      return $gettext('This Synaplan has no model that makes images. Ask your administrator.')
+    case 'file_too_large':
+      return $gettext('This image is too large to save here.')
     case 'synaplan_error':
       return $gettext(
         'Synaplan could not finish this. Try again in a minute, or ask your administrator.'

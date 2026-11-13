@@ -54,3 +54,48 @@ export async function wipeKnowledgeGroup(
     }
   }
 }
+
+/**
+ * Store a file in Synaplan without processing it and return its id. Used
+ * by journeys that need a file Synaplan holds, such as an image the test
+ * stack's model cannot make.
+ */
+export async function storeSynaplanFile(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  name: string,
+  content: Buffer,
+  mimeType: string
+): Promise<number> {
+  const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/upload`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      'files[]': { name, mimeType, buffer: content },
+      process_level: 'store'
+    }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan upload failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as { files?: SynaplanFile[] }
+  const id = body.files?.[0]?.id
+  if (!id) {
+    throw new Error('synaplan upload returned no file id')
+  }
+  return id
+}
+
+/** Delete one file in Synaplan; teardown, so failures are ignored. */
+export async function deleteSynaplanFileQuiet(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  id: number
+): Promise<void> {
+  await request
+    .delete(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/${id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    .catch(() => {})
+}
