@@ -70,6 +70,8 @@ type Handler struct {
 	// Listing files then lists the key owner's files, for every
 	// signed-in OpenCloud user, so From Synaplan stays closed.
 	sharedKey bool
+	// memory keeps the last answer of Synaplan's memory-service check.
+	memory memoryCache
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.

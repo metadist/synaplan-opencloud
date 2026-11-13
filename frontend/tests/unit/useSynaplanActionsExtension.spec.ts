@@ -47,11 +47,12 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize, knowledge and from-Synaplan actions', () => {
+  it('groups the translate, summarize, chat, knowledge and from-Synaplan actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
       'summarize',
+      'chat-about-file',
       'add-to-knowledge',
       'from-synaplan'
     ])

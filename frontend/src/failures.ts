@@ -41,6 +41,8 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
       )
+    case 'rate_limited':
+      return $gettext('Synaplan is busy or your limit is reached. Try again later.')
     case 'identity_check_failed':
       return $gettext('Synaplan could not check who you are. Try again.')
     case 'idp_unreachable':

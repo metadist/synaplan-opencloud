@@ -63,6 +63,8 @@ func publicFailure(err error) errorResponse {
 		return errorResponse{Error: "Synaplan cannot read this kind of file.", Code: "unsupported_type"}
 	case errors.Is(err, errNoText):
 		return errorResponse{Error: "Synaplan found no text in this file. It may be a scan or protected by a password.", Code: "no_text"}
+	case errors.Is(err, errRateLimited):
+		return errorResponse{Error: "Synaplan is busy or your limit is reached. Try again later.", Code: "rate_limited"}
 	default:
 		return errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"}
 	}
@@ -119,15 +121,21 @@ func (h *Handler) runSummaryPipeline(
 
 	result, err := fn(ctx, file)
 	if err != nil {
-		log.Printf("%s: %v", op, err)
-		status := http.StatusBadGateway
-		if errors.Is(err, errClientInput) {
-			status = http.StatusUnprocessableEntity
-		}
-		writeJSON(w, status, publicFailure(err))
+		writeFailure(w, op, err)
 		return "", false
 	}
 	return result, true
+}
+
+// writeFailure logs err under op and answers with its public sentence:
+// 422 for errClientInput, 502 otherwise.
+func writeFailure(w http.ResponseWriter, op string, err error) {
+	log.Printf("%s: %v", op, err)
+	status := http.StatusBadGateway
+	if errors.Is(err, errClientInput) {
+		status = http.StatusUnprocessableEntity
+	}
+	writeJSON(w, status, publicFailure(err))
 }
 
 // isTextMime returns true for mime types we can pass straight into
