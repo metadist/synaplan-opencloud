@@ -116,6 +116,7 @@ import { z } from 'zod'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 import { useKnowledgeGroups } from '../composables/useKnowledgeGroups'
 import { sentenceFor } from '../failures'
+import { invalidateCloudStatus } from '../composables/cloudStatus'
 
 const props = defineProps<{
   modal: Modal
@@ -254,6 +255,7 @@ async function onSubmit() {
       stale: false,
       synaplanFileId: data.synaplanFileId ?? knowledgeStatus.value.synaplanFileId
     }
+    invalidateCloudStatus(props.resource.id)
     phase.value = 'done'
   } catch (e) {
     if (controller.signal.aborted) return
@@ -275,6 +277,7 @@ async function onRemove() {
     )
     knowledgeStatus.value = { inKnowledge: false, stale: false, synaplanFileId: 0 }
     removed.value = true
+    invalidateCloudStatus(props.resource.id)
     phase.value = 'select'
   } catch (e) {
     console.error('synaplan knowledge remove failed', e)
