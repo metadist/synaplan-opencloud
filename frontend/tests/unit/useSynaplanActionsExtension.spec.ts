@@ -47,13 +47,14 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize, chat and knowledge actions', () => {
+  it('groups the translate, summarize, chat, knowledge and from-Synaplan actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
       'summarize',
       'chat-about-file',
-      'add-to-knowledge'
+      'add-to-knowledge',
+      'from-synaplan'
     ])
   })
 
@@ -63,8 +64,12 @@ describe('useSynaplanActionsExtension', () => {
       expect(action.isVisible(options())).toBe(true)
     })
 
+    it('shows the group for one folder, for From Synaplan', () => {
+      const { action } = useSynaplanActionsExtension()
+      expect(action.isVisible(options({ isFolder: true }))).toBe(true)
+    })
+
     it.each([
-      ['a folder', options({ isFolder: true })],
       ['an unsupported mime type', options({ mimeType: 'image/png' })],
       ['multiple resources', { resources: [{}, {}] } as unknown as FileActionOptions]
     ])('hides the group for %s', (_, opts) => {

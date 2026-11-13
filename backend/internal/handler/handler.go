@@ -45,9 +45,6 @@ type Delegated struct {
 //   - delegation holds the offline tokens of people who allowed this
 //     service to act for them while they are away.
 //   - notifications verifies what Synaplan sends to /inbound.
-//   - perPerson is true when every call reaches Synaplan as the person
-//     (token exchange), false with the shared API key.
-//   - memory keeps the last answer of Synaplan's memory-service check.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -66,8 +63,20 @@ type Handler struct {
 	audience    string
 
 	notifications notifications
-	perPerson     bool
-	memory        memoryCache
+
+	// maxCopyBytes is SYNAPLAN_MAX_COPY_BYTES. Zero means the default.
+	maxCopyBytes int64
+	// sharedKey is set when every Synaplan call uses one API key.
+	// Listing files then lists the key owner's files, for every
+	// signed-in OpenCloud user, so From Synaplan stays closed.
+	sharedKey bool
+	// memory keeps the last answer of Synaplan's memory-service check.
+	memory memoryCache
+}
+
+// UseSharedKey records that outbound Synaplan calls use one API key.
+func (h *Handler) UseSharedKey() {
+	h.sharedKey = true
 }
 
 // New creates a new Handler. The editor is the synaplanapi
@@ -99,7 +108,6 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 	}
 	h.notifications.seen = notify.NewSeen()
 	if delegated != nil {
-		h.perPerson = true
 		h.delegation = delegated.Tokens
 		h.exchanger = delegated.Exchanger
 		h.audience = delegated.Audience

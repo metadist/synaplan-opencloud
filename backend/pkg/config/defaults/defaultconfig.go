@@ -67,6 +67,11 @@ func Sanitize(cfg *config.Config) {
 	cfg.Store.Database = strings.TrimSpace(cfg.Store.Database)
 	cfg.Store.Nodes = cleanList(cfg.Store.Nodes)
 	cfg.Store.EncryptionPreviousSecrets = cleanList(cfg.Store.EncryptionPreviousSecrets)
+	// 100 MiB: Cloudflare's body limit. Keep this in step with
+	// handler.defaultMaxCopyBytes.
+	if cfg.MaxCopyBytes <= 0 {
+		cfg.MaxCopyBytes = 100 << 20
+	}
 }
 
 func cleanList(items []string) []string {

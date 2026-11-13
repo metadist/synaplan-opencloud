@@ -49,7 +49,7 @@
         data-testid="synaplan-translation-save"
         @click="onSave"
       >
-        {{ savedPath ? $gettext('Saved') : $gettext('Save to your files') }}
+        {{ savedPath ? $gettext('Saved') : $gettext('Save next to this file') }}
       </oc-button>
 
       <oc-button
@@ -149,7 +149,7 @@ const rendered = useRenderedMarkdown(result)
 
 function onSave() {
   const base = (props.resource.name || 'document').replace(/\.[^.]+$/, '')
-  void saveToSpace(`Translation of ${base}.md`)
+  void saveToSpace(`Translation of ${base}.md`, props.resource.id)
 }
 
 function onSubmit() {

@@ -53,7 +53,7 @@ func (h *Handler) memoriesAvailable(ctx context.Context) bool {
 // key, where every person would read the one account's memories, and
 // when the memory service is unavailable or has nothing.
 func (h *Handler) memoryContext(ctx context.Context, question string) string {
-	if !h.perPerson || strings.TrimSpace(question) == "" || !h.memoriesAvailable(ctx) {
+	if h.sharedKey || strings.TrimSpace(question) == "" || !h.memoriesAvailable(ctx) {
 		return ""
 	}
 	limit := memorySearchLimit

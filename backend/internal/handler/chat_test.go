@@ -74,7 +74,7 @@ func TestChatAnswersAQuestion(t *testing.T) {
 		name       string
 		body       string
 		fake       fakeChatSynaplan
-		perPerson  bool
+		sharedKey  bool
 		wantStatus int
 		wantCode   string
 		wantModel  any
@@ -104,7 +104,6 @@ func TestChatAnswersAQuestion(t *testing.T) {
 				completionStatus: http.StatusOK, completionBody: answer, memoryAvailable: true,
 				memories: `{"memories":[{"key":"name","value":"Ada"},{"value":"likes short answers"},{"value":" "}]}`,
 			},
-			perPerson:  true,
 			wantStatus: http.StatusOK,
 			wantLang:   "English",
 			wantMemory: true,
@@ -116,6 +115,7 @@ func TestChatAnswersAQuestion(t *testing.T) {
 				completionStatus: http.StatusOK, completionBody: answer, memoryAvailable: true,
 				memories: `{"memories":[{"key":"name","value":"Ada"}]}`,
 			},
+			sharedKey:  true,
 			wantStatus: http.StatusOK,
 			wantLang:   "English",
 		},
@@ -150,7 +150,9 @@ func TestChatAnswersAQuestion(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			h.perPerson = tc.perPerson
+			if tc.sharedKey {
+				h.UseSharedKey()
+			}
 
 			rr := httptest.NewRecorder()
 			h.Chat(rr, httptest.NewRequest(http.MethodPost, "/api/synaplan/chat", strings.NewReader(tc.body)))
