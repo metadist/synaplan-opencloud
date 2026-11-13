@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,6 +61,39 @@ func TestTranslate_AcceptsAllSupportedLanguages(t *testing.T) {
 
 			if rr.Code == http.StatusBadRequest {
 				t.Errorf("validation rejected %s: %s", lang, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestTranslationUnavailable(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"offers translation", http.StatusOK, `{"summary":{"types":["abstractive","translation"],"lengths":[],"focus_areas":[]}}`, false},
+		{"does not offer it", http.StatusOK, `{"summary":{"types":["abstractive"],"lengths":[],"focus_areas":[]}}`, true},
+		{"no answer", http.StatusInternalServerError, `oops`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/config/capabilities" || r.Header.Get("Authorization") != "" {
+					t.Errorf("unexpected request %s with authorization %q", r.URL.Path, r.Header.Get("Authorization"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer synaplan.Close()
+			h, err := New(nil, synaplan.URL, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := h.translationUnavailable(context.Background()); got != tc.want {
+				t.Fatalf("translationUnavailable = %v, want %v", got, tc.want)
 			}
 		})
 	}

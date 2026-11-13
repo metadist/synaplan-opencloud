@@ -23,6 +23,8 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan found no text in this file. It may be a scan or protected by a password.'
       )
+    case 'translation_unavailable':
+      return $gettext('This Synaplan cannot translate a file. Ask your administrator.')
     case 'synaplan_error':
       return $gettext(
         'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
