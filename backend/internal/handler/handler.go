@@ -4,6 +4,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -18,18 +19,25 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
+	"github.com/metadist/synaplan-opencloud/internal/preferences"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 )
 
-// Delegated is what acting for a person while they are away needs: their
-// offline tokens, the exchange that proves who the signed-in person is,
-// and the Synaplan client their tokens are exchanged for. It is nil with
-// the shared API key.
+// Delegated is what acting as a person needs: their offline tokens, the
+// exchange that proves who the signed-in person is, the Synaplan client
+// their tokens are exchanged for, and their own settings. It is nil with
+// the shared API key, which knows no person.
 type Delegated struct {
-	Tokens    *delegation.Delegation
-	Exchanger synaplanauth.TokenExchanger
-	Audience  string
+	Tokens      *delegation.Delegation
+	Exchanger   synaplanauth.TokenExchanger
+	Audience    string
+	Preferences preferences.Store
+}
+
+// folderPaths finds where a folder lives, as the signed-in person sees it.
+type folderPaths interface {
+	FolderPath(ctx context.Context, resourceID string) (string, error)
 }
 
 // Handler holds the state shared by all endpoints:
@@ -44,6 +52,8 @@ type Delegated struct {
 //     Synaplan install for the public /api/synaplan/assets endpoint.
 //   - delegation holds the offline tokens of people who allowed this
 //     service to act for them while they are away.
+//   - preferences keeps each person's own settings; folders resolves
+//     the folders they name to the paths OpenCloud knows.
 //   - notifications verifies what Synaplan sends to /inbound.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
@@ -61,6 +71,8 @@ type Handler struct {
 	delegation  *delegation.Delegation
 	exchanger   synaplanauth.TokenExchanger
 	audience    string
+	preferences preferences.Store
+	folders     folderPaths
 
 	notifications notifications
 
@@ -105,7 +117,11 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		assetProxy:  assetProxy,
 	}
 	h.notifications.seen = notify.NewSeen()
+	if cs3 != nil {
+		h.folders = cs3
+	}
 	if delegated != nil {
+		h.preferences = delegated.Preferences
 		h.delegation = delegated.Tokens
 		h.exchanger = delegated.Exchanger
 		h.audience = delegated.Audience

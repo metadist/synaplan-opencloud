@@ -23,6 +23,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/idp"
+	"github.com/metadist/synaplan-opencloud/internal/preferences"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
@@ -97,6 +98,11 @@ func Server(cfg *config.Config) *cobra.Command {
 					return fmt.Errorf("could not set up the delegation store key: %w", err)
 				}
 				store := delegation.NewSealedStore(inner, keys)
+				prefs, err := preferencesStore(cfg)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = prefs.Close() }()
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
 						Provider:     provider,
@@ -108,8 +114,9 @@ func Server(cfg *config.Config) *cobra.Command {
 							logger.Warn().Err(err).Msg("synaplan-opencloud: could not use the token store")
 						},
 					}),
-					Exchanger: exchanger,
-					Audience:  cfg.OIDCTargetAudience,
+					Exchanger:   exchanger,
+					Audience:    cfg.OIDCTargetAudience,
+					Preferences: prefs,
 				}
 			}
 
@@ -165,6 +172,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)
 				r.Post("/api/synaplan/delegation", h.DelegationConnect)
 				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
+				r.Get("/api/synaplan/connection", h.Connection)
+				r.Get("/api/synaplan/preferences", h.Preferences)
+				r.Put("/api/synaplan/preferences", h.SavePreferences)
 			})
 
 			server := &stdhttp.Server{
@@ -211,21 +221,40 @@ func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, e
 		logger.Warn().Msg("synaplan-opencloud: offline tokens are kept in memory; a restart forgets them and other replicas never see them")
 		return delegation.NewMemoryStore(), nil
 	case "nats-js-kv":
-		store, err := delegation.NewNATS(delegation.NATSConfig{
-			Nodes:     cfg.Store.Nodes,
-			Bucket:    cfg.Store.Database,
-			Replicas:  cfg.Store.Replicas,
-			Username:  cfg.Store.AuthUsername,
-			Password:  cfg.Store.AuthPassword,
-			EnableTLS: cfg.Store.EnableTLS,
-			Insecure:  cfg.Store.TLSInsecure,
-			RootCAs:   cfg.Store.TLSRootCACertificate,
-		})
+		store, err := delegation.NewNATS(natsConfig(cfg, cfg.Store.Database))
 		if err != nil {
 			return nil, fmt.Errorf("could not open the delegation store: %w", err)
 		}
 		return store, nil
 	default:
 		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported; set SYNAPLAN_STORE to nats-js-kv or memory (it may be inherited from OC_PERSISTENT_STORE)", cfg.Store.Store)
+	}
+}
+
+// preferencesStore keeps each person's own settings in the same store as
+// the offline tokens, in a bucket of its own. delegationStore already
+// refused a store that is not supported.
+func preferencesStore(cfg *config.Config) (preferences.Store, error) {
+	if cfg.Store.Store == "memory" {
+		return preferences.NewMemoryStore(), nil
+	}
+	store, err := preferences.NewNATS(natsConfig(cfg, cfg.Store.PreferencesDatabase))
+	if err != nil {
+		return nil, fmt.Errorf("could not open the preferences store: %w", err)
+	}
+	return store, nil
+}
+
+// natsConfig is how this service reaches OpenCloud's NATS, for bucket.
+func natsConfig(cfg *config.Config, bucket string) delegation.NATSConfig {
+	return delegation.NATSConfig{
+		Nodes:     cfg.Store.Nodes,
+		Bucket:    bucket,
+		Replicas:  cfg.Store.Replicas,
+		Username:  cfg.Store.AuthUsername,
+		Password:  cfg.Store.AuthPassword,
+		EnableTLS: cfg.Store.EnableTLS,
+		Insecure:  cfg.Store.TLSInsecure,
+		RootCAs:   cfg.Store.TLSRootCACertificate,
 	}
 }
