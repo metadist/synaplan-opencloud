@@ -20,8 +20,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/nats-io/nats.go v1.55.0
 	github.com/oapi-codegen/runtime v1.9.0
-	github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612
-	github.com/opencloud-eu/reva/v2 v2.52.2
+	github.com/opencloud-eu/opencloud v1.1.1-0.20261113231701-15d181d3f4d6
+	github.com/opencloud-eu/reva/v2 v2.52.3-0.20261113144838-03685668969d
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.85.0
 )
@@ -70,6 +70,7 @@ require (
 	github.com/getkin/kin-openapi v0.149.0 // indirect
 	github.com/go-acme/lego/v4 v4.35.2 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
+	github.com/go-chi/httprate v0.16.1 // indirect
 	github.com/go-chi/render v1.0.3 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.9.1 // indirect
