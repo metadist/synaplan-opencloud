@@ -187,6 +187,8 @@ github.com/go-asn1-ber/asn1-ber v1.5.8 h1:H9AZkK22UOmfX8J84ubyaZxKJZ3FMHVwn8swoM
 github.com/go-asn1-ber/asn1-ber v1.5.8/go.mod h1:hEBeB/ic+5LoWskz+yKT7vGhhPYkProFKoKdwZRWMe0=
 github.com/go-chi/chi/v5 v5.5.0 h1:xdKQ1dJmVJsmgahrXSKhUx8NyVPzpwdlyrrQFpMPJgg=
 github.com/go-chi/chi/v5 v5.5.0/go.mod h1:d1IG7GtKPSjPyBP365PH8sAGVHk3qfB/IhjFNRH1wWM=
+github.com/go-chi/httprate v0.16.1 h1:q2M8FmDsI4oEr1oRX43N+VeA0Ujd1tb/EasrSzXy87o=
+github.com/go-chi/httprate v0.16.1/go.mod h1:A8lo+qRhk+s9LiuP5saS7XCGDXRXMcrueq0NfIuCa/I=
 github.com/go-chi/render v1.0.3 h1:AsXqd2a1/INaIfUSKq3G5uA8weYx20FOsM7uSoCyyt4=
 github.com/go-chi/render v1.0.3/go.mod h1:/gr3hVkmYR0YlEy3LxCuVRFzEu9Ruok+gFqbIofjao0=
 github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 h1:+zs/tPmkDkHx3U66DAb0lQFJrpS6731Oaa12ikc+DiI=
@@ -534,8 +536,12 @@ github.com/opencloud-eu/libre-graph-api-go v1.0.9-0.20261016073229-17ed3d5dd346 
 github.com/opencloud-eu/libre-graph-api-go v1.0.9-0.20261016073229-17ed3d5dd346/go.mod h1:lTM8JeGblNpoMySTW7Lui2+c5TTLI95mwxtdUIHHrhU=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612 h1:J9W9wbSFMZ1Fj7RXmqGiGkayd5ppJua+xf+I0MvXT7E=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261112100334-80d187eeb612/go.mod h1:Fe2v2+fFPKYiO0PrjzdL6BTsVrf9+8qg26uGguF4Lwc=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261113231701-15d181d3f4d6 h1:slOxPYnSKQTFer1p27FPBcCG5TeQkqTmwZRxLTyTDrs=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261113231701-15d181d3f4d6/go.mod h1:DhtTjpxe3NbSqr5GgByjXUhJlom4jFzazzFcksGsjy4=
 github.com/opencloud-eu/reva/v2 v2.52.2 h1:uSYHhzX9hv911ciAyCVShg99cUoudkmFu+WVK2G85eI=
 github.com/opencloud-eu/reva/v2 v2.52.2/go.mod h1:jqg3kpCQTwagdcnu/D+resnrnNzSg6cjAQ/Wv4fmvBI=
+github.com/opencloud-eu/reva/v2 v2.52.3-0.20261113144838-03685668969d h1:U9B6MvPDbNWwoOUHCPUO1GwxL/n1TbE2Tlomo+P0Qp4=
+github.com/opencloud-eu/reva/v2 v2.52.3-0.20261113144838-03685668969d/go.mod h1:nKOQFFHQZiBFiiXBqEIc99giHQ/Pe0XYf5cztJhZDYw=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c h1:rp5dCmg/yLR3mgFuSOe4oEnDDmGLROTvMragMUXpTQw=
 github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c/go.mod h1:X07ZCGwUbLaax7L0S3Tw4hpejzu63ZrrQiUe6W0hcy0=
