@@ -28,6 +28,9 @@ services:
       WEB_OIDC_CLIENT_ID: opencloud
       PROXY_OIDC_INSECURE: "true"
       PROXY_AUTOPROVISION_ACCOUNTS: "true"
+      # Dev-only. auth-machine in this image reads OC_MACHINE_AUTH_API_KEY.
+      # synaplan-backend sends the same value when it acts for someone away.
+      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"
     labels:
       traefik.enable: true
       traefik.http.routers.opencloud.tls: true
@@ -92,6 +95,7 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
+      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"
       SYNAPLAN_STORE_NODES: opencloud:9233
       GOPATH: /tmp/go-cache/gopath
       GOCACHE: /tmp/go-cache/build

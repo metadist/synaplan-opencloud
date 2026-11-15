@@ -138,6 +138,11 @@ func TestDeliver(t *testing.T) {
 			claim:       map[string]any{},
 			wantErr:     errClaimLater,
 		},
+		"Synaplan is rate limiting": {
+			claimStatus: http.StatusTooManyRequests,
+			claim:       map[string]any{},
+			wantErr:     errClaimLater,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -199,6 +204,27 @@ func TestADeliveryForAPersonWhoDidNotAllowItIsLeftForTheRetry(t *testing.T) {
 		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "not_connected") {
 			t.Fatalf("status %d %s, want 409 not_connected", rec.Code, rec.Body)
 		}
+	}
+}
+
+// A download that already ran out of time has a cancelled context. The
+// result is still posted, and Synaplan still sees the person's own token.
+func TestACancelledDeliveryStillReportsItsResult(t *testing.T) {
+	synaplan := newDeliveringSynaplan(t, http.StatusOK, claimFor("ada", nil), "hello")
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, cancel := context.WithCancel(onBehalfOf(t.Context(), "ada"))
+	cancel()
+
+	h.reportDelivery(parent, 7, deliveryResult{Status: deliveryDelivered, RemotePath: "/Synaplan/Documents/notes.txt"})
+
+	if len(synaplan.reported) != 1 || synaplan.reported[0].Status != deliveryDelivered {
+		t.Fatalf("reported %+v, want the result of the cancelled download", synaplan.reported)
+	}
+	if len(synaplan.bearers) != 1 || synaplan.bearers[0] != "Bearer for-synaplan-app" {
+		t.Fatalf("Synaplan saw %v, want the person's own token", synaplan.bearers)
 	}
 }
 

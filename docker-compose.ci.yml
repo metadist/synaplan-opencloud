@@ -8,6 +8,7 @@ services:
     environment:
       PROXY_OIDC_ISSUER: https://host.docker.internal:8444/realms/synaplan
       WEB_OIDC_METADATA_URL: https://host.docker.internal:8444/realms/synaplan/.well-known/openid-configuration
+      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"
 
   synaplan-backend:
     image: ${BACKEND_IMAGE:-}
@@ -16,3 +17,4 @@ services:
       SYNAPLAN_URL: "http://host.docker.internal:8001"
       SYNAPLAN_OIDC_TOKEN_ENDPOINT: "http://host.docker.internal:8081/realms/synaplan/protocol/openid-connect/token"
       OC_OIDC_ISSUER: "https://host.docker.internal:8444/realms/synaplan"
+      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"

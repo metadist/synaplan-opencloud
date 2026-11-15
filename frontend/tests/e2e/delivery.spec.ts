@@ -32,7 +32,7 @@ test.describe.configure({ mode: 'serial' })
 let accessToken: string
 let synaplanToken: string
 let webDavUrl: string
-let userPage: Page
+let userPage: Page | undefined
 const synaplanFiles: number[] = []
 const cloudFiles: string[] = []
 
@@ -46,16 +46,43 @@ test.beforeEach(async ({ browser, request }) => {
   userPage = (await loginAsUser(browser, TEST_USER, TEST_PASSWORD)).page
 })
 
-test.afterEach(async ({ request }) => {
+test.afterEach(async ({ browser, request }) => {
   for (const id of synaplanFiles.splice(0)) {
     await deleteSynaplanFileQuiet(request, SYNAPLAN_API_URL, synaplanToken, id)
   }
   for (const path of cloudFiles.splice(0)) {
     await deleteFileQuiet(request, webDavUrl, accessToken, path)
   }
-  await stopWorkWhileAway(userPage).catch(() => {})
-  await logout(userPage).catch(() => {})
+  // The signed-out journey logs out before it finishes. A failure before
+  // the final login leaves that page closed, so cleanup signs in again
+  // and still stops work while away.
+  if (userPage === undefined || userPage.isClosed()) {
+    userPage = (await loginAsUser(browser, TEST_USER, TEST_PASSWORD)).page
+  }
+  let revocationError: unknown
+  try {
+    await stopWorkWhileAway(userPage)
+  } catch (error) {
+    revocationError = error
+  }
+  if (!userPage.isClosed()) {
+    try {
+      await logout(userPage)
+    } catch (error) {
+      await userPage
+        .context()
+        .close()
+        .catch(() => {})
+      if (!revocationError) revocationError = error
+    }
+  }
+  if (revocationError) throw revocationError
 })
+
+function signedIn(): Page {
+  if (!userPage) throw new Error('the test user is not signed in')
+  return userPage
+}
 
 async function sendNewFile(request: Parameters<typeof uploadToSynaplan>[0], name: string) {
   const fileId = await uploadToSynaplan(
@@ -67,8 +94,15 @@ async function sendNewFile(request: Parameters<typeof uploadToSynaplan>[0], name
     'store'
   )
   synaplanFiles.push(fileId)
-  // The Synaplan page called Synaplan through this OpenCloud, which links
-  // the person there.
+  // Synaplan links a person on the first call made through this OpenCloud.
+  // Opening the Synaplan page only talks to this service, so the link is
+  // created here the way Test Connection does it.
+  const linked = await request.get(`${OC_API_URL}/api/synaplan/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  })
+  expect(linked.ok(), await linked.text()).toBe(true)
+  const me = (await linked.json()) as { status?: string }
+  expect(me.status, JSON.stringify(me)).toBe('ok')
   let linkId = 0
   await expect
     .poll(async () => (linkId = await openCloudLinkId(request, SYNAPLAN_API_URL, synaplanToken)), {
@@ -83,8 +117,8 @@ test('a copy from Synaplan lands in the Synaplan folder with nobody signed in', 
   request
 }) => {
   test.setTimeout(90_000)
-  await allowWorkWhileAway(userPage)
-  await logout(userPage)
+  await allowWorkWhileAway(signedIn())
+  await logout(signedIn())
 
   const name = `delivery-${Date.now()}.txt`
   const path = `Synaplan/Documents/${name}`
@@ -104,16 +138,34 @@ test('a copy from Synaplan lands in the Synaplan folder with nobody signed in', 
 
 test('after stop, Synaplan cannot place a copy', async ({ request }) => {
   test.setTimeout(90_000)
-  await stopWorkWhileAway(userPage)
+  await stopWorkWhileAway(signedIn())
 
   const name = `delivery-stopped-${Date.now()}.txt`
   const path = `Synaplan/Documents/${name}`
   cloudFiles.push(path)
   const sent = await sendNewFile(request, name)
-  expect(sent.state).not.toBe('delivered')
+  // Stopped work answers the notification with 409 not_connected. Synaplan
+  // accepts the send and leaves the copy pending; it does not reject /send.
+  expect(sent.status, JSON.stringify(sent)).toBeLessThan(300)
+  expect(sent.state).toBe('pending')
 
-  const probe = await request.get(`${webDavUrl}/${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  })
-  expect(probe.status()).toBe(404)
+  // A single 404 can pass before a late write. Keep asking for this window.
+  const deadline = Date.now() + 10_000
+  const statuses: number[] = []
+  await expect
+    .poll(
+      async () => {
+        const probe = await request.get(`${webDavUrl}/${path}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        })
+        const status = probe.status()
+        statuses.push(status)
+        if (status !== 404) return status
+        return Date.now() >= deadline ? 404 : 0
+      },
+      { timeout: 15_000, intervals: [1_000] }
+    )
+    .toBe(404)
+  expect(statuses.length).toBeGreaterThan(1)
+  expect(statuses.every((status) => status === 404)).toBe(true)
 })

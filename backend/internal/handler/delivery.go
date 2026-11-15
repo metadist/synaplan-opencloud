@@ -21,11 +21,16 @@ const (
 	// maxDeliveryBytes is the largest copy this service takes from
 	// Synaplan; the copy is held in memory until it is written.
 	maxDeliveryBytes = 100 << 20
-	// deliveryTimeout bounds claiming, downloading, writing and reporting
-	// one copy. Synaplan waits 30 seconds for the answer to its
-	// notification; a copy that takes longer is still written and then
-	// reported on the result route.
+	// deliveryTimeout bounds claiming, downloading and writing one copy.
+	// Synaplan waits 30 seconds for the answer to its notification; a
+	// copy that takes longer is still written and then reported on the
+	// result route.
 	deliveryTimeout = 2 * time.Minute
+	// reportTimeout bounds that result report. It starts from a context
+	// that ignores cancellation of the download, so a copy that already
+	// used up deliveryTimeout is still reported, with the person's
+	// credentials still on the context.
+	reportTimeout = 30 * time.Second
 	// targetKindFolder is Synaplan's target for a copy without a folder:
 	// the person's Synaplan folder for the file's kind.
 	targetKindFolder = "kind_folder"
@@ -133,7 +138,9 @@ func (h *Handler) claimDelivery(ctx context.Context, id int) (deliveryClaim, err
 	}
 	switch status := resp.StatusCode(); {
 	case status == http.StatusOK:
-	case status >= http.StatusInternalServerError:
+	case status == http.StatusTooManyRequests || status >= http.StatusInternalServerError:
+		// A rate limit and a Synaplan outage are temporary. Leaving them
+		// as a refusal would drop the notification and the retry with it.
 		return deliveryClaim{}, fmt.Errorf("%w: synaplan answered %d", errClaimLater, status)
 	default:
 		return deliveryClaim{}, fmt.Errorf("%w: %v", errClaimRefused, upstream(status, resp.Body))
@@ -224,7 +231,11 @@ func downloadTicket(id int, downloadPath string) (string, bool) {
 
 // reportDelivery records the outcome on Synaplan's result route, so it is
 // kept even when Synaplan stopped waiting for the notification's answer.
+// The download's deadline must not cancel this call: the person's
+// credentials stay on the context, and the report has its own short limit.
 func (h *Handler) reportDelivery(ctx context.Context, id int, result deliveryResult) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
+	defer cancel()
 	payload, err := withJSON(result)
 	if err != nil {
 		log.Printf("delivery %d: report: %v", id, err)
