@@ -142,13 +142,25 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 	return h, nil
 }
 
-// lockSubject holds the in-process lock for one person's settings save.
-func (h *Handler) lockSubject(subject string) func() {
-	fresh := &sync.Mutex{}
+// subjectGate is one person's in-process save lock. The channel has one
+// token, so a cancelled request can stop waiting instead of sitting on a
+// mutex that cannot see the request context.
+type subjectGate struct {
+	ch chan struct{}
+}
+
+// lockSubject waits for subject's save lock. A cancelled context returns
+// without the lock, so a stalled save does not collect retries behind it.
+func (h *Handler) lockSubject(ctx context.Context, subject string) (func(), error) {
+	fresh := &subjectGate{ch: make(chan struct{}, 1)}
 	actual, _ := h.subjectMu.LoadOrStore(subject, fresh)
-	mu := actual.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+	gate := actual.(*subjectGate)
+	select {
+	case gate.ch <- struct{}{}:
+		return func() { <-gate.ch }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // writeJSON serialises v as JSON to w with the given HTTP status.

@@ -258,6 +258,63 @@ func TestOverlappingSavesMatchTheLastReport(t *testing.T) {
 	}
 }
 
+func TestCanceledSaveDoesNotWaitBehindAStalledSave(t *testing.T) {
+	var mu sync.Mutex
+	reports := 0
+	started := make(chan struct{})
+	release := make(chan struct{})
+	synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		reports++
+		mu.Unlock()
+		started <- struct{}{}
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	t.Cleanup(synaplan.Close)
+	idp := fakeIdentityProvider(t, "ada")
+	d := delegated(t, idp, "")
+	d.Preferences = preferences.NewMemoryStore()
+	h, err := New(nil, synaplan.URL, nil, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.folders = fakeFolders{}
+
+	done := make(chan struct{})
+	go func() {
+		_ = save(h, "u-ada", `{"mode":"all"}`)
+		close(done)
+	}()
+	defer func() {
+		close(release)
+		<-done
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first save did not reach Synaplan")
+	}
+
+	ctx, cancel := context.WithCancel(signedIn("u-ada", tokenFor("ada")))
+	cancel()
+	rec := httptest.NewRecorder()
+	h.SavePreferences(rec, httptest.NewRequestWithContext(ctx, http.MethodPut, "/api/synaplan/preferences", strings.NewReader(`{"mode":"watched"}`)))
+	var body errorResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if rec.Code != http.StatusBadGateway || body.Code != "not_reported" {
+		t.Fatalf("canceled save: %d %s", rec.Code, rec.Body)
+	}
+	mu.Lock()
+	got := reports
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("Synaplan was called %d times, want 1", got)
+	}
+}
+
 func TestPreferencesWithoutAPerson(t *testing.T) {
 	h := &Handler{}
 	rec := httptest.NewRecorder()

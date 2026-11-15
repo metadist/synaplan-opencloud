@@ -108,7 +108,10 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 // enforcing a scope this store does not hold. There is no lease in this
 // bucket that would hold the other replica off for that call.
 func (h *Handler) commitReadScope(r *http.Request, sub string, scope preferences.ReadScope) *errorResponse {
-	unlock := h.lockSubject(sub)
+	unlock, err := h.lockSubject(r.Context(), sub)
+	if err != nil {
+		return &errorResponse{Error: saveUnconfirmed, Code: "not_reported"}
+	}
 	defer unlock()
 	reported := false
 	for range saveAttempts {
