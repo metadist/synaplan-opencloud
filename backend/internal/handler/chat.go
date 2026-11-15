@@ -244,14 +244,17 @@ func readRunePrefix(r io.Reader, maxRunes int) (string, error) {
 			if n > 0 {
 				pending = append(pending, one[0])
 			}
+			// A Read may return a byte and an error together. The error
+			// has to win even when that byte completes a rune, or a
+			// failed download looks like text that was read.
+			if err != nil && err != io.EOF {
+				return "", err
+			}
 			if utf8.FullRune(pending) {
 				break
 			}
 			if err == io.EOF {
 				break
-			}
-			if err != nil {
-				return "", err
 			}
 			if n == 0 {
 				return "", io.ErrNoProgress

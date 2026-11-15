@@ -429,6 +429,28 @@ func TestReadRunePrefixDoesNotReadPastCap(t *testing.T) {
 	}
 }
 
+type byteAndError struct {
+	b   byte
+	err error
+	did bool
+}
+
+func (r *byteAndError) Read(p []byte) (int, error) {
+	if r.did {
+		return 0, io.EOF
+	}
+	r.did = true
+	p[0] = r.b
+	return 1, r.err
+}
+
+func TestReadRunePrefixKeepsTheErrorThatArrivesWithAByte(t *testing.T) {
+	_, err := readRunePrefix(&byteAndError{b: 'A', err: io.ErrUnexpectedEOF}, 8)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want unexpected EOF", err)
+	}
+}
+
 func TestReadRunePrefixReturnsEarlyReadError(t *testing.T) {
 	_, err := readRunePrefix(&capReader{}, 8)
 	if !errors.Is(err, errPastCap) {
