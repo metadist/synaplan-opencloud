@@ -204,7 +204,7 @@ func (h *Handler) sendSourceEvents(ctx context.Context, files watchFiles, change
 // reuploadKept replaces Synaplan's copy of a kept file with its current
 // bytes and returns the version it sent.
 func (h *Handler) reuploadKept(ctx context.Context, files watchFiles, kept synced.File) (string, error) {
-	opened, err := files.Open(ctx, kept.ResourceID)
+	opened, err := files.OpenVersion(ctx, kept.ResourceID, "")
 	if err != nil {
 		return "", err
 	}

@@ -144,10 +144,21 @@ describe('WatchDialog', () => {
   })
 
   it('says when files are only sent on a check', async () => {
-    get.mockResolvedValueOnce(options({ uploadsEnabled: false }))
+    get.mockResolvedValueOnce(options({ uploadsEnabled: false, uploadsBlocked: 'consent' }))
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.find(testid('no-uploads')).exists()).toBe(true)
+    expect(wrapper.find(testid('no-machine')).exists()).toBe(false)
+    expect(wrapper.text()).toContain('allow Synaplan to work for you on the Synaplan page')
+  })
+
+  it('says when machine authentication is missing, not that the person should allow it again', async () => {
+    get.mockResolvedValueOnce(options({ uploadsEnabled: false, uploadsBlocked: 'machine_auth' }))
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.find(testid('no-machine')).exists()).toBe(true)
+    expect(wrapper.find(testid('no-uploads')).exists()).toBe(false)
+    expect(wrapper.text()).toContain('configure machine authentication')
   })
 
   it('checks a watched item now and says what was sent', async () => {
@@ -170,6 +181,10 @@ describe('WatchDialog', () => {
 
   it.each([
     [{ watches: 1, sent: 0, failed: 0 }, 'Checked. Synaplan has every file already.'],
+    [
+      { watches: 0, sent: 0, failed: 0 },
+      'Nothing was checked. This watch is not running, so Synaplan has not confirmed it has every file.'
+    ],
     [{ watches: 1, sent: 1, failed: 0 }, 'Checked. 1 file was sent to Synaplan.'],
     [
       { watches: 1, sent: 1, failed: 1 },

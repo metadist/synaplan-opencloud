@@ -78,7 +78,18 @@
     </p>
 
     <p
-      v-if="uploadsEnabled === false && (phase === 'setup' || phase === 'watching')"
+      v-if="uploadsBlocked === 'machine_auth' && (phase === 'setup' || phase === 'watching')"
+      class="ext:text-sm ext:text-role-on-surface-variant"
+      data-testid="synaplan-watch-no-machine"
+    >
+      {{
+        $gettext(
+          'Files are only sent when you check now. Sending them while you are away needs an administrator to configure machine authentication for this service.'
+        )
+      }}
+    </p>
+    <p
+      v-else-if="uploadsEnabled === false && (phase === 'setup' || phase === 'watching')"
       class="ext:text-sm ext:text-role-on-surface-variant"
       data-testid="synaplan-watch-no-uploads"
     >
@@ -164,9 +175,14 @@ const optionsSchema = z.object({
   tasks: z.array(taskSchema),
   folders: z.array(z.string()),
   watching: z.boolean(),
-  uploadsEnabled: z.boolean()
+  uploadsEnabled: z.boolean(),
+  uploadsBlocked: z.string().optional()
 })
-const startSchema = z.object({ id: z.number(), uploadsEnabled: z.boolean() })
+const startSchema = z.object({
+  id: z.number(),
+  uploadsEnabled: z.boolean(),
+  uploadsBlocked: z.string().optional()
+})
 const checkSchema = z.object({ watches: z.number(), sent: z.number(), failed: z.number() })
 
 type Phase = 'loading' | 'unavailable' | 'setup' | 'watching' | 'stopped'
@@ -178,6 +194,7 @@ const task = ref<Task | null>(null)
 const tasks = ref<Task[]>([])
 const folderOptions = ref<string[]>([])
 const uploadsEnabled = ref<boolean | null>(null)
+const uploadsBlocked = ref('')
 const busy = ref(false)
 const error = ref('')
 const checked = ref<z.infer<typeof checkSchema> | null>(null)
@@ -195,6 +212,11 @@ const checkedSentence = computed(() => {
   if (!result) return ''
   if (result.failed > 0) {
     return $gettext('Checked. Some files could not be sent; Synaplan asks for them again later.')
+  }
+  if (result.watches === 0) {
+    return $gettext(
+      'Nothing was checked. This watch is not running, so Synaplan has not confirmed it has every file.'
+    )
   }
   if (result.sent === 0) return $gettext('Checked. Synaplan has every file already.')
   return $ngettext(
@@ -224,6 +246,7 @@ onMounted(async () => {
     tasks.value = data.tasks
     folderOptions.value = data.folders
     uploadsEnabled.value = data.uploadsEnabled
+    uploadsBlocked.value = data.uploadsBlocked ?? ''
     phase.value = data.watching ? 'watching' : 'setup'
   } catch (e) {
     console.error('synaplan watch options failed', e)
@@ -249,6 +272,7 @@ async function onStart() {
       { schema: startSchema }
     )
     uploadsEnabled.value = data.uploadsEnabled
+    uploadsBlocked.value = data.uploadsBlocked ?? ''
     phase.value = 'watching'
   } catch (e) {
     console.error('synaplan watch start failed', e)

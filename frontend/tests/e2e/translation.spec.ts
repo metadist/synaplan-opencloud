@@ -9,6 +9,7 @@ import {
   uploadFileFromDisk,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
+import { findFileRow, navigateToFolder } from '../../support/helpers/filesPage'
 
 // All fixture files land in this subdir of the user's personal space
 // so they don't clutter the test user's root listing. The folder is
@@ -66,7 +67,7 @@ test('translate file context action is visible for the signed-in user', async ({
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, 'hello')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToFolder(userPage, TESTS_DIR)
 
   const row = await findFileRow(userPage, baseName)
   await openSynaplanMenu(row)
@@ -90,7 +91,7 @@ test('translate a text file end-to-end', async ({ request }) => {
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, fileText)
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToFolder(userPage, TESTS_DIR)
   await runTranslationFlow(userPage, baseName, 'Deutsch')
 })
 
@@ -113,7 +114,7 @@ test('translate a PDF file end-to-end', async ({ request }) => {
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToFolder(userPage, TESTS_DIR)
   await runTranslationFlow(userPage, baseName, 'Deutsch')
 })
 
@@ -154,27 +155,4 @@ async function runTranslationFlow(page: Page, fileName: string, languageLabel: s
   // OcModal's built-in title-bar X.
   await page.locator('.oc-modal-title-actions-cancel').click()
   await expect(dialog).toBeHidden()
-}
-
-/**
- * Locate a resource row in the files list by the standard
- * `data-test-resource-name` attribute. Mirrors the selector
- * opencloud-eu/web-extensions uses in its own E2E tests.
- */
-async function findFileRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
-}
-
-/**
- * Reload the files view so freshly-uploaded fixtures show up, then
- * click into the tests subdir so every test operates inside it.
- */
-async function navigateToTestsFolder(page: Page) {
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  const folderRow = await findFileRow(page, TESTS_DIR)
-  await folderRow.click()
 }

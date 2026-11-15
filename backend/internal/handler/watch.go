@@ -84,6 +84,9 @@ func writeWatchFailure(w http.ResponseWriter, op string, err error) {
 // and knowledge folders, whether the item is watched already, and whether
 // files are sent while the person is away.
 func (h *Handler) WatchOptions(w http.ResponseWriter, r *http.Request) {
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
 	targetID := strings.TrimSpace(r.URL.Query().Get("targetId"))
 	if targetID == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetId is required"})
@@ -115,11 +118,13 @@ func (h *Handler) WatchOptions(w http.ResponseWriter, r *http.Request) {
 	for _, f := range resp.JSON200.Folders {
 		folders = append(folders, f.GroupKey)
 	}
+	blocked := h.uploadsBlocked(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tasks":          tasks,
 		"folders":        folders,
 		"watching":       len(watches) > 0,
-		"uploadsEnabled": h.worksWhileAway(r.Context()),
+		"uploadsEnabled": blocked == "",
+		"uploadsBlocked": blocked,
 	})
 }
 
@@ -154,6 +159,9 @@ func (req *watchStartRequest) validate() string {
 // read first, as the signed-in person, so a watch is only started on
 // something they can open, and Synaplan gets its path to show.
 func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
 	var req watchStartRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body: " + err.Error()})
@@ -202,15 +210,20 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 		writeWatchFailure(w, "watch start", fmt.Errorf("decoding the new watch: %w", err))
 		return
 	}
+	blocked := h.uploadsBlocked(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":             created.ID,
-		"uploadsEnabled": h.worksWhileAway(r.Context()),
+		"uploadsEnabled": blocked == "",
+		"uploadsBlocked": blocked,
 	})
 }
 
 // WatchStop stops every watch the signed-in person has on one folder or
 // file.
 func (h *Handler) WatchStop(w http.ResponseWriter, r *http.Request) {
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
 	targetID := strings.TrimSpace(r.URL.Query().Get("targetId"))
 	if targetID == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetId is required"})
@@ -245,7 +258,7 @@ func (h *Handler) WatchStop(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) watches(ctx context.Context) ([]watch, error) {
 	resp, err := h.synaplanAPI.CloudWatchesWithResponse(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing watches: %w", err)
 	}
 	if resp.StatusCode() != http.StatusOK {
 		return nil, upstream(resp.StatusCode(), resp.Body)
@@ -304,11 +317,40 @@ func (h *Handler) awaySubject(ctx context.Context) string {
 	return sub
 }
 
+// refuseWatchSharedKey closes the watch routes when every OpenCloud user
+// shares one Synaplan key. That key's watches are one account's, so any
+// signed-in user could list or stop them by knowing a target id.
+func (h *Handler) refuseWatchSharedKey(w http.ResponseWriter) bool {
+	if h == nil || !h.sharedKey {
+		return false
+	}
+	writeJSON(w, http.StatusForbidden, errorResponse{
+		Error: "Watching needs each person signed in to Synaplan. This installation uses one shared key.",
+		Code:  "watch_shared_key",
+	})
+	return true
+}
+
+// uploadsBlocked says why files are not sent while the person is away.
+// machine_auth means the service cannot read files without a browser
+// session, so asking the person to allow it again would not help.
+// consent means they have not allowed Synaplan to work for them.
+// An empty string means uploads while they are away are on.
+func (h *Handler) uploadsBlocked(ctx context.Context) string {
+	if h == nil || h.cs3 == nil || !h.cs3.CanImpersonate() || !h.delegation.Configured() {
+		return "machine_auth"
+	}
+	if h.awaySubject(ctx) == "" {
+		return "consent"
+	}
+	return ""
+}
+
 // watchFiles is how a watch reaches the files it follows. The reva token
 // on the context decides as whom: the signed-in person's own session, or
 // machine auth for a person who is away.
 type watchFiles interface {
 	StatResource(ctx context.Context, resourceID string) (cs3reader.Resource, error)
 	List(ctx context.Context, folderID string) ([]cs3reader.Resource, error)
-	Open(ctx context.Context, resourceID string) (*cs3reader.File, error)
+	OpenVersion(ctx context.Context, resourceID, etag string) (*cs3reader.File, error)
 }
