@@ -83,9 +83,11 @@ type Handler struct {
 
 	// reconcileMu guards the cursors a pass uses so the next pass starts
 	// where this one stopped. One process only; each replica keeps its own.
+	// Watch progress is per person: each person has their own list, and a
+	// one-watch check must not reset someone else's place in theirs.
 	reconcileMu   sync.Mutex
 	subjectCursor int
-	watchCursor   int
+	watchCursors  map[string]int
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.
