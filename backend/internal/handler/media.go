@@ -211,11 +211,11 @@ func (h *Handler) fetchGenerated(ctx context.Context, ref generatedFile) ([]byte
 	defer func() { _ = resp.Body.Close() }()
 	limit := h.copyLimit()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil {
-		return nil, fmt.Errorf("reading generated file: %w: %w", errSynaplanUnreachable, err)
-	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, wrapUpstreamStatus("fetching generated file", resp.StatusCode, body)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading generated file: %w: %w", errSynaplanUnreachable, err)
 	}
 	if int64(len(body)) > limit {
 		return nil, errImageTooLarge

@@ -133,6 +133,11 @@ function synaplanUploadPath(fileUrl: string): string | undefined {
   const path = fileUrl.split('#')[0]?.split('?')[0] ?? ''
   const marker = '/api/v1/files/uploads/'
   const at = path.indexOf(marker)
+  // An absolute URL that is not one of Synaplan's file routes, such as a
+  // placeholder image, does not name a file to look up.
+  if (at < 0 && (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith('//'))) {
+    return undefined
+  }
   const raw = at >= 0 ? path.slice(at + marker.length) : path.replace(/^\/+/, '')
   if (!raw || raw.includes('..')) return undefined
   try {

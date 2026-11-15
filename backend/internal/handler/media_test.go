@@ -215,6 +215,21 @@ func TestFetchGeneratedDistinguishesTransportFailures(t *testing.T) {
 	if !errors.Is(err, errSynaplanUnreachable) {
 		t.Fatalf("transport = %v, want errSynaplanUnreachable", err)
 	}
+
+	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("no"))
+	}))
+	defer truncated.Close()
+	h, err = New(nil, truncated.URL, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.fetchGenerated(context.Background(), generatedFile{id: 7})
+	if err == nil || errors.Is(err, errSynaplanUnreachable) || !strings.Contains(err.Error(), "status 503") {
+		t.Fatalf("truncated 503 = %v, want the HTTP status", err)
+	}
 }
 
 func TestSaveImageMapsFetchFailures(t *testing.T) {

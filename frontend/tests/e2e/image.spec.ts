@@ -136,6 +136,6 @@ async function generatedSynaplanFileId(
 ): Promise<number> {
   if (!response.ok()) return 0
   const body = (await response.json()) as { url?: unknown }
-  if (typeof body.url !== 'string' || body.url === '') return 0
+  if (typeof body.url !== 'string' || !body.url.includes('/api/v1/files/')) return 0
   return synaplanFileIdForUrl(request, SYNAPLAN_API_URL, synaplanToken, body.url)
 }
