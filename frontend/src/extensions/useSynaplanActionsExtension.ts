@@ -3,6 +3,7 @@ import { useGettext } from 'vue3-gettext'
 import { useTranslationExtension } from './useTranslationExtension'
 import { useSummarizeExtension } from './useSummarizeExtension'
 import { useKnowledgeExtension } from './useKnowledgeExtension'
+import { useFromSynaplanExtension } from './useFromSynaplanExtension'
 import { useWatchExtension } from './useWatchExtension'
 import { useReadFolderExtension } from './useReadFolderExtension'
 import { useSynaplanBrandIcon } from '../composables/useSynaplanBrandIcon'
@@ -14,6 +15,7 @@ export const useSynaplanActionsExtension = (): ActionExtension => {
     useTranslationExtension(),
     useSummarizeExtension(),
     useKnowledgeExtension(),
+    useFromSynaplanExtension(),
     useWatchExtension(),
     useReadFolderExtension()
   ].map(({ action }) => action)

@@ -120,6 +120,10 @@ func Server(cfg *config.Config) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
+			h.SetMaxCopyBytes(cfg.MaxCopyBytes)
+			if cfg.SynaplanAPIKey != "" {
+				h.UseSharedKey()
+			}
 			if delegated != nil && cfg.MachineAuthAPIKey == "" {
 				logger.Info().Msg("synaplan-opencloud: OC_MACHINE_AUTH_API_KEY is not set; watched files are only sent when a person checks a watch themselves")
 			}
@@ -161,6 +165,8 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/knowledge/groups", h.KnowledgeGroups)
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
 				r.Post("/api/synaplan/cloud/status", h.CloudStatus)
+				r.Get("/api/synaplan/from-synaplan", h.ListSynaplanFiles)
+				r.Post("/api/synaplan/from-synaplan", h.CopyFromSynaplan)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)
