@@ -16,14 +16,17 @@
           option-label="name"
           :clearable="false"
           :searchable="false"
+          :disabled="saving"
           :position-fixed="true"
           data-testid="synaplan-admin-language"
           @update:model-value="onLanguageChange"
         />
         <oc-checkbox
-          v-model="useUserLanguage"
+          :model-value="useUserLanguage"
+          :disabled="saving"
           :label="$gettext('Answer in each person’s OpenCloud language when Synaplan supports it')"
           data-testid="synaplan-admin-user-language"
+          @update:model-value="onUserLanguageChange"
         />
         <div class="ext:flex ext:items-center ext:gap-3">
           <oc-button
@@ -158,14 +161,24 @@ async function loadSettings() {
 }
 
 function onLanguageChange(value: LanguageOption | null) {
-  if (value) {
-    selectedLanguage.value = value
-    saved.value = false
+  if (!value || saving.value) {
+    return
   }
+  selectedLanguage.value = value
+  saved.value = false
+}
+
+function onUserLanguageChange(value: boolean) {
+  if (saving.value) {
+    return
+  }
+  useUserLanguage.value = value
+  saved.value = false
 }
 
 async function save() {
   const language = selectedLanguage.value
+  const userLanguage = useUserLanguage.value
   if (!language || !settings.value) return
   saving.value = true
   saved.value = false
@@ -173,13 +186,13 @@ async function save() {
   try {
     await httpAuthenticated.put(
       '/api/synaplan/settings',
-      { defaultAnswerLanguage: language.code, useUserLanguage: useUserLanguage.value },
+      { defaultAnswerLanguage: language.code, useUserLanguage: userLanguage },
       { schema: savedSchema }
     )
     settings.value = {
       ...settings.value,
       defaultAnswerLanguage: language.code,
-      useUserLanguage: useUserLanguage.value
+      useUserLanguage: userLanguage
     }
     saved.value = true
   } catch (e) {

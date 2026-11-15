@@ -28,16 +28,16 @@ const ocButton = defineComponent({
 
 const ocSelect = defineComponent({
   name: 'oc-select',
-  props: ['modelValue', 'options'],
+  props: ['modelValue', 'options', 'disabled'],
   emits: ['update:model-value'],
-  setup(_, { attrs }) {
-    return () => h('div', attrs)
+  setup(props, { attrs }) {
+    return () => h('div', { ...attrs, disabled: props.disabled ? true : undefined })
   }
 })
 
 const ocCheckbox = defineComponent({
   name: 'oc-checkbox',
-  props: ['modelValue', 'label'],
+  props: ['modelValue', 'label', 'disabled'],
   emits: ['update:modelValue'],
   setup(props, { attrs, emit }) {
     return () =>
@@ -45,7 +45,13 @@ const ocCheckbox = defineComponent({
         ...attrs,
         type: 'checkbox',
         checked: props.modelValue,
-        onChange: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).checked)
+        disabled: props.disabled,
+        onChange: (e: Event) => {
+          if (props.disabled) {
+            return
+          }
+          emit('update:modelValue', (e.target as HTMLInputElement).checked)
+        }
       })
   }
 })
@@ -157,6 +163,61 @@ describe('AdminSettings', () => {
     )
     expect(wrapper.find('[data-testid="synaplan-admin-saved"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="synaplan-admin-error"]').exists()).toBe(false)
+  })
+
+  it('keeps the saved choice while the save is in progress', async () => {
+    answer(settings())
+    let finish: (value: { data: { saved: boolean } }) => void = () => {}
+    put.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
+    const wrapper = mountIt()
+    await flushPromises()
+
+    const pendingSave = wrapper.get('[data-testid="synaplan-admin-save"]').trigger('click')
+    await flushPromises()
+
+    const select = wrapper.findComponent({ name: 'oc-select' })
+    const checkbox = wrapper.findComponent({ name: 'oc-checkbox' })
+    expect(select.props('disabled')).toBe(true)
+    expect(checkbox.props('disabled')).toBe(true)
+
+    await select.vm.$emit('update:model-value', languages[1])
+    await checkbox.vm.$emit('update:modelValue', false)
+    expect(select.props('modelValue')).toEqual(languages[0])
+    expect(checkbox.props('modelValue')).toBe(true)
+
+    finish({ data: { saved: true } })
+    await pendingSave
+    await flushPromises()
+
+    expect(put).toHaveBeenCalledWith(
+      '/api/synaplan/settings',
+      { defaultAnswerLanguage: 'de', useUserLanguage: true },
+      expect.anything()
+    )
+    expect(wrapper.find('[data-testid="synaplan-admin-saved"]').exists()).toBe(true)
+    expect(select.props('disabled')).toBe(false)
+    expect(checkbox.props('disabled')).toBe(false)
+    expect(select.props('modelValue')).toEqual(languages[0])
+    expect(checkbox.props('modelValue')).toBe(true)
+  })
+
+  it('clears the saved note when the checkbox changes', async () => {
+    answer(settings())
+    put.mockResolvedValueOnce({ data: { saved: true } })
+    const wrapper = mountIt()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-admin-save"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-admin-saved"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="synaplan-admin-user-language"]').setValue(false)
+
+    expect(wrapper.find('[data-testid="synaplan-admin-saved"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'oc-checkbox' }).props('modelValue')).toBe(false)
   })
 
   it('says why a save failed in one sentence', async () => {
