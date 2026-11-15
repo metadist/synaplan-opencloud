@@ -97,13 +97,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Download frontend dist
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: frontend-dist
           path: frontend/dist/
 
       - name: Download generated Synaplan client
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: synaplan-client-gen
           path: backend/internal/synaplanapi/
@@ -159,7 +159,7 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Download frontend dist
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: frontend-dist
           path: frontend/dist/
@@ -216,7 +216,7 @@ jobs:
 
       # --- Start synaplan-opencloud stack ---
       - name: Download backend Docker image
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: docker-image
           path: /tmp
@@ -290,7 +290,7 @@ jobs:
       packages: write
     steps:
       - name: Download Docker image
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: docker-image
           path: /tmp
