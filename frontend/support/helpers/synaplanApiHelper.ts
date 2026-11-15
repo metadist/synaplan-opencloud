@@ -77,19 +77,24 @@ export async function knowledgeFileNames(
   return (body.files ?? []).map((file) => file.filename ?? '')
 }
 
-/** Upload a text file to the person's Synaplan files; returns its id. */
+/**
+ * Upload a text file straight into the person's Synaplan files and
+ * return its id. From Synaplan extracts the text; a delivery only
+ * stores the bytes so the copy is the file itself.
+ */
 export async function uploadToSynaplan(
   request: APIRequestContext,
   baseUrl: string,
   token: string,
   name: string,
-  content: string
+  content: string,
+  processLevel: 'extract' | 'store' = 'extract'
 ): Promise<number> {
   const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/upload`, {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
       'files[]': { name, mimeType: 'text/plain', buffer: Buffer.from(content) },
-      process_level: 'store'
+      process_level: processLevel
     }
   })
   if (!resp.ok()) {

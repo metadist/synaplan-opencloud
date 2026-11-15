@@ -63,7 +63,8 @@ async function sendNewFile(request: Parameters<typeof uploadToSynaplan>[0], name
     SYNAPLAN_API_URL,
     synaplanToken,
     name,
-    `copy of ${name}`
+    `copy of ${name}`,
+    'store'
   )
   synaplanFiles.push(fileId)
   // The Synaplan page called Synaplan through this OpenCloud, which links

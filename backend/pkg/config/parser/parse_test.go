@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/metadist/synaplan-opencloud/pkg/config"
+	"github.com/metadist/synaplan-opencloud/pkg/config/defaults"
 )
 
 // fullOIDCConfig returns a config with all four OIDC token-exchange
@@ -17,6 +18,19 @@ func fullOIDCConfig() *config.Config {
 		OIDCExchangeClientID: "synaplan-opencloud",
 		OIDCExchangeSecret:   "secret",
 		OIDCTargetAudience:   "synaplan-app",
+	}
+}
+
+func TestSanitize_CopyLimitDefaultsToCloudflare(t *testing.T) {
+	cfg := &config.Config{}
+	defaults.Sanitize(cfg)
+	if cfg.MaxCopyBytes != 100<<20 {
+		t.Fatalf("MaxCopyBytes = %d, want 100 MiB", cfg.MaxCopyBytes)
+	}
+	cfg.MaxCopyBytes = 4 << 30
+	defaults.Sanitize(cfg)
+	if cfg.MaxCopyBytes != 4<<30 {
+		t.Fatalf("a raised cap was reset to %d", cfg.MaxCopyBytes)
 	}
 }
 
