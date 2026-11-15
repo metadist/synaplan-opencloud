@@ -29,6 +29,7 @@ type fakeWatchSynaplan struct {
 
 	mu         sync.Mutex
 	reconciled map[int][][]string
+	asked      []int
 	uploads    []upload
 	stops      []string
 }
@@ -77,6 +78,7 @@ func newFakeSynaplan(t *testing.T, watches []watch) *fakeWatchSynaplan {
 			rows = append(rows, item.ID+"@"+item.Version)
 		}
 		f.mu.Lock()
+		f.asked = append(f.asked, id)
 		f.reconciled[id] = append(f.reconciled[id], rows)
 		f.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{"process": f.process[id], "forget": []string{}})
@@ -140,6 +142,12 @@ func (f *fakeWatchSynaplan) stopped() []string {
 	return slices.Clone(f.stops)
 }
 
+func (f *fakeWatchSynaplan) askedOrder() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.asked)
+}
+
 // fakeFiles is a person's files: folders by id with their children, and
 // the bytes of each file.
 type fakeFiles struct {
@@ -147,6 +155,9 @@ type fakeFiles struct {
 	children  map[string][]string
 	content   map[string]string
 	broken    map[string]bool
+	// openEtag overrides the etag OpenVersion reports, so a file can
+	// change between the listing and the download.
+	openEtag map[string]string
 }
 
 func (f fakeFiles) StatResource(_ context.Context, id string) (cs3reader.Resource, error) {
@@ -171,12 +182,27 @@ func (f fakeFiles) List(_ context.Context, id string) ([]cs3reader.Resource, err
 	return out, nil
 }
 
-func (f fakeFiles) Open(_ context.Context, id string) (*cs3reader.File, error) {
-	r := f.resources[id]
+func (f fakeFiles) OpenVersion(_ context.Context, id, etag string) (*cs3reader.File, error) {
 	if f.broken[id] {
 		return nil, errors.New("gateway down")
 	}
-	return &cs3reader.File{Name: r.Name, MimeType: r.MimeType, Etag: r.Etag, Body: io.NopCloser(strings.NewReader(f.content[id]))}, nil
+	r, ok := f.resources[id]
+	if !ok {
+		return nil, cs3reader.ErrNotFound
+	}
+	got := r.Etag
+	if alt, ok := f.openEtag[id]; ok {
+		got = alt
+	}
+	if etag != "" && got != etag {
+		return nil, cs3reader.ErrChanged
+	}
+	return &cs3reader.File{
+		Name:     r.Name,
+		MimeType: r.MimeType,
+		Etag:     got,
+		Body:     io.NopCloser(strings.NewReader(f.content[id])),
+	}, nil
 }
 
 func inbox() fakeFiles {
@@ -251,6 +277,18 @@ func TestReconcileWatches(t *testing.T) {
 			want:      reconcileResult{Watches: 1, Sent: 1},
 			wantAsked: map[int][][]string{8: {{"s$sp!c@ec"}}},
 			wantSent:  []string{"8|s$sp!c|ec|c.md|c.md|# c|application/octet-stream"},
+		},
+		{
+			name:    "a file that changed since the listing is left for the next check",
+			watches: []watch{fileWatch},
+			process: map[int][]string{8: {"s$sp!c"}},
+			files: func() fakeFiles {
+				f := inbox()
+				f.openEtag = map[string]string{"s$sp!c": "ec-new"}
+				return f
+			},
+			want:      reconcileResult{Watches: 1},
+			wantAsked: map[int][][]string{8: {{"s$sp!c@ec"}}},
 		},
 		{
 			name:       "a refused upload is counted and the next file still goes",
@@ -332,6 +370,47 @@ func TestReconcileAsksInBatchesSynaplanAccepts(t *testing.T) {
 			sizes = append(sizes, len(b))
 		}
 		t.Fatalf("batches of %v, want [%d 1]", sizes, reconcileBatch)
+	}
+}
+
+func TestReconcileStartsAtTheWatchTheLastPassDidNotFinish(t *testing.T) {
+	syn := newFakeSynaplan(t, []watch{
+		{ID: 7, TargetKind: "folder", TargetID: "s$sp!inbox", State: "active"},
+		{ID: 8, TargetKind: "file", TargetID: "s$sp!c", State: "active"},
+	})
+	syn.process = map[int][]string{7: {"s$sp!a"}, 8: {"s$sp!c"}}
+	h := syn.handler(t)
+	h.watchCursor = 1
+
+	if _, err := h.reconcileWatches(context.Background(), inbox(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := syn.askedOrder(); !slices.Equal(got, []int{8, 7}) {
+		t.Fatalf("asked %v, want [8 7]", got)
+	}
+	if h.watchCursor != 1 {
+		t.Fatalf("cursor %d, want 1 after a full pass that started at 1", h.watchCursor)
+	}
+}
+
+func TestReconcileCursorStaysWhenAPassStartsNothing(t *testing.T) {
+	h := &Handler{}
+	if h.cursorStart(&h.subjectCursor, 4) != 0 {
+		t.Fatal(h.subjectCursor)
+	}
+	h.cursorAdvance(&h.subjectCursor, 0, 1, 4)
+	if h.cursorStart(&h.subjectCursor, 4) != 1 {
+		t.Fatalf("cursor %d, want 1", h.subjectCursor)
+	}
+	h.cursorAdvance(&h.subjectCursor, 1, 0, 4)
+	if h.cursorStart(&h.subjectCursor, 4) != 1 {
+		t.Fatal("a pass that started nobody skipped ahead")
+	}
+}
+
+func TestUploadsBlockedNamesMachineAuthWhenItIsMissing(t *testing.T) {
+	if got := (&Handler{}).uploadsBlocked(context.Background()); got != "machine_auth" {
+		t.Fatalf("blocked %q, want machine_auth", got)
 	}
 }
 

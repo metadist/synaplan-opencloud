@@ -7,6 +7,7 @@ import {
   ensureFolder,
   getPersonalSpace
 } from '../../support/helpers/filesHelper'
+import { findFileRow } from '../../support/helpers/filesPage'
 import { deleteSynaplanFileQuiet, uploadToSynaplan } from '../../support/helpers/synaplanApiHelper'
 
 const TEST_USER = 'testuser@synaplan.com'
@@ -51,8 +52,8 @@ test('a file from Synaplan is copied into the chosen folder', async ({ browser, 
   try {
     page = (await loginAsUser(browser, TEST_USER, TEST_PASSWORD)).page
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await (await findRow(page, TESTS_DIR)).click()
-    await openSynaplanMenu(await findRow(page, folderName))
+    await (await findFileRow(page, TESTS_DIR)).click()
+    await openSynaplanMenu(await findFileRow(page, folderName))
     await page.locator('.oc-files-actions-from-synaplan-trigger').click()
 
     const dialog = page.locator('[data-testid="synaplan-from-dialog"]')
@@ -71,11 +72,3 @@ test('a file from Synaplan is copied into the chosen folder', async ({ browser, 
     await deleteSynaplanFileQuiet(request, SYNAPLAN_API_URL, synaplanToken, fileId)
   }
 })
-
-async function findRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
-}

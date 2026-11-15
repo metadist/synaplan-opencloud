@@ -26,6 +26,10 @@ import (
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
+// ErrChanged means the file is not the version the caller named, so the
+// bytes must not be uploaded under that version.
+var ErrChanged = errors.New("cs3reader: file changed")
+
 // File is a handle to a file opened via the CS3 gateway.
 // The caller is responsible for closing Body.
 type File struct {
@@ -109,6 +113,14 @@ func statFile(ctx context.Context, gwc gateway.GatewayAPIClient, resourceID stri
 //
 // Callers MUST close File.Body when done.
 func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
+	return r.OpenVersion(ctx, resourceID, "")
+}
+
+// OpenVersion is Open restricted to etag. An empty etag accepts any
+// version. A change between the stat and the download is rejected by a
+// second stat before the body is returned. The gateway's simple download
+// has no If-Match, so a change during the transfer itself is not pinned.
+func (r *Reader) OpenVersion(ctx context.Context, resourceID, etag string) (*File, error) {
 	if r == nil || r.gws == nil {
 		return nil, errors.New("cs3reader: not configured")
 	}
@@ -139,6 +151,9 @@ func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
 	info := statRes.GetInfo()
 	if info.GetType() != provider.ResourceType_RESOURCE_TYPE_FILE {
 		return nil, errors.New("cs3reader: resource is not a file")
+	}
+	if etag != "" && info.GetEtag() != etag {
+		return nil, ErrChanged
 	}
 
 	// InitiateFileDownload needs a path-based reference (space root +
@@ -187,6 +202,21 @@ func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
 		bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("cs3reader: download from %q returned %d: %s", endpoint, resp.StatusCode, string(bodySnippet))
+	}
+	if etag != "" {
+		again, statErr := gwc.Stat(gwCtx, &provider.StatRequest{Ref: ref})
+		if statErr != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("cs3reader: stat after download: %w", statErr)
+		}
+		if again.GetStatus().GetCode() != rpc.Code_CODE_OK {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("cs3reader: stat after download: %s", again.GetStatus().GetMessage())
+		}
+		if again.GetInfo().GetEtag() != etag {
+			_ = resp.Body.Close()
+			return nil, ErrChanged
+		}
 	}
 
 	return &File{
