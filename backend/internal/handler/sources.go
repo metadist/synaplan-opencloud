@@ -198,16 +198,7 @@ func (h *Handler) keptOne(ctx context.Context, subject, resourceID string) (sync
 	if h.synced == nil {
 		return synced.File{}, false, nil
 	}
-	files, err := h.synced.Files(ctx, subject)
-	if err != nil {
-		return synced.File{}, false, err
-	}
-	for _, file := range files {
-		if file.ResourceID == resourceID {
-			return file, true, nil
-		}
-	}
-	return synced.File{}, false, nil
+	return h.synced.Get(ctx, subject, resourceID)
 }
 
 // sourceChangeFor compares a kept file with its OpenCloud copy.

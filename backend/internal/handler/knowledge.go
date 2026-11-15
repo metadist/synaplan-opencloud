@@ -76,6 +76,12 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 
 	var uploaded *uploadedFile
 	var keptUpToDate bool
+	// Hold the file's lock before it is opened. A check that starts while
+	// this upload waits would otherwise record a newer version, and this
+	// request would then store the bytes it already opened.
+	if keeper != "" {
+		defer h.lockKept(keeper, req.ResourceID)()
+	}
 	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
 			return "", fmt.Errorf("%w: %q", errUnsupportedType, file.MimeType)
@@ -118,13 +124,13 @@ func (h *Handler) uploadKnowledge(
 	overwrite bool,
 ) (*uploadedFile, bool, error) {
 	follow := keeper != ""
+	var kept synced.File
 	placed := false
 	// unknown means the store could not be read, so the upload must not
 	// change keep_synced: a 0 would clear it for a file already kept.
 	unknown := false
 	if follow {
-		defer h.lockKept(keeper, resourceID)()
-		_, found, err := h.keptOne(ctx, keeper, resourceID)
+		row, found, err := h.keptOne(ctx, keeper, resourceID)
 		switch {
 		case err != nil:
 			log.Printf("knowledge: reading the kept file: %v", err)
@@ -135,9 +141,18 @@ func (h *Handler) uploadKnowledge(
 			if err != nil {
 				log.Printf("knowledge: keeping the file up to date: %v", err)
 				follow = false
-			} else {
-				placed = true
+				break
 			}
+			row, found, err = h.keptOne(ctx, keeper, resourceID)
+			if err != nil || !found || row.Revision == 0 {
+				log.Printf("knowledge: reading the placeholder: %v", err)
+				follow = false
+				break
+			}
+			placed = true
+			kept = row
+		default:
+			kept = row
 		}
 	}
 
@@ -159,18 +174,19 @@ func (h *Handler) uploadKnowledge(
 		KeepSynced: keepSynced,
 	})
 	if err != nil {
-		h.dropUnindexed(ctx, keeper, resourceID, placed)
+		h.dropUnindexed(ctx, kept, placed)
 		return nil, false, fmt.Errorf("synaplan upload: %w", err)
 	}
 	if uploaded.ChunksCreated == 0 {
-		h.dropUnindexed(ctx, keeper, resourceID, placed)
+		h.dropUnindexed(ctx, kept, placed)
 		return nil, false, errNoText
 	}
 	if !follow || keeper == "" {
 		return uploaded, false, nil
 	}
-	err = h.synced.Put(ctx, synced.File{Subject: keeper, ResourceID: resourceID, Etag: file.Etag, GroupKey: groupKey})
-	if err != nil {
+	kept.Etag = file.Etag
+	kept.GroupKey = groupKey
+	if _, err = h.synced.Update(ctx, kept); err != nil {
 		// The row written beforehand is still there. A new file's empty
 		// etag, or the previous etag, makes the next check send this version.
 		log.Printf("knowledge: recording the version: %v", err)
@@ -179,12 +195,13 @@ func (h *Handler) uploadKnowledge(
 }
 
 // dropUnindexed forgets a placeholder written for a file that was not
-// indexed. An existing row is left so the next check can try again.
-func (h *Handler) dropUnindexed(ctx context.Context, keeper, resourceID string, placed bool) {
-	if !placed || h.synced == nil {
+// indexed, and only that revision. A newer row another writer confirmed
+// is left so synchronization keeps its tracking.
+func (h *Handler) dropUnindexed(ctx context.Context, kept synced.File, placed bool) {
+	if !placed || h.synced == nil || kept.Revision == 0 {
 		return
 	}
-	if err := h.synced.Delete(ctx, keeper, resourceID, 0); err != nil {
+	if err := h.synced.Delete(ctx, kept.Subject, kept.ResourceID, kept.Revision); err != nil {
 		log.Printf("knowledge: forgetting a file that was not indexed: %v", err)
 	}
 }

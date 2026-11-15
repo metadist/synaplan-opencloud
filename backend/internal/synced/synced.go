@@ -43,6 +43,8 @@ type Store interface {
 	// is kept for it when match is 0. Forgetting a file that is not kept
 	// is not an error.
 	Delete(ctx context.Context, subject, resourceID string, match uint64) error
+	// Get reads the one file kept for subject and resourceID.
+	Get(ctx context.Context, subject, resourceID string) (file File, ok bool, err error)
 	// Files lists the files kept for subject.
 	Files(ctx context.Context, subject string) ([]File, error)
 }
@@ -149,6 +151,29 @@ func (s *NATSStore) Delete(ctx context.Context, subject, resourceID string, matc
 	return fmt.Errorf("synced: forgetting: %w", err)
 }
 
+// Get reads one kept file by its key, including the revision a later
+// Update or Delete must name.
+func (s *NATSStore) Get(ctx context.Context, subject, resourceID string) (File, bool, error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return File{}, false, err
+	}
+	key := Key(subject, resourceID)
+	entry, err := kv.Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return File{}, false, nil
+	}
+	if err != nil {
+		return File{}, false, fmt.Errorf("synced: reading: %w", err)
+	}
+	file, ok := decode(key, entry.Value())
+	if !ok {
+		return File{}, false, nil
+	}
+	file.Revision = entry.Revision()
+	return file, true, nil
+}
+
 // Files lists the files kept for subject.
 func (s *NATSStore) Files(ctx context.Context, subject string) ([]File, error) {
 	kv, err := s.open(ctx)
@@ -227,6 +252,14 @@ func (s *MemoryStore) Delete(_ context.Context, subject, resourceID string, matc
 		delete(s.files, key)
 	}
 	return nil
+}
+
+// Get reads one kept file.
+func (s *MemoryStore) Get(_ context.Context, subject, resourceID string) (File, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	file, ok := s.files[Key(subject, resourceID)]
+	return file, ok, nil
 }
 
 // Files lists the files kept for subject, by resource id.

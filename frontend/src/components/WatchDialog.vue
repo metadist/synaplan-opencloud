@@ -235,7 +235,7 @@ const checkedSentence = computed(() => {
       { n: String(result.sent) }
     )
   }
-  if (result.sent === 0) return $gettext('Checked. Synaplan has every file already.')
+  if (result.sent === 0) return $gettext('Checked. Nothing new was sent on this check.')
   return $ngettext(
     'Checked. %{n} file was sent to Synaplan.',
     'Checked. %{n} files were sent to Synaplan.',

@@ -175,6 +175,9 @@ func (s rejectingStore) Update(context.Context, synced.File) (bool, error) {
 	return false, s.err
 }
 func (s rejectingStore) Delete(context.Context, string, string, uint64) error { return nil }
+func (s rejectingStore) Get(context.Context, string, string) (synced.File, bool, error) {
+	return synced.File{}, false, nil
+}
 func (s rejectingStore) Files(context.Context, string) ([]synced.File, error) {
 	return nil, nil
 }
@@ -191,6 +194,10 @@ func (s *failSecondPut) Put(ctx context.Context, file synced.File) error {
 		return errors.New("store unavailable")
 	}
 	return s.MemoryStore.Put(ctx, file)
+}
+
+func (s *failSecondPut) Update(context.Context, synced.File) (bool, error) {
+	return false, errors.New("store unavailable")
 }
 
 func TestKnowledgeDoesNotEnableSyncWhenTheStoreRefuses(t *testing.T) {

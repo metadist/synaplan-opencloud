@@ -180,7 +180,7 @@ describe('WatchDialog', () => {
   })
 
   it.each([
-    [{ watches: 1, sent: 0, failed: 0 }, 'Checked. Synaplan has every file already.'],
+    [{ watches: 1, sent: 0, failed: 0 }, 'Checked. Nothing new was sent on this check.'],
     [
       { watches: 1, sent: 0, failed: 0, skipped: 1 },
       'Checked. Synaplan left some files out, so they are not all searchable.'
