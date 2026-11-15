@@ -9,6 +9,7 @@ import {
   uploadFileFromDisk,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
+import { findFileRow, navigateToTestsFolder } from '../../support/helpers/filesViewHelper'
 import { wipeKnowledgeGroup } from '../../support/helpers/synaplanApiHelper'
 
 const TESTS_DIR = 'synaplan-e2e'
@@ -75,7 +76,7 @@ test('add-to-knowledge context action is visible for the signed-in user', async 
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, 'hello')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
 
   const row = await findFileRow(userPage, baseName)
   await openSynaplanMenu(row)
@@ -101,7 +102,7 @@ test('add a text file to a knowledge group end-to-end', async ({ request }) => {
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
 })
 
@@ -121,7 +122,7 @@ test('add a PDF file to a knowledge group end-to-end', async ({ request }) => {
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await runKnowledgeFlow(userPage, baseName, KNOWLEDGE_GROUP)
 })
 
@@ -147,7 +148,7 @@ test('a searchable file carries the Synaplan bird in its folder', async ({ reque
       .filter({ has: userPage.locator(`[data-test-resource-name="${baseName}"]`) })
       .locator('[data-test-indicator-type="synaplan-searchable"]')
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await findFileRow(userPage, baseName)
   await expect(bird()).toHaveCount(0)
 
@@ -174,7 +175,7 @@ test('the Synaplan tab names the state and the folder, and removes the file', as
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await openSynaplanTab(userPage, baseName)
   await expect(userPage.locator('[data-testid="synaplan-sidebar-not-searchable"]')).toBeVisible()
   await userPage.keyboard.press('Escape')
@@ -231,20 +232,6 @@ async function runKnowledgeFlow(page: Page, fileName: string, groupKey: string) 
 
   await page.locator('.oc-modal-title-actions-cancel').click()
   await expect(dialog).toBeHidden()
-}
-
-async function findFileRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
-}
-
-async function navigateToTestsFolder(page: Page) {
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  const folderRow = await findFileRow(page, TESTS_DIR)
-  await folderRow.click()
 }
 
 async function openSynaplanTab(page: Page, name: string) {

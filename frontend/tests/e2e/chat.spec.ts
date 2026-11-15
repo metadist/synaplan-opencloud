@@ -9,6 +9,7 @@ import {
   uploadFileFromDisk,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
+import { findFileRow, navigateToTestsFolder } from '../../support/helpers/filesViewHelper'
 import { defaultChatModelLabel } from '../../support/helpers/synaplanApiHelper'
 
 /**
@@ -57,7 +58,7 @@ test('ask-about-file context action is visible for the signed-in user', async ({
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, 'hello')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   const row = await findFileRow(userPage, baseName)
   await openSynaplanMenu(row)
 
@@ -87,7 +88,7 @@ test('ask a question about a text file with a picked model', async ({ request })
   })
   const modelLabel = await defaultChatModelLabel(request, SYNAPLAN_API_URL, synaplanToken)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await openChatDialog(userPage, baseName)
   await pickModel(userPage, modelLabel)
   await askAndExpectAnswer(userPage, 'Who sent this invoice?')
@@ -110,7 +111,7 @@ test('ask a question about a PDF file', async ({ request }) => {
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await openChatDialog(userPage, baseName)
   await askAndExpectAnswer(userPage, 'What is this document about?')
 })
@@ -121,7 +122,7 @@ test('asking about a file without text says so in one sentence', async ({ reques
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, '   \n')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await openChatDialog(userPage, baseName)
   await userPage.locator('[data-testid="synaplan-chat-question"]').fill('What is in it?')
   await userPage.locator('[data-testid="synaplan-chat-submit"]').click()
@@ -172,18 +173,4 @@ async function askAndExpectAnswer(page: Page, question: string) {
 
   await page.locator('.oc-modal-title-actions-cancel').click()
   await expect(page.locator('[data-testid="synaplan-chat-dialog"]')).toBeHidden()
-}
-
-async function findFileRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
-}
-
-async function navigateToTestsFolder(page: Page) {
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  const folderRow = await findFileRow(page, TESTS_DIR)
-  await folderRow.click()
 }

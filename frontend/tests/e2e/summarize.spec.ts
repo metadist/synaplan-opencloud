@@ -10,6 +10,7 @@ import {
   uploadFileFromDisk,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
+import { findFileRow, navigateToTestsFolder } from '../../support/helpers/filesViewHelper'
 
 const TESTS_DIR = 'synaplan-e2e'
 
@@ -54,7 +55,7 @@ test('summarize file context action is visible for the signed-in user', async ({
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, 'hello')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
 
   const row = await findFileRow(userPage, baseName)
   await openSynaplanMenu(row)
@@ -77,7 +78,7 @@ test('summarize a text file end-to-end', async ({ request }) => {
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, fileText)
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await runSummarizeFlow(userPage, baseName, 'Bullet points', 'Short')
 })
 
@@ -99,7 +100,7 @@ test('summarize a PDF file end-to-end', async ({ request }) => {
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   await runSummarizeFlow(userPage, baseName, 'Abstractive', 'Medium')
 })
 
@@ -119,7 +120,7 @@ test('a summary saved to the files lands in the personal space with its content'
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   const row = await findFileRow(userPage, baseName)
   await openSynaplanMenu(row)
   await userPage.locator('.oc-files-actions-summarize-trigger').click()
@@ -153,7 +154,7 @@ test('a file without text says so in one sentence', async ({ request }) => {
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, '   \n')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToTestsFolder(userPage, TESTS_DIR)
   const row = await findFileRow(userPage, baseName)
   await openSynaplanMenu(row)
   await userPage.locator('.oc-files-actions-summarize-trigger').click()
@@ -202,18 +203,4 @@ async function runSummarizeFlow(
 
   await page.locator('.oc-modal-title-actions-cancel').click()
   await expect(dialog).toBeHidden()
-}
-
-async function findFileRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
-}
-
-async function navigateToTestsFolder(page: Page) {
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  const folderRow = await findFileRow(page, TESTS_DIR)
-  await folderRow.click()
 }

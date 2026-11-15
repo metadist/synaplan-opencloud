@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,12 @@ const (
 	memoryCheckEvery = 5 * time.Minute
 	// memorySearchLimit is how many memories one question may bring in.
 	memorySearchLimit = 6
+	// memorySearchTimeout bounds the optional memory lookup. The
+	// generated client has no HTTP timeout, and the chat context lives
+	// for summaryTimeout. A stalled memory service must not hold the
+	// question: when this deadline passes, the question is asked
+	// without memories.
+	memorySearchTimeout = 5 * time.Second
 )
 
 // memoryCache keeps the last answer of Synaplan's memory-service health
@@ -42,6 +50,11 @@ func (h *Handler) memoriesAvailable(ctx context.Context) bool {
 	checkCtx, cancel := context.WithTimeout(ctx, memoryCheckTimeout)
 	defer cancel()
 	res, err := h.synaplanAPI.GetApiConfigMemoryServiceCheckWithResponse(checkCtx)
+	if err != nil {
+		log.Printf("memory service check: %v", err)
+	} else if res.StatusCode() != http.StatusOK {
+		log.Printf("memory service check: status %d", res.StatusCode())
+	}
 	available := err == nil && res.JSON200 != nil && res.JSON200.Available != nil && *res.JSON200.Available
 	h.memory.ok = available
 	h.memory.at = time.Now()
@@ -57,11 +70,20 @@ func (h *Handler) memoryContext(ctx context.Context, question string) string {
 		return ""
 	}
 	limit := memorySearchLimit
-	res, err := h.synaplanAPI.PostAppUsermemorySearchmemoriesWithResponse(ctx, synaplanapi.PostAppUsermemorySearchmemoriesJSONRequestBody{
+	searchCtx, cancel := context.WithTimeout(ctx, memorySearchTimeout)
+	defer cancel()
+	res, err := h.synaplanAPI.PostAppUsermemorySearchmemoriesWithResponse(searchCtx, synaplanapi.PostAppUsermemorySearchmemoriesJSONRequestBody{
 		Query: question,
 		Limit: &limit,
 	})
-	if err != nil || res.JSON200 == nil || res.JSON200.Memories == nil {
+	if err != nil {
+		log.Printf("memory search: %v", err)
+		return ""
+	}
+	if res.StatusCode() != http.StatusOK || res.JSON200 == nil || res.JSON200.Memories == nil {
+		if res.StatusCode() != http.StatusOK {
+			log.Printf("memory search: status %d", res.StatusCode())
+		}
 		return ""
 	}
 	lines := make([]string, 0, len(*res.JSON200.Memories))
