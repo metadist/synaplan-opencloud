@@ -141,6 +141,10 @@ type reconcileResult struct {
 	Watches int `json:"watches"`
 	Sent    int `json:"sent"`
 	Failed  int `json:"failed"`
+	// Skipped counts files Synaplan left out, such as a type it cannot
+	// read or a file that is too large. It remembers those versions, so
+	// they are not sent again, and they are not searchable.
+	Skipped int `json:"skipped"`
 }
 
 // reconcileWatches checks the active watches ctx's credential can see, or
@@ -175,13 +179,14 @@ func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, target
 		}
 		processed++
 		result.Watches++
-		sent, failed, err := h.reconcileWatch(ctx, files, each)
+		sent, failed, skipped, err := h.reconcileWatch(ctx, files, each)
 		if err != nil {
 			log.Printf("watch %d: %v", each.ID, err)
 			failed++
 		}
 		result.Sent += sent
 		result.Failed += failed
+		result.Skipped += skipped
 	}
 	return result, nil
 }
@@ -190,18 +195,18 @@ func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, target
 // version, and uploads the ones it asks for. Synaplan remembers each
 // version it got, so asking again is safe: a pass that dies half way is
 // finished by the next one, and two replicas never send a version twice.
-func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch) (sent, failed int, err error) {
+func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch) (sent, failed, skipped int, err error) {
 	ctx, cancel := context.WithTimeout(ctx, watchTimeout)
 	defer cancel()
 	covered, err := watchedFiles(ctx, files, w)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	for start := 0; start < len(covered); start += reconcileBatch {
 		batch := covered[start:min(start+reconcileBatch, len(covered))]
 		wanted, err := h.askReconcile(ctx, w.ID, batch)
 		if err != nil {
-			return sent, failed, err
+			return sent, failed, skipped, err
 		}
 		for _, file := range batch {
 			if !wanted[file.ID] {
@@ -212,6 +217,11 @@ func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch)
 					log.Printf("watch %d: %s changed; the next check sends the new version", w.ID, file.Name)
 					continue
 				}
+				if errors.Is(err, errFileSkipped) {
+					log.Printf("watch %d: %s was left out: %v", w.ID, file.Name, err)
+					skipped++
+					continue
+				}
 				log.Printf("watch %d: upload: %v", w.ID, err)
 				failed++
 				continue
@@ -219,7 +229,7 @@ func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch)
 			sent++
 		}
 	}
-	return sent, failed, nil
+	return sent, failed, skipped, nil
 }
 
 // watchedFiles is the watched file, or the files directly in the watched
@@ -288,6 +298,11 @@ func (h *Handler) askReconcile(ctx context.Context, watchID int, batch []cs3read
 // sends the current version under its own etag.
 var errFileChanged = errors.New("file changed since it was listed")
 
+// errFileSkipped means Synaplan answered 200 and left the file out.
+// It remembers that version, so counting it as sent would tell the
+// person every file is searchable.
+var errFileSkipped = errors.New("synaplan left this file out")
+
 func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID int, file cs3reader.Resource) error {
 	opened, err := files.OpenVersion(ctx, file.ID, file.Etag)
 	if err != nil {
@@ -317,6 +332,19 @@ func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID
 	}
 	if resp.StatusCode() != http.StatusOK {
 		return fmt.Errorf("upload %s: %w", file.Name, upstream(resp.StatusCode(), resp.Body))
+	}
+	var answer struct {
+		State  string `json:"state"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(resp.Body, &answer); err != nil {
+		return fmt.Errorf("upload %s: %w", file.Name, err)
+	}
+	if answer.State == "skipped" {
+		if answer.Reason == "" {
+			return errFileSkipped
+		}
+		return fmt.Errorf("%w: %s", errFileSkipped, answer.Reason)
 	}
 	return nil
 }

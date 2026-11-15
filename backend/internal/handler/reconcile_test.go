@@ -25,7 +25,10 @@ type fakeWatchSynaplan struct {
 	// process is what Synaplan asks to upload, per watch.
 	process      map[int][]string
 	uploadStatus map[string]int
-	stopStatus   map[int]int
+	// skip is why Synaplan left a file out, keyed by id. The answer is
+	// still HTTP 200, with state "skipped" and this reason.
+	skip       map[string]string
+	stopStatus map[int]int
 
 	mu         sync.Mutex
 	reconciled map[int][][]string
@@ -106,6 +109,14 @@ func newFakeSynaplan(t *testing.T, watches []watch) *fakeWatchSynaplan {
 		if status := f.uploadStatus[got.fields["id"]]; status != 0 {
 			w.WriteHeader(status)
 			_, _ = io.WriteString(w, `{"error":"invalid_watch","message":"This watch is not running."}`)
+			return
+		}
+		if reason, skipped := f.skip[got.fields["id"]]; skipped {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"item_id": 1,
+				"state":   "skipped",
+				"reason":  reason,
+			})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"state": "accepted"})
@@ -228,6 +239,7 @@ func TestReconcileWatches(t *testing.T) {
 		watches    []watch
 		process    map[int][]string
 		failUpload map[string]int
+		skip       map[string]string
 		files      func() fakeFiles
 		target     string
 		want       reconcileResult
@@ -291,6 +303,29 @@ func TestReconcileWatches(t *testing.T) {
 			wantAsked: map[int][][]string{8: {{"s$sp!c@ec"}}},
 		},
 		{
+			name:      "a file Synaplan leaves out is not counted as sent",
+			watches:   []watch{folderWatch},
+			process:   map[int][]string{7: {"s$sp!a", "s$sp!b"}},
+			skip:      map[string]string{"s$sp!a": "type_not_read"},
+			files:     inbox,
+			want:      reconcileResult{Watches: 1, Sent: 1, Skipped: 1},
+			wantAsked: map[int][][]string{7: {{"s$sp!a@ea", "s$sp!b@eb"}}},
+			wantSent: []string{
+				"7|s$sp!a|ea|a.txt|Inbox/a.txt|alpha|text/plain",
+				"7|s$sp!b|eb|b.pdf|Inbox/b.pdf|%PDF|application/pdf",
+			},
+		},
+		{
+			name:      "only skipped files are not every file already sent",
+			watches:   []watch{fileWatch},
+			process:   map[int][]string{8: {"s$sp!c"}},
+			skip:      map[string]string{"s$sp!c": "too_large"},
+			files:     inbox,
+			want:      reconcileResult{Watches: 1, Skipped: 1},
+			wantAsked: map[int][][]string{8: {{"s$sp!c@ec"}}},
+			wantSent:  []string{"8|s$sp!c|ec|c.md|c.md|# c|application/octet-stream"},
+		},
+		{
 			name:       "a refused upload is counted and the next file still goes",
 			watches:    []watch{folderWatch},
 			process:    map[int][]string{7: {"s$sp!a", "s$sp!b"}},
@@ -325,6 +360,9 @@ func TestReconcileWatches(t *testing.T) {
 			}
 			if tc.failUpload != nil {
 				syn.uploadStatus = tc.failUpload
+			}
+			if tc.skip != nil {
+				syn.skip = tc.skip
 			}
 			got, err := syn.handler(t).reconcileWatches(context.Background(), tc.files(), tc.target)
 			if err != nil {

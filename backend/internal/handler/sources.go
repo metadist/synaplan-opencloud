@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
+	"strings"
+	"sync"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
@@ -96,13 +99,45 @@ func (h *Handler) keepFilesCurrent(ctx context.Context, files watchFiles, sub st
 	if err != nil {
 		return result, err
 	}
-	var changes []sourceChange
-	for _, file := range kept {
+	slices.SortFunc(kept, func(a, b synced.File) int { return strings.Compare(a.ResourceID, b.ResourceID) })
+	for start := 0; start < len(kept); start += sourceEventBatch {
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
+		batch := kept[start:min(start+sourceEventBatch, len(kept))]
+		if err := h.syncKeptBatch(ctx, files, sub, batch, &result); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+// syncKeptBatch compares one batch and settles it while this process holds
+// each file's lock, so a second pass cannot upload an older copy over the
+// version the first pass just stored.
+func (h *Handler) syncKeptBatch(ctx context.Context, files watchFiles, sub string, batch []synced.File, result *keptResult) error {
+	unlock := h.lockKeptFiles(batch)
+	defer unlock()
+
+	fresh, err := h.synced.Files(ctx, sub)
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]synced.File, len(fresh))
+	for _, file := range fresh {
+		byID[file.ResourceID] = file
+	}
+	var changes []sourceChange
+	for _, file := range batch {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		current, ok := byID[file.ResourceID]
+		if !ok {
+			continue
+		}
 		result.Checked++
-		change, ok := sourceChangeFor(ctx, files, file)
+		change, ok := sourceChangeFor(ctx, files, current)
 		if !ok {
 			continue
 		}
@@ -113,15 +148,66 @@ func (h *Handler) keepFilesCurrent(ctx context.Context, files watchFiles, sub st
 		}
 		changes = append(changes, change)
 	}
-	for start := 0; start < len(changes); start += sourceEventBatch {
-		sent, failed, err := h.sendSourceEvents(ctx, files, changes[start:min(start+sourceEventBatch, len(changes))])
-		result.Sent += sent
-		result.Failed += failed
-		if err != nil {
-			return result, err
+	if len(changes) == 0 {
+		return nil
+	}
+	sent, failed, err := h.sendSourceEvents(ctx, files, changes)
+	result.Sent += sent
+	result.Failed += failed
+	return err
+}
+
+// lockKeptFiles holds one mutex per file, in resource id order, until the
+// returned function runs. The same process cannot overlap a file with
+// itself. A stale commit is still refused by the store revision. Another
+// replica has no lease, so it can still upload after a newer version was
+// stored.
+func (h *Handler) lockKeptFiles(files []synced.File) func() {
+	ordered := slices.Clone(files)
+	slices.SortFunc(ordered, func(a, b synced.File) int { return strings.Compare(a.ResourceID, b.ResourceID) })
+	unlocks := make([]func(), 0, len(ordered))
+	for _, file := range ordered {
+		unlocks = append(unlocks, h.lockKept(file.Subject, file.ResourceID))
+	}
+	return func() {
+		for i := len(unlocks) - 1; i >= 0; i-- {
+			unlocks[i]()
 		}
 	}
-	return result, nil
+}
+
+// lockKept returns the unlock for subject and resourceID.
+func (h *Handler) lockKept(subject, resourceID string) func() {
+	key := subject + "\x00" + resourceID
+	h.keptMu.Lock()
+	if h.keptLocks == nil {
+		h.keptLocks = map[string]*sync.Mutex{}
+	}
+	mu := h.keptLocks[key]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		h.keptLocks[key] = mu
+	}
+	h.keptMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
+// keptOne reads the file the store currently keeps for subject.
+func (h *Handler) keptOne(ctx context.Context, subject, resourceID string) (synced.File, bool, error) {
+	if h.synced == nil {
+		return synced.File{}, false, nil
+	}
+	files, err := h.synced.Files(ctx, subject)
+	if err != nil {
+		return synced.File{}, false, err
+	}
+	for _, file := range files {
+		if file.ResourceID == resourceID {
+			return file, true, nil
+		}
+	}
+	return synced.File{}, false, nil
 }
 
 // sourceChangeFor compares a kept file with its OpenCloud copy.
@@ -175,48 +261,89 @@ func (h *Handler) sendSourceEvents(ctx context.Context, files watchFiles, change
 		wanted[item.ID] = true
 	}
 	for _, change := range changes {
-		kept := change.kept
-		if change.event.Event == "deleted" {
-			if err := h.synced.Delete(ctx, kept.Subject, kept.ResourceID, kept.Revision); err != nil {
-				log.Printf("kept file: forgetting: %v", err)
-			}
-			continue
-		}
-		next := kept
-		next.Etag = change.event.Version
-		if wanted[kept.ResourceID] {
-			version, err := h.reuploadKept(ctx, files, kept)
-			if err != nil {
-				log.Printf("kept file: upload: %v", err)
-				failed++
-				continue
-			}
-			next.Etag = version
-			sent++
-		}
-		if _, err := h.synced.Update(ctx, next); err != nil {
-			log.Printf("kept file: recording the version: %v", err)
-		}
+		oneSent, oneFailed := h.commitKept(ctx, files, change, wanted[change.kept.ResourceID])
+		sent += oneSent
+		failed += oneFailed
 	}
 	return sent, failed, nil
 }
 
-// reuploadKept replaces Synaplan's copy of a kept file with its current
-// bytes and returns the version it sent.
-func (h *Handler) reuploadKept(ctx context.Context, files watchFiles, kept synced.File) (string, error) {
-	opened, err := files.OpenVersion(ctx, kept.ResourceID, "")
+// commitKept stores the version the event named when that revision is
+// still current. A newer revision already won: the upload is not started,
+// so Synaplan is not moved back to the older bytes. A refused commit after
+// an upload can still happen when another replica races; the store keeps
+// the newer version.
+func (h *Handler) commitKept(ctx context.Context, files watchFiles, change sourceChange, upload bool) (sent, failed int) {
+	kept := change.kept
+	current, ok, err := h.keptOne(ctx, kept.Subject, kept.ResourceID)
 	if err != nil {
+		log.Printf("kept file: reading it again: %v", err)
+		return 0, 1
+	}
+	if !ok || current.Revision != kept.Revision {
+		log.Printf("kept file: a newer version is already recorded")
+		return 0, 0
+	}
+	if change.event.Event == "deleted" {
+		if err := h.synced.Delete(ctx, current.Subject, current.ResourceID, current.Revision); err != nil {
+			log.Printf("kept file: forgetting: %v", err)
+		}
+		return 0, 0
+	}
+	next := current
+	next.Etag = change.event.Version
+	if upload {
+		version, err := h.reuploadKept(ctx, files, current, change.event.Version)
+		if errors.Is(err, errFileChanged) {
+			log.Printf("kept file: %s changed; the next check sends the new version", current.ResourceID)
+			return 0, 0
+		}
+		if err != nil {
+			log.Printf("kept file: upload: %v", err)
+			return 0, 1
+		}
+		next.Etag = version
+		sent = 1
+	}
+	updated, err := h.synced.Update(ctx, next)
+	if err != nil {
+		log.Printf("kept file: recording the version: %v", err)
+		return sent, 0
+	}
+	if !updated {
+		log.Printf("kept file: a newer version is already recorded")
+	}
+	return sent, 0
+}
+
+// reuploadKept replaces Synaplan's copy with the version the event named.
+// A file that changed again is left alone, and an upload that indexes
+// nothing is an error: either way the stored version stays pending so the
+// next check sends the file again.
+func (h *Handler) reuploadKept(ctx context.Context, files watchFiles, kept synced.File, version string) (string, error) {
+	opened, err := files.OpenVersion(ctx, kept.ResourceID, version)
+	if err != nil {
+		if errors.Is(err, cs3reader.ErrChanged) {
+			return "", errFileChanged
+		}
 		return "", err
 	}
 	defer func() { _ = opened.Body.Close() }()
+	if opened.Etag != version {
+		return "", errFileChanged
+	}
 	keep := true
-	if _, err := h.upload(ctx, opened, kept.GroupKey, synaplanapi.Vectorize, &uploadProvenance{
+	uploaded, err := h.upload(ctx, opened, kept.GroupKey, synaplanapi.Vectorize, &uploadProvenance{
 		SourceID:   kept.ResourceID,
 		SourceEtag: opened.Etag,
 		Overwrite:  true,
 		KeepSynced: &keep,
-	}); err != nil {
+	})
+	if err != nil {
 		return "", err
+	}
+	if uploaded.ChunksCreated == 0 {
+		return "", errNoText
 	}
 	return opened.Etag, nil
 }

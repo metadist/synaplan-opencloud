@@ -93,6 +93,14 @@ type Handler struct {
 	reconcileMu   sync.Mutex
 	subjectCursor int
 	watchCursor   int
+
+	// keptMu guards keptLocks. One mutex per person and file stops two
+	// passes in this process from uploading that file at the same time.
+	// The store's revision stops a stale writer from committing an older
+	// version. There is no lease across replicas, so two of them can still
+	// upload the same file out of order.
+	keptMu    sync.Mutex
+	keptLocks map[string]*sync.Mutex
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.

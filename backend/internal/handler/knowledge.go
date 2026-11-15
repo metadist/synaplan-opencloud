@@ -73,41 +73,25 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 	if req.KeepSynced && h.synced != nil {
 		keeper = h.awaySubject(r.Context())
 	}
-	keepSynced := keeper != ""
 
 	var uploaded *uploadedFile
-	var version string
+	var keptUpToDate bool
 	_, ok := h.runSummaryPipeline(w, r, req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
 		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
 			return "", fmt.Errorf("%w: %q", errUnsupportedType, file.MimeType)
 		}
-		u, err := h.upload(ctx, file, groupKey, synaplanapi.Vectorize, &uploadProvenance{
-			SourceID:   req.ResourceID,
-			SourceEtag: file.Etag,
-			Overwrite:  req.Overwrite,
-			KeepSynced: &keepSynced,
-		})
+		u, kept, err := h.uploadKnowledge(ctx, file, req.ResourceID, groupKey, keeper, req.Overwrite)
 		if err != nil {
-			return "", fmt.Errorf("synaplan upload: %w", err)
-		}
-		if u.ChunksCreated == 0 {
-			return "", errNoText
+			return "", err
 		}
 		uploaded = u
-		version = file.Etag
+		keptUpToDate = kept
 		return "", nil
 	})
 	if !ok {
 		return
 	}
-
-	if keepSynced {
-		err := h.synced.Put(r.Context(), synced.File{Subject: keeper, ResourceID: req.ResourceID, Etag: version, GroupKey: groupKey})
-		if err != nil {
-			log.Printf("knowledge: keeping the file up to date: %v", err)
-			keepSynced = false
-		}
-	} else {
+	if keeper == "" {
 		h.forgetKept(r.Context(), req.ResourceID)
 	}
 
@@ -117,8 +101,92 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 		ChunksCreated:       uploaded.ChunksCreated,
 		ExtractedTextLength: uploaded.ExtractedTextLength,
 		SynaplanFileID:      uploaded.ID,
-		KeptUpToDate:        keepSynced,
+		KeptUpToDate:        keptUpToDate,
 	})
+}
+
+// uploadKnowledge sends the file to Synaplan and, when keeper is set,
+// records it so later edits follow. The record is written before
+// keep_synced is turned on. A store that refuses the record leaves the
+// flag off, so Synaplan does not wait for a file this service cannot
+// find again. A record that was only a placeholder is removed when the
+// upload does not index the file.
+func (h *Handler) uploadKnowledge(
+	ctx context.Context,
+	file *cs3reader.File,
+	resourceID, groupKey, keeper string,
+	overwrite bool,
+) (*uploadedFile, bool, error) {
+	follow := keeper != ""
+	placed := false
+	// unknown means the store could not be read, so the upload must not
+	// change keep_synced: a 0 would clear it for a file already kept.
+	unknown := false
+	if follow {
+		defer h.lockKept(keeper, resourceID)()
+		_, found, err := h.keptOne(ctx, keeper, resourceID)
+		switch {
+		case err != nil:
+			log.Printf("knowledge: reading the kept file: %v", err)
+			follow = false
+			unknown = true
+		case !found:
+			err = h.synced.Put(ctx, synced.File{Subject: keeper, ResourceID: resourceID, GroupKey: groupKey})
+			if err != nil {
+				log.Printf("knowledge: keeping the file up to date: %v", err)
+				follow = false
+			} else {
+				placed = true
+			}
+		}
+	}
+
+	var keepSynced *bool
+	switch {
+	case unknown:
+		keepSynced = nil
+	case !follow:
+		off := false
+		keepSynced = &off
+	default:
+		on := true
+		keepSynced = &on
+	}
+	uploaded, err := h.upload(ctx, file, groupKey, synaplanapi.Vectorize, &uploadProvenance{
+		SourceID:   resourceID,
+		SourceEtag: file.Etag,
+		Overwrite:  overwrite,
+		KeepSynced: keepSynced,
+	})
+	if err != nil {
+		h.dropUnindexed(ctx, keeper, resourceID, placed)
+		return nil, false, fmt.Errorf("synaplan upload: %w", err)
+	}
+	if uploaded.ChunksCreated == 0 {
+		h.dropUnindexed(ctx, keeper, resourceID, placed)
+		return nil, false, errNoText
+	}
+	if !follow || keeper == "" {
+		return uploaded, false, nil
+	}
+	err = h.synced.Put(ctx, synced.File{Subject: keeper, ResourceID: resourceID, Etag: file.Etag, GroupKey: groupKey})
+	if err != nil {
+		// The row written beforehand is still there. A new file's empty
+		// etag, or the previous etag, makes the next check send this version.
+		log.Printf("knowledge: recording the version: %v", err)
+	}
+	return uploaded, true, nil
+}
+
+// dropUnindexed forgets a placeholder written for a file that was not
+// indexed. An existing row is left so the next check can try again.
+func (h *Handler) dropUnindexed(ctx context.Context, keeper, resourceID string, placed bool) {
+	if !placed || h.synced == nil {
+		return
+	}
+	if err := h.synced.Delete(ctx, keeper, resourceID, 0); err != nil {
+		log.Printf("knowledge: forgetting a file that was not indexed: %v", err)
+	}
 }
 
 // synaplanGroup is the shape of a single entry in Synaplan's

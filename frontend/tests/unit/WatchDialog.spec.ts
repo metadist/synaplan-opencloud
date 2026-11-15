@@ -182,6 +182,14 @@ describe('WatchDialog', () => {
   it.each([
     [{ watches: 1, sent: 0, failed: 0 }, 'Checked. Synaplan has every file already.'],
     [
+      { watches: 1, sent: 0, failed: 0, skipped: 1 },
+      'Checked. Synaplan left some files out, so they are not all searchable.'
+    ],
+    [
+      { watches: 1, sent: 2, failed: 0, skipped: 1 },
+      'Checked. 2 files were sent. Synaplan left some files out, so they are not all searchable.'
+    ],
+    [
       { watches: 0, sent: 0, failed: 0 },
       'Nothing was checked. This watch is not running, so Synaplan has not confirmed it has every file.'
     ],
