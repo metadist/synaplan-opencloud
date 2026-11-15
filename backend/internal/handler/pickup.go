@@ -13,15 +13,24 @@ import (
 	"strings"
 	"time"
 
+	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
 )
 
-// pickupTimeout bounds one folder read. Synaplan keeps a pickup open for
-// ten minutes and gives up on its notification after thirty seconds, so the
-// read runs after the answer, on its own deadline.
-const pickupTimeout = 5 * time.Minute
+const (
+	// pickupTimeout bounds one folder read. Synaplan keeps a pickup open for
+	// ten minutes. The read runs after the notification is answered, on its
+	// own deadline.
+	pickupTimeout = 5 * time.Minute
+	// pickupStartupTimeout bounds acting as the person before that answer.
+	// Synaplan gives up on a notification after thirty seconds, so a slow
+	// token or machine login must fail inside that window and leave the
+	// notification free to be tried again.
+	pickupStartupTimeout = 10 * time.Second
+)
 
 // Read scope modes, as Synaplan stores them: only folders the person
 // watches, those plus the folders they named, or everything.
@@ -49,6 +58,7 @@ type scopeFolder struct {
 type pickupFiles interface {
 	watchFiles
 	StatPath(ctx context.Context, relPath string) (cs3reader.Resource, error)
+	PersonalSpaceKey(ctx context.Context) (string, error)
 }
 
 // pickupClaim is what Synaplan hands the cloud that claimed a pickup.
@@ -97,10 +107,15 @@ func (h *Handler) startPickup(w http.ResponseWriter, r *http.Request, claims not
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_pickup"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), pickupTimeout)
-	away, err := h.actAs(ctx, claims.Subject)
+	run, cancel, err := delegateFor(context.WithoutCancel(r.Context()), pickupStartupTimeout, pickupTimeout, func(ctx context.Context) (context.Context, error) {
+		return h.actAs(ctx, claims.Subject)
+	})
 	if err != nil {
-		cancel()
+		if cancel != nil {
+			cancel()
+		}
+		// The notification was recorded before this ran. Forgetting it is
+		// what lets Synaplan send the same one again.
 		h.forgetHandled(claims)
 		if errors.Is(err, delegation.ErrNotConnected) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "not_connected"})
@@ -112,9 +127,44 @@ func (h *Handler) startPickup(w http.ResponseWriter, r *http.Request, claims not
 	}
 	go func() {
 		defer cancel()
-		h.runPickup(away, h.cs3, claims.Subject, id)
+		h.runPickup(run, h.cs3, claims.Subject, id)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"state": "pending"})
+}
+
+// delegateFor runs act under startup. When act returns, that deadline is
+// cancelled and the identity act produced (reva token, user, and the person
+// the calls are for) is carried onto a fresh context with the run deadline.
+// A cancelled or expired startup is act's error; the caller forgets the
+// notification so it can be retried. act must stop when its context ends.
+func delegateFor(ctx context.Context, startup, run time.Duration, act func(context.Context) (context.Context, error)) (context.Context, context.CancelFunc, error) {
+	startupCtx, cancelStartup := context.WithTimeout(ctx, startup)
+	away, err := act(startupCtx)
+	cancelStartup()
+	if err != nil {
+		return nil, nil, err
+	}
+	runCtx, cancelRun := context.WithTimeout(context.WithoutCancel(ctx), run)
+	return carryIdentity(runCtx, away), cancelRun, nil
+}
+
+// carryIdentity copies the delegated identity from src onto dst. dst does
+// not become a child of src, so cancelling the startup deadline does not
+// cancel the read.
+func carryIdentity(dst, src context.Context) context.Context {
+	if src == nil {
+		return dst
+	}
+	if token, ok := revactx.ContextGetToken(src); ok && token != "" {
+		dst = revactx.ContextSetToken(dst, token)
+	}
+	if user, ok := revactx.ContextGetUser(src); ok && user != nil {
+		dst = revactx.ContextSetUser(dst, user)
+	}
+	if sub, _ := src.Value(onBehalfOfKey{}).(string); sub != "" {
+		dst = onBehalfOf(dst, sub)
+	}
+	return dst
 }
 
 // runPickup claims the pickup, lists the folder it names, sends the files
@@ -139,7 +189,12 @@ func (h *Handler) runPickup(ctx context.Context, files pickupFiles, sub string, 
 		}
 		return h.finishPickup(ctx, id, failedPickup("unreachable"))
 	}
-	if !scopeAllows(claim.ReadScope, h.watchedFolders(ctx, claim.ReadScope), folder) {
+	personal, err := files.PersonalSpaceKey(ctx)
+	if err != nil {
+		log.Printf("pickup %d: personal space: %v", id, err)
+		personal = ""
+	}
+	if !scopeAllows(claim.ReadScope, h.watchedFolders(ctx, claim.ReadScope), folder, personal) {
 		return h.finishPickup(ctx, id, failedPickup("not_allowed"))
 	}
 	children, err := files.List(ctx, folder.ID)
@@ -170,9 +225,13 @@ func (h *Handler) runPickup(ctx context.Context, files pickupFiles, sub string, 
 			result.Skipped = append(result.Skipped, pickupSkip{ID: fileID, Reason: "not_found"})
 			continue
 		}
-		if err := h.uploadPickupFile(ctx, files, id, file); err != nil {
+		if err := h.uploadPickupFile(ctx, files, id, file, folder.Path); err != nil {
 			log.Printf("pickup %d: %v", id, err)
-			result.Skipped = append(result.Skipped, pickupSkip{ID: fileID, Reason: "unreachable"})
+			reason := "unreachable"
+			if errors.Is(err, errOutsideFolder) || errors.Is(err, errFileChanged) || errors.Is(err, cs3reader.ErrNotFound) {
+				reason = "not_found"
+			}
+			result.Skipped = append(result.Skipped, pickupSkip{ID: fileID, Reason: reason})
 			continue
 		}
 		result.Sent++
@@ -241,10 +300,12 @@ func (h *Handler) watchedFolders(ctx context.Context, scope readScope) map[strin
 
 // scopeAllows is this cloud's side of "what Synaplan may read". A signed
 // notification proves Synaplan asked, not where the folder it names lives,
-// so the folder's real id and path decide. A folder the person watches is
-// always allowed; one they named, and the folders below it, in "allowed"
-// mode; everything in "all".
-func scopeAllows(scope readScope, watched map[string]bool, folder cs3reader.Resource) bool {
+// so the folder's real id and path decide. personal is the person's
+// personal space ("storage$space"). A path grant, including one reached
+// by a folder id, matches only a folder in that space: the same relative
+// path in another space is not the grant. A folder the person watches is
+// always allowed, by its own id; everything is allowed in "all".
+func scopeAllows(scope readScope, watched map[string]bool, folder cs3reader.Resource, personal string) bool {
 	if folder.ID == "" {
 		return false
 	}
@@ -252,13 +313,14 @@ func scopeAllows(scope readScope, watched map[string]bool, folder cs3reader.Reso
 	case scopeAll:
 		return true
 	case scopeAllowed:
-		for _, named := range scope.Folders {
-			if named.ID != "" && named.ID == folder.ID {
-				return true
-			}
-			path := strings.Trim(named.Path, "/")
-			if path != "" && (folder.Path == path || strings.HasPrefix(folder.Path, path+"/")) {
-				return true
+		if inPersonalSpace(personal, folder.ID) {
+			for _, named := range scope.Folders {
+				if named.ID != "" && named.ID == folder.ID {
+					return true
+				}
+				if pathCovers(named.Path, folder.Path) {
+					return true
+				}
 			}
 		}
 		return watched[folder.ID]
@@ -268,6 +330,49 @@ func scopeAllows(scope readScope, watched map[string]bool, folder cs3reader.Reso
 		return false
 	}
 }
+
+// pathCovers reports whether folder is the granted path or a folder inside it.
+func pathCovers(grant, folder string) bool {
+	grant = normalizePath(grant)
+	folder = normalizePath(folder)
+	if grant == "" || folder == "" {
+		return false
+	}
+	return folder == grant || strings.HasPrefix(folder, grant+"/")
+}
+
+// pathWithin reports whether file is inside folder, not the folder itself.
+// ".." cannot climb out of folder.
+func pathWithin(folder, file string) bool {
+	folder = normalizePath(folder)
+	file = normalizePath(file)
+	if folder == "" || file == "" {
+		return false
+	}
+	return strings.HasPrefix(file, folder+"/")
+}
+
+// normalizePath is a space-relative path with no leading slash and no "."
+// or ".." segments.
+func normalizePath(path string) string {
+	var clean []string
+	for _, part := range strings.Split(path, "/") {
+		switch part {
+		case "", ".":
+		case "..":
+			if len(clean) > 0 {
+				clean = clean[:len(clean)-1]
+			}
+		default:
+			clean = append(clean, part)
+		}
+	}
+	return strings.Join(clean, "/")
+}
+
+// errOutsideFolder means the file's current path is no longer inside the
+// folder that was listed. The bytes must not be uploaded under the old path.
+var errOutsideFolder = errors.New("file is no longer in the allowed folder")
 
 func (h *Handler) claimPickup(ctx context.Context, id int) (pickupClaim, error) {
 	resp, err := h.synaplanAPI.ClaimCloudPickupWithResponse(ctx, id)
@@ -306,7 +411,21 @@ func (h *Handler) listPickup(ctx context.Context, id int, items []listingItem) (
 	return decision.Upload, nil
 }
 
-func (h *Handler) uploadPickupFile(ctx context.Context, files watchFiles, id int, file cs3reader.Resource) error {
+func (h *Handler) uploadPickupFile(ctx context.Context, files watchFiles, id int, file cs3reader.Resource, folderPath string) error {
+	// The listing is from earlier. Open would read wherever the file sits
+	// now and the form would still name the old path, so a file that left
+	// the folder is not sent. The download itself stays bound to the etag
+	// the listing named.
+	live, err := files.StatResource(ctx, file.ID)
+	if err != nil {
+		return err
+	}
+	if live.Etag != file.Etag {
+		return errFileChanged
+	}
+	if !pathWithin(folderPath, live.Path) {
+		return errOutsideFolder
+	}
 	return uploadFile(ctx, files, file, func(contentType string, body io.Reader) (int, []byte, error) {
 		resp, err := h.synaplanAPI.UploadCloudPickupFileWithBodyWithResponse(ctx, id, contentType, body)
 		if err != nil {

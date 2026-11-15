@@ -65,6 +65,8 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext('Synaplan cannot read folders in this OpenCloud. Ask your administrator.')
     case 'reads_everything':
       return $gettext('Synaplan may read all your folders, so one cannot be left out.')
+    case 'outside_personal':
+      return $gettext('Synaplan can only read folders in your personal space.')
     case 'watch_shared_key':
       return $gettext(
         'Watching needs each person signed in to Synaplan. This installation uses one shared key.'

@@ -184,6 +184,25 @@ func TestStatResourceAndList(t *testing.T) {
 	})
 }
 
+func TestSpaceKeyAndPersonalSpace(t *testing.T) {
+	if got := SpaceKey("s$sp!hr"); got != "s$sp" {
+		t.Fatalf("SpaceKey = %q", got)
+	}
+	if got := SpaceKey("not-an-id"); got != "" {
+		t.Fatalf("SpaceKey = %q, want empty", got)
+	}
+	root := &provider.ResourceId{StorageId: "s", SpaceId: "sp", OpaqueId: "sp"}
+	gw := &fakeGateway{spaces: &provider.ListStorageSpacesResponse{Status: status(rpc.Code_CODE_OK), StorageSpaces: []*provider.StorageSpace{
+		{SpaceType: "project", Root: &provider.ResourceId{StorageId: "s", SpaceId: "other", OpaqueId: "other"}, Owner: &userpb.User{Id: &userpb.UserId{OpaqueId: "ada-id"}}},
+		{SpaceType: "personal", Root: root, Owner: &userpb.User{Id: &userpb.UserId{OpaqueId: "ada-id"}}},
+	}}}
+	ctx := revactx.ContextSetUser(revactx.ContextSetToken(context.Background(), "reva-ada"), &userpb.User{Id: &userpb.UserId{OpaqueId: "ada-id"}})
+	got, err := readerWith(gw, "").PersonalSpaceKey(ctx)
+	if err != nil || got != "s$sp" {
+		t.Fatalf("personal space %q, %v", got, err)
+	}
+}
+
 func TestStatPath(t *testing.T) {
 	root := &provider.ResourceId{StorageId: "s", SpaceId: "sp", OpaqueId: "sp"}
 	spaces := &provider.ListStorageSpacesResponse{Status: status(rpc.Code_CODE_OK), StorageSpaces: []*provider.StorageSpace{

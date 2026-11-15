@@ -54,6 +54,35 @@ func (r *Reader) StatResource(ctx context.Context, resourceID string) (Resource,
 	return resourceOf(res.GetInfo()), nil
 }
 
+// SpaceKey is the storage and space id inside an OpenCloud resource id
+// ("storage$space!opaque"). An id that does not parse has an empty key.
+// Two resources can share a relative path and still be different folders
+// when their keys differ.
+func SpaceKey(resourceID string) string {
+	id, err := storagespace.ParseID(resourceID)
+	if err != nil || id.GetStorageId() == "" || id.GetSpaceId() == "" {
+		return ""
+	}
+	return id.GetStorageId() + "$" + id.GetSpaceId()
+}
+
+// PersonalSpaceKey is the SpaceKey of the personal space of the user on
+// ctx. A path grant names a folder in that space only.
+func (r *Reader) PersonalSpaceKey(ctx context.Context) (string, error) {
+	gwc, gwCtx, err := r.gateway(ctx)
+	if err != nil {
+		return "", err
+	}
+	root, err := personalRoot(gwCtx, gwc)
+	if err != nil {
+		return "", err
+	}
+	if root.GetStorageId() == "" || root.GetSpaceId() == "" {
+		return "", errors.New("cs3reader: personal space has no id")
+	}
+	return root.GetStorageId() + "$" + root.GetSpaceId(), nil
+}
+
 // StatPath stats a file or a folder by its path in the personal space of
 // the user on ctx, the form a task's folder step names a folder in.
 func (r *Reader) StatPath(ctx context.Context, relPath string) (Resource, error) {

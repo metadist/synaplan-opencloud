@@ -44,6 +44,7 @@ describe('sentenceFor', () => {
       'Synaplan cannot read folders in this OpenCloud. Ask your administrator.'
     ],
     ['reads_everything', 'Synaplan may read all your folders, so one cannot be left out.'],
+    ['outside_personal', 'Synaplan can only read folders in your personal space.'],
     [
       'watch_shared_key',
       'Watching needs each person signed in to Synaplan. This installation uses one shared key.'

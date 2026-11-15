@@ -158,6 +158,9 @@ type fakeFiles struct {
 	// openEtag overrides the etag OpenVersion reports, so a file can
 	// change between the listing and the download.
 	openEtag map[string]string
+	// livePath overrides the path StatResource reports, so a file can
+	// leave its folder between the listing and the upload.
+	livePath map[string]string
 }
 
 func (f fakeFiles) StatResource(_ context.Context, id string) (cs3reader.Resource, error) {
@@ -167,6 +170,9 @@ func (f fakeFiles) StatResource(_ context.Context, id string) (cs3reader.Resourc
 	r, ok := f.resources[id]
 	if !ok {
 		return cs3reader.Resource{}, cs3reader.ErrNotFound
+	}
+	if path, ok := f.livePath[id]; ok {
+		r.Path = path
 	}
 	return r, nil
 }

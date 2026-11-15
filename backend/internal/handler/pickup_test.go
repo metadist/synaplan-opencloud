@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,9 +12,17 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
+	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 )
+
+func (f fakeFiles) PersonalSpaceKey(context.Context) (string, error) {
+	return "s$sp", nil
+}
 
 func (f fakeFiles) StatPath(_ context.Context, relPath string) (cs3reader.Resource, error) {
 	for _, r := range f.resources {
@@ -55,10 +64,35 @@ func TestScopeAllows(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := scopeAllows(tc.scope, watched, tc.folder); got != tc.want {
+			if got := scopeAllows(tc.scope, watched, tc.folder, "s$sp"); got != tc.want {
 				t.Fatalf("scopeAllows() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPathGrantDoesNotCrossSpaces(t *testing.T) {
+	personal := cs3reader.Resource{ID: "s$mine!hr", Path: "HR", IsFolder: true}
+	other := cs3reader.Resource{ID: "s$theirs!hr", Path: "HR", IsFolder: true}
+	grant := readScope{Mode: scopeAllowed, Folders: []scopeFolder{{Path: "HR"}}}
+	byID := readScope{Mode: scopeAllowed, Folders: []scopeFolder{{ID: personal.ID, Path: "HR"}}}
+	if !scopeAllows(grant, nil, personal, "s$mine") {
+		t.Fatal("the personal-space folder is the grant")
+	}
+	if scopeAllows(grant, nil, other, "s$mine") {
+		t.Fatal("another space's HR matched the path grant")
+	}
+	if scopeAllows(byID, nil, other, "s$mine") {
+		t.Fatal("an id selector in another space matched the path grant")
+	}
+	if !scopeAllows(readScope{Mode: scopeWatched}, map[string]bool{other.ID: true}, other, "s$mine") {
+		t.Fatal("a watch is that folder's own id, in whichever space it is")
+	}
+	if pathWithin("Inbox", "Inbox/../Secret/a.txt") {
+		t.Fatal("a path climbed out of the folder")
+	}
+	if !pathWithin("Inbox", "Inbox/a.txt") || pathWithin("Inbox", "Inbox") {
+		t.Fatal("pathWithin")
 	}
 }
 
@@ -152,6 +186,7 @@ func TestRunPickup(t *testing.T) {
 		watches     []watch
 		upload      []string
 		broken      []string
+		livePath    map[string]string
 		want        pickupResult
 		wantListed  []string
 		wantUploads []string
@@ -206,6 +241,15 @@ func TestRunPickup(t *testing.T) {
 			want:  failedPickup("not_allowed"),
 		},
 		{
+			name:        "a file that left the folder is not uploaded",
+			claim:       pickupClaimFor("ada", "s$sp!inbox", "", readScope{Mode: scopeAll}),
+			upload:      []string{"s$sp!a", "s$sp!b"},
+			livePath:    map[string]string{"s$sp!a": "Elsewhere/a.txt"},
+			want:        pickupResult{Status: "partial", Listed: 2, Sent: 1, Skipped: []pickupSkip{{ID: "s$sp!a", Reason: "not_found"}}},
+			wantListed:  []string{"s$sp!a", "s$sp!b"},
+			wantUploads: []string{"b.pdf@eb=%PDF"},
+		},
+		{
 			name:        "a file that cannot be read makes the read partial",
 			claim:       pickupClaimFor("ada", "s$sp!inbox", "", readScope{Mode: scopeAll}),
 			upload:      []string{"s$sp!a", "s$sp!b", "s$sp!gone"},
@@ -235,6 +279,7 @@ func TestRunPickup(t *testing.T) {
 				t.Fatal(err)
 			}
 			files := inbox()
+			files.livePath = tc.livePath
 			for _, id := range tc.broken {
 				files.broken[id] = true
 			}
@@ -271,6 +316,47 @@ func TestRunPickup(t *testing.T) {
 
 func equalResults(a, b pickupResult) bool {
 	return a.Status == b.Status && a.Listed == b.Listed && a.Sent == b.Sent && a.ErrorCode == b.ErrorCode && slices.Equal(a.Skipped, b.Skipped)
+}
+
+func TestDelegateForStopsWhenStartupIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, runCancel, err := delegateFor(ctx, time.Hour, time.Hour, func(ctx context.Context) (context.Context, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	if runCancel != nil {
+		t.Fatal("a failed startup has no run to cancel")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v, want context.Canceled", err)
+	}
+}
+
+func TestDelegateForKeepsTheIdentityAfterStartup(t *testing.T) {
+	var startup context.Context
+	run, cancel, err := delegateFor(context.Background(), time.Hour, time.Hour, func(ctx context.Context) (context.Context, error) {
+		startup = ctx
+		ctx = revactx.ContextSetToken(ctx, "reva-ada")
+		ctx = revactx.ContextSetUser(ctx, &userpb.User{Id: &userpb.UserId{OpaqueId: "ada-id"}})
+		return onBehalfOf(ctx, "ada"), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	if startup == nil || startup.Err() == nil {
+		t.Fatal("startup deadline should be finished")
+	}
+	if run.Err() != nil {
+		t.Fatal("the read was cancelled with the startup deadline")
+	}
+	token, ok := revactx.ContextGetToken(run)
+	user, userOK := revactx.ContextGetUser(run)
+	sub, _ := run.Value(onBehalfOfKey{}).(string)
+	if !ok || token != "reva-ada" || !userOK || user.GetId().GetOpaqueId() != "ada-id" || sub != "ada" {
+		t.Fatalf("identity token=%q user=%v sub=%q", token, userOK, sub)
+	}
 }
 
 func TestInboundPickupThatCannotStartIsLeftForTheRetry(t *testing.T) {

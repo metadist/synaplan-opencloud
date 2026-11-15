@@ -86,6 +86,15 @@ type Handler struct {
 	reconcileMu   sync.Mutex
 	subjectCursor int
 	watchCursor   int
+
+	// scopeMu guards scopeOps. Each person has one lock so two read-scope
+	// changes cannot apply a stale snapshot. The lock also keeps the last
+	// scope this process reported: Synaplan's list of links is not readable
+	// with the cloud token, and the report has no revision to compare.
+	scopeMu  sync.Mutex
+	scopeOps map[string]*scopeOp
+	// scopes replaces Synaplan in tests. Production leaves it nil.
+	scopes scopeBook
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.
