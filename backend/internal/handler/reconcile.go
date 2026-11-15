@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -56,16 +57,24 @@ func (h *Handler) RunReconciler(ctx context.Context) {
 }
 
 // reconcileEveryone runs one pass over every person with a kept token.
+// It starts where the previous pass stopped, so a few slow people at the
+// front of the list cannot keep everyone after them from being checked.
 func (h *Handler) reconcileEveryone(ctx context.Context) {
 	subjects, err := h.delegation.Subjects(ctx)
 	if err != nil {
 		log.Printf("reconcile: listing people: %v", err)
 		return
 	}
-	for _, sub := range subjects {
+	slices.Sort(subjects)
+	start := h.cursorStart(&h.subjectCursor, len(subjects))
+	ordered := rotate(subjects, start)
+	processed := 0
+	defer func() { h.cursorAdvance(&h.subjectCursor, start, processed, len(subjects)) }()
+	for _, sub := range ordered {
 		if ctx.Err() != nil {
 			return
 		}
+		processed++
 		away, err := h.actAs(ctx, sub)
 		if errors.Is(err, delegation.ErrNotConnected) {
 			continue
@@ -88,7 +97,7 @@ func (h *Handler) reconcileEveryone(ctx context.Context) {
 func (h *Handler) actAs(ctx context.Context, sub string) (context.Context, error) {
 	token, err := h.delegatedBearer(ctx, sub)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("minting a token for the person: %w", err)
 	}
 	value := delegation.Claim(token, h.userClaim)
 	if value == "" {
@@ -96,7 +105,7 @@ func (h *Handler) actAs(ctx context.Context, sub string) (context.Context, error
 	}
 	files, err := h.cs3.Impersonate(ctx, h.userAttr, value)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading files as the person: %w", err)
 	}
 	return onBehalfOf(files, sub), nil
 }
@@ -104,6 +113,9 @@ func (h *Handler) actAs(ctx context.Context, sub string) (context.Context, error
 // WatchReconcileNow checks the signed-in person's watches on one folder or
 // file now, with their own session, and sends Synaplan what it asks for.
 func (h *Handler) WatchReconcileNow(w http.ResponseWriter, r *http.Request) {
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
 	targetID := strings.TrimSpace(r.URL.Query().Get("targetId"))
 	if targetID == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetId is required"})
@@ -135,13 +147,28 @@ func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, target
 	if err != nil {
 		return result, err
 	}
+	active := make([]watch, 0, len(all))
 	for _, each := range all {
 		if each.State != "active" || (targetID != "" && each.TargetID != targetID) {
 			continue
 		}
+		active = append(active, each)
+	}
+	slices.SortFunc(active, func(a, b watch) int { return a.ID - b.ID })
+	start := 0
+	if targetID == "" {
+		start = h.cursorStart(&h.watchCursor, len(active))
+		active = rotate(active, start)
+	}
+	processed := 0
+	if targetID == "" {
+		defer func() { h.cursorAdvance(&h.watchCursor, start, processed, len(active)) }()
+	}
+	for _, each := range active {
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
+		processed++
 		result.Watches++
 		sent, failed, err := h.reconcileWatch(ctx, files, each)
 		if err != nil {
@@ -176,6 +203,10 @@ func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch)
 				continue
 			}
 			if err := h.uploadWatchFile(ctx, files, w.ID, file); err != nil {
+				if errors.Is(err, errFileChanged) {
+					log.Printf("watch %d: %s changed; the next check sends the new version", w.ID, file.Name)
+					continue
+				}
 				log.Printf("watch %d: upload: %v", w.ID, err)
 				failed++
 				continue
@@ -244,6 +275,11 @@ func (h *Handler) askReconcile(ctx context.Context, watchID int, batch []cs3read
 	return wanted, nil
 }
 
+// errFileChanged means the bytes are a different version from the one
+// Synaplan was asked about. The upload is skipped so the next check
+// sends the current version under its own etag.
+var errFileChanged = errors.New("file changed since it was listed")
+
 // uploadWatchFile streams one file version to the watch.
 func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID int, file cs3reader.Resource) error {
 	return uploadFile(ctx, files, file, func(contentType string, body io.Reader) (int, []byte, error) {
@@ -259,11 +295,17 @@ func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID
 // cloud uploads read; send makes the call. Synaplan decides whether it can
 // read a file by the extension of its name, so the name is always sent.
 func uploadFile(ctx context.Context, files watchFiles, file cs3reader.Resource, send func(contentType string, body io.Reader) (int, []byte, error)) error {
-	opened, err := files.Open(ctx, file.ID)
+	opened, err := files.OpenVersion(ctx, file.ID, file.Etag)
 	if err != nil {
-		return err
+		if errors.Is(err, cs3reader.ErrChanged) {
+			return errFileChanged
+		}
+		return fmt.Errorf("open %s: %w", file.Name, err)
 	}
 	defer func() { _ = opened.Body.Close() }()
+	if opened.Etag != file.Etag {
+		return errFileChanged
+	}
 
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
@@ -309,4 +351,48 @@ func writeUploadForm(mw *multipart.Writer, file cs3reader.Resource, opened *cs3r
 	}
 	_, err = io.Copy(part, opened.Body)
 	return err
+}
+
+// cursorStart is the index this pass begins at. n is how many items there
+// are now; the stored cursor may be from a longer list.
+func (h *Handler) cursorStart(cursor *int, n int) int {
+	if n == 0 {
+		return 0
+	}
+	h.reconcileMu.Lock()
+	defer h.reconcileMu.Unlock()
+	if *cursor < 0 {
+		*cursor = 0
+	}
+	return *cursor % n
+}
+
+// cursorAdvance moves the cursor past the items this pass started. A pass
+// that started none leaves the cursor where it is, so a deadline that
+// expires before any work does not skip someone.
+func (h *Handler) cursorAdvance(cursor *int, start, processed, n int) {
+	if n == 0 || processed <= 0 {
+		return
+	}
+	if processed > n {
+		processed = n
+	}
+	h.reconcileMu.Lock()
+	*cursor = (start + processed) % n
+	h.reconcileMu.Unlock()
+}
+
+// rotate returns items beginning at start, then the ones before it.
+func rotate[T any](items []T, start int) []T {
+	if len(items) == 0 {
+		return items
+	}
+	start %= len(items)
+	if start == 0 {
+		return items
+	}
+	out := make([]T, 0, len(items))
+	out = append(out, items[start:]...)
+	out = append(out, items[:start]...)
+	return out
 }
