@@ -1,7 +1,11 @@
-import { test, expect, Page } from '@playwright/test'
+import { test, expect, Page, type APIRequestContext, type Response } from '@playwright/test'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
 import { deleteFileQuiet, downloadFile, getPersonalSpace } from '../../support/helpers/filesHelper'
-import { deleteSynaplanFileQuiet, storeSynaplanFile } from '../../support/helpers/synaplanApiHelper'
+import {
+  deleteSynaplanFileQuiet,
+  storeSynaplanFile,
+  synaplanFileIdForUrl
+} from '../../support/helpers/synaplanApiHelper'
 
 /**
  * An image made in Synaplan, saved into the person's files under
@@ -10,7 +14,8 @@ import { deleteSynaplanFileQuiet, storeSynaplanFile } from '../../support/helper
  * the page's generate call name it; the save itself runs through the
  * proxy, the Go service, Synaplan and CS3. The second journey makes the
  * real generate call and accepts either terminal state: a saved image, or
- * one readable sentence.
+ * one readable sentence. The generated Synaplan file is deleted afterwards,
+ * whether or not the copy into the files succeeded.
  */
 
 const TEST_USER = 'testuser@synaplan.com'
@@ -96,7 +101,16 @@ test('making an image ends in a saved image or one readable sentence', async ({ 
   await userPage.goto('/synaplan')
   await userPage.locator('[data-testid="synaplan-image-prompt"]').fill(prompt)
   const make = userPage.locator('[data-testid="synaplan-image-make"]')
+  const generated = userPage.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/api/synaplan/media'),
+    { timeout: 120_000 }
+  )
   await make.click()
+  // Register the file before the save outcome is known, so a failed copy
+  // still leaves an id for afterEach to delete.
+  synaplanFileId = await generatedSynaplanFileId(request, await generated)
 
   const saved = userPage.locator('[data-testid="synaplan-image-saved"]')
   const failed = userPage.locator('[data-testid="synaplan-image-error"]')
@@ -115,3 +129,13 @@ test('making an image ends in a saved image or one readable sentence', async ({ 
     await expect(failed).toHaveText(/\.$/)
   }
 })
+
+async function generatedSynaplanFileId(
+  request: APIRequestContext,
+  response: Response
+): Promise<number> {
+  if (!response.ok()) return 0
+  const body = (await response.json()) as { url?: unknown }
+  if (typeof body.url !== 'string' || body.url === '') return 0
+  return synaplanFileIdForUrl(request, SYNAPLAN_API_URL, synaplanToken, body.url)
+}

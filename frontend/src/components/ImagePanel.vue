@@ -27,12 +27,14 @@
     >
       {{ $gettext('Make and save') }}
     </oc-button>
-    <p v-if="savedPath" class="ext:text-sm" data-testid="synaplan-image-saved">
-      {{ $gettext('Saved to %{path}. The image is still in Synaplan.', { path: savedPath }) }}
-    </p>
-    <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-image-error">
-      {{ error }}
-    </p>
+    <div role="status" aria-live="polite" aria-atomic="true" data-testid="synaplan-image-status">
+      <p v-if="savedPath" class="ext:text-sm" data-testid="synaplan-image-saved">
+        {{ $gettext('Saved to %{path}. The image is still in Synaplan.', { path: savedPath }) }}
+      </p>
+      <p v-if="error" class="ext:text-sm ext:text-role-error" data-testid="synaplan-image-error">
+        {{ error }}
+      </p>
+    </div>
   </section>
 </template>
 
