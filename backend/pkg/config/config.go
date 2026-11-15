@@ -27,6 +27,12 @@ type Config struct {
 	SynaplanURL    string `yaml:"synaplan_url" env:"SYNAPLAN_URL" desc:"Base URL of the Synaplan instance."`
 	SynaplanAPIKey string `yaml:"synaplan_api_key" env:"SYNAPLAN_API_KEY" desc:"Shared Synaplan API key (sk_...). When set, the backend uses this for every outbound call and skips OIDC token exchange. Discouraged: all calls appear to Synaplan as a single user with no per-user identity."`
 
+	// MaxCopyBytes caps a file copied from Synaplan into OpenCloud.
+	// The default matches Cloudflare's 100 MiB body limit. A film does
+	// not fit; raise it only where a larger body can pass, and give
+	// the process enough memory to buffer the file.
+	MaxCopyBytes int64 `yaml:"max_copy_bytes" env:"SYNAPLAN_MAX_COPY_BYTES" desc:"Largest file, in bytes, copied from Synaplan into OpenCloud. Defaults to 104857600 (100 MiB), the body size Cloudflare accepts. A film does not fit in that; raise it where a larger body is allowed. The file is buffered in this service, so the process needs the memory."`
+
 	// OIDC token exchange configuration
 	OIDCIssuer                string `yaml:"oidc_issuer" env:"OC_OIDC_ISSUER;SYNAPLAN_OIDC_ISSUER" desc:"Issuer of the identity provider OpenCloud and Synaplan share. The endpoints below are read from its OpenID Connect discovery document unless they are set."`
 	OIDCAuthorizationEndpoint string `yaml:"oidc_authorization_endpoint" env:"SYNAPLAN_OIDC_AUTHORIZATION_ENDPOINT" desc:"Optional. Authorization endpoint the person's browser asks for a code, instead of the published one."`

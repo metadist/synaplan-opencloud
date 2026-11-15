@@ -106,13 +106,17 @@ export function useSummaryDialog<T>(config: SummaryDialogConfig<T>) {
 
   const saveSchema = z.object({ path: z.string() })
 
-  async function saveToSpace(filename: string) {
+  async function saveToSpace(filename: string, resourceId?: string) {
     if (!result.value || saving.value) return
     saving.value = true
     try {
       const { data } = await httpAuthenticated.post(
         '/api/synaplan/files',
-        { filename, text: result.value },
+        {
+          filename,
+          text: result.value,
+          ...(resourceId ? { resourceId } : {})
+        },
         { schema: saveSchema, timeout: 0 }
       )
       savedPath.value = data.path
