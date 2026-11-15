@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,6 +61,37 @@ func TestWatchStartAcceptsValidInput(t *testing.T) {
 		if !strings.Contains(rr.Body.String(), "file_not_found") {
 			t.Fatalf("past validation a bare handler cannot read the item, got %s", rr.Body.String())
 		}
+	}
+}
+
+func TestWatchRoutesRefuseASharedKey(t *testing.T) {
+	syn := newFakeSynaplan(t, []watch{{ID: 1, TargetKind: "file", TargetID: "s$sp!f", State: "active"}})
+	h := syn.handler(t)
+	h.UseSharedKey()
+	body := strings.NewReader(`{"targetKind":"file","targetId":"s$sp!f","preset":"keep_searchable","groupKey":"INVOICES"}`)
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   io.Reader
+		serve  http.HandlerFunc
+	}{
+		{"options", http.MethodGet, "/api/synaplan/watches/options?targetId=s$sp!f", nil, h.WatchOptions},
+		{"start", http.MethodPost, "/api/synaplan/watches", body, h.WatchStart},
+		{"stop", http.MethodDelete, "/api/synaplan/watches?targetId=s$sp!f", nil, h.WatchStop},
+		{"check now", http.MethodPost, "/api/synaplan/watches/reconcile?targetId=s$sp!f", nil, h.WatchReconcileNow},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			tc.serve(rr, httptest.NewRequest(tc.method, tc.path, tc.body))
+			if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"watch_shared_key"`) {
+				t.Fatalf("got %d %s, want 403 watch_shared_key", rr.Code, rr.Body.String())
+			}
+		})
+	}
+	if got := syn.stopped(); len(got) != 0 {
+		t.Fatalf("shared key stopped watches %v", got)
 	}
 }
 
