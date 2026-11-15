@@ -346,8 +346,13 @@ func pathCovers(grant, folder string) bool {
 func pathWithin(folder, file string) bool {
 	folder = normalizePath(folder)
 	file = normalizePath(file)
-	if folder == "" || file == "" {
+	if file == "" {
 		return false
+	}
+	// An empty folder path is the space root, so every file in that space
+	// is inside it. A missing path must not be passed in as the root.
+	if folder == "" {
+		return true
 	}
 	return strings.HasPrefix(file, folder+"/")
 }

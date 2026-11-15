@@ -94,6 +94,9 @@ func TestPathGrantDoesNotCrossSpaces(t *testing.T) {
 	if !pathWithin("Inbox", "Inbox/a.txt") || pathWithin("Inbox", "Inbox") {
 		t.Fatal("pathWithin")
 	}
+	if !pathWithin("", "Inbox/a.txt") || pathWithin("", "") {
+		t.Fatal("the space root contains its files")
+	}
 }
 
 // fakePickupSynaplan answers the pickup routes and the watch list, and

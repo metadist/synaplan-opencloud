@@ -155,6 +155,7 @@ func (r *Reader) OpenVersion(ctx context.Context, resourceID, etag string) (*Fil
 	if etag != "" && info.GetEtag() != etag {
 		return nil, ErrChanged
 	}
+	openedPath := utils.MakeRelativePath(info.GetPath())
 
 	// InitiateFileDownload needs a path-based reference (space root +
 	// relative path), not a bare resource-id ref. Stat already
@@ -213,7 +214,8 @@ func (r *Reader) OpenVersion(ctx context.Context, resourceID, etag string) (*Fil
 			_ = resp.Body.Close()
 			return nil, fmt.Errorf("cs3reader: stat after download: %s", again.GetStatus().GetMessage())
 		}
-		if again.GetInfo().GetEtag() != etag {
+		againInfo := again.GetInfo()
+		if againInfo.GetEtag() != etag || utils.MakeRelativePath(againInfo.GetPath()) != openedPath {
 			_ = resp.Body.Close()
 			return nil, ErrChanged
 		}
