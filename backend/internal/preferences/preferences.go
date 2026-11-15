@@ -71,46 +71,71 @@ func normalized(p Preferences) Preferences {
 }
 
 // Store keeps one record per person, keyed by their subject at the
-// identity provider. A person who never saved gets Default.
+// identity provider. A person who never saved gets Default. Update
+// stores a record only when its revision is still the one the caller
+// read, so two replicas cannot commit a stale snapshot.
 type Store interface {
 	Get(ctx context.Context, subject string) (Preferences, error)
-	Put(ctx context.Context, subject string, p Preferences) error
+	// Revision is the generation of the person's record. It is 0 when
+	// nothing is kept.
+	Revision(ctx context.Context, subject string) (uint64, error)
+	// Update stores p when the kept revision is still match. match 0
+	// stores it only when nothing is kept. ok is false when the
+	// revision moved; the record is left as it was.
+	Update(ctx context.Context, subject string, p Preferences, match uint64) (ok bool, err error)
 	// Close ends the connection to the store, if there is one.
 	Close() error
 }
 
+// memoryRecord is one person's settings and the generation Update checks.
+type memoryRecord struct {
+	rev uint64
+	p   Preferences
+}
+
 // MemoryStore keeps the records in this process. A restart forgets them
-// and another replica never sees them.
+// and another replica never sees them. Update stores a record only when
+// its revision is still the one the caller read.
 type MemoryStore struct {
 	mu      sync.Mutex
-	entries map[string]Preferences
+	entries map[string]memoryRecord
 }
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{entries: map[string]Preferences{}}
+	return &MemoryStore{entries: map[string]memoryRecord{}}
 }
 
 // Get returns the person's record, or Default.
 func (s *MemoryStore) Get(_ context.Context, subject string) (Preferences, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.entries[subject]
+	rec, ok := s.entries[subject]
 	if !ok {
 		return Default(), nil
 	}
-	return normalized(p), nil
+	return normalized(rec.p), nil
 }
 
-// Put replaces the person's record.
-func (s *MemoryStore) Put(_ context.Context, subject string, p Preferences) error {
+// Revision returns the generation of the person's record.
+func (s *MemoryStore) Revision(_ context.Context, subject string) (uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.entries[subject].rev, nil
+}
+
+// Update stores p when match is still the record's revision.
+func (s *MemoryStore) Update(_ context.Context, subject string, p Preferences, match uint64) (bool, error) {
 	if subject == "" {
-		return errNoSubject
+		return false, errNoSubject
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.entries[subject] = normalized(p)
-	return nil
+	if s.entries[subject].rev != match {
+		return false, nil
+	}
+	s.entries[subject] = memoryRecord{rev: match + 1, p: normalized(p)}
+	return true, nil
 }
 
 // Close does nothing.
@@ -119,8 +144,9 @@ func (s *MemoryStore) Close() error { return nil }
 var errNoSubject = errors.New("preferences: a record needs a subject")
 
 // NATSStore is a JetStream key-value bucket in OpenCloud's NATS. A person's
-// record is replaced as a whole; the last save wins, as it does for any
-// settings page.
+// record is replaced only when its revision is still the one the caller
+// read, so two replicas cannot commit a stale snapshot. That check is the
+// write alone: it cannot include the Synaplan call that reported the scope.
 type NATSStore struct {
 	conn   *nats.Conn
 	js     jetstream.JetStream
@@ -193,23 +219,51 @@ func (s *NATSStore) Get(ctx context.Context, subject string) (Preferences, error
 	return normalized(p), nil
 }
 
-// Put replaces the person's record.
-func (s *NATSStore) Put(ctx context.Context, subject string, p Preferences) error {
+// Revision returns the generation of the person's record.
+func (s *NATSStore) Revision(ctx context.Context, subject string) (uint64, error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return 0, err
+	}
+	entry, err := kv.Get(ctx, key(subject))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("preferences: reading: %w", err)
+	}
+	return entry.Revision(), nil
+}
+
+// Update stores p when match is still the record's revision.
+func (s *NATSStore) Update(ctx context.Context, subject string, p Preferences, match uint64) (bool, error) {
 	if subject == "" {
-		return errNoSubject
+		return false, errNoSubject
 	}
 	value, err := json.Marshal(normalized(p))
 	if err != nil {
-		return fmt.Errorf("preferences: encoding: %w", err)
+		return false, fmt.Errorf("preferences: encoding: %w", err)
 	}
 	kv, err := s.open(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if _, err := kv.Put(ctx, key(subject), value); err != nil {
-		return fmt.Errorf("preferences: writing: %w", err)
+	k := key(subject)
+	if match == 0 {
+		_, err = kv.Create(ctx, k, value)
+		if keyHeld(err) {
+			return false, nil
+		}
+	} else {
+		_, err = kv.Update(ctx, k, value, match)
+		if errors.Is(err, jetstream.ErrKeyRevisionMismatch) || errors.Is(err, jetstream.ErrKeyNotFound) {
+			return false, nil
+		}
 	}
-	return nil
+	if err != nil {
+		return false, fmt.Errorf("preferences: writing: %w", err)
+	}
+	return true, nil
 }
 
 // Close disconnects from NATS.
@@ -219,6 +273,18 @@ func (s *NATSStore) Close() error {
 	}
 	s.conn.Close()
 	return nil
+}
+
+// keyHeld reports a Create that lost to a key someone else holds. Over a
+// deleted key, nats.go does not map a replicated bucket's answer (10164)
+// to ErrKeyExists, so the code is read.
+func keyHeld(err error) bool {
+	var apiErr *jetstream.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence ||
+			apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant
+	}
+	return errors.Is(err, jetstream.ErrKeyExists)
 }
 
 // key encodes subject so it is one NATS key: a subject may contain

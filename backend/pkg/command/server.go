@@ -6,6 +6,7 @@ import (
 	"fmt"
 	stdhttp "net/http"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -237,6 +238,14 @@ func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, e
 func preferencesStore(cfg *config.Config) (preferences.Store, error) {
 	if cfg.Store.Store == "memory" {
 		return preferences.NewMemoryStore(), nil
+	}
+	// The two buckets share a key encoding. The same name would make a
+	// saved setting replace that person's encrypted offline token, and
+	// opening the bucket would rewrite the token bucket's settings.
+	tokens := strings.TrimSpace(cfg.Store.Database)
+	bucket := strings.TrimSpace(cfg.Store.PreferencesDatabase)
+	if bucket == tokens {
+		return nil, fmt.Errorf("SYNAPLAN_STORE_PREFERENCES_DATABASE (%q) equals SYNAPLAN_STORE_DATABASE; saving a setting would overwrite that person's encrypted offline token", bucket)
 	}
 	store, err := preferences.NewNATS(natsConfig(cfg, cfg.Store.PreferencesDatabase))
 	if err != nil {

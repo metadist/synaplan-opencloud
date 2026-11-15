@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/preferences"
@@ -35,8 +37,11 @@ type failingPreferences struct{ getErr, putErr error }
 func (s failingPreferences) Get(context.Context, string) (preferences.Preferences, error) {
 	return preferences.Default(), s.getErr
 }
-func (s failingPreferences) Put(context.Context, string, preferences.Preferences) error {
-	return s.putErr
+func (s failingPreferences) Revision(context.Context, string) (uint64, error) {
+	return 0, s.getErr
+}
+func (s failingPreferences) Update(context.Context, string, preferences.Preferences, uint64) (bool, error) {
+	return s.putErr == nil, s.putErr
 }
 func (s failingPreferences) Close() error { return nil }
 
@@ -164,6 +169,92 @@ func TestSavePreferencesRefuses(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Two handlers share one memory store, as two replicas would. Both
+// reports are held until each has read the revision, so the writes
+// race; the store must still end on the last scope Synaplan was given.
+func TestOverlappingSavesMatchTheLastReport(t *testing.T) {
+	store := preferences.NewMemoryStore()
+	var mu sync.Mutex
+	var reported []string
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var once sync.Once
+	letGo := func() { once.Do(func() { close(release) }) }
+	defer letGo()
+	synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body struct {
+			Mode string `json:"mode"`
+		}
+		_ = json.Unmarshal(raw, &body)
+		mu.Lock()
+		reported = append(reported, body.Mode)
+		n := len(reported)
+		mu.Unlock()
+		if n <= 2 {
+			started <- struct{}{}
+			<-release
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	t.Cleanup(synaplan.Close)
+
+	idp := fakeIdentityProvider(t, "ada")
+	newHandler := func() *Handler {
+		t.Helper()
+		d := delegated(t, idp, "")
+		d.Preferences = store
+		h, err := New(nil, synaplan.URL, nil, d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.folders = fakeFolders{}
+		return h
+	}
+	first, second := newHandler(), newHandler()
+
+	type outcome struct {
+		code int
+		body string
+	}
+	done := make(chan outcome, 2)
+	go func() {
+		rec := save(first, "u-ada", `{"mode":"all"}`)
+		done <- outcome{rec.Code, rec.Body.String()}
+	}()
+	go func() {
+		rec := save(second, "u-ada", `{"mode":"watched"}`)
+		done <- outcome{rec.Code, rec.Body.String()}
+	}()
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a save did not reach Synaplan")
+		}
+	}
+	letGo()
+	for range 2 {
+		got := <-done
+		if got.code != http.StatusOK {
+			t.Fatalf("save: %d %s", got.code, got.body)
+		}
+	}
+	mu.Lock()
+	last := reported[len(reported)-1]
+	seen := append([]string(nil), reported...)
+	mu.Unlock()
+	got, err := store.Get(context.Background(), "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last == "" || got.ReadScope.Mode != last {
+		t.Fatalf("stored %q, last reported %q, reports %v", got.ReadScope.Mode, last, seen)
 	}
 }
 

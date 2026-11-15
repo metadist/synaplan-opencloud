@@ -66,9 +66,7 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
     case 'folder_check_failed':
       return $gettext('OpenCloud could not check this folder. Try again.')
     case 'not_reported':
-      return $gettext(
-        'Synaplan did not receive this setting, so nothing changed. Try again in a minute.'
-      )
+      return $gettext('Synaplan did not confirm this save. Save again.')
     case 'cloud_not_linked':
       return $gettext(
         'Synaplan does not accept settings from this OpenCloud yet. Ask your administrator.'

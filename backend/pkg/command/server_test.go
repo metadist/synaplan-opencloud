@@ -47,6 +47,8 @@ func TestPreferencesStore(t *testing.T) {
 		{name: "memory", store: config.PersistentStore{Store: "memory"}},
 		{name: "nats-js-kv", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, PreferencesDatabase: "synaplan-preferences"}},
 		{name: "nats-js-kv without a bucket", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, Database: "synaplan-delegation"}, wantErr: "bucket"},
+		{name: "preferences bucket is the token bucket", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, Database: "synaplan-delegation", PreferencesDatabase: "synaplan-delegation"}, wantErr: "offline token"},
+		{name: "preferences bucket is the token bucket with surrounding space", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, Database: "synaplan-delegation", PreferencesDatabase: " synaplan-delegation "}, wantErr: "offline token"},
 		{name: "nats-js-kv without nodes", store: config.PersistentStore{Store: "nats-js-kv", PreferencesDatabase: "synaplan-preferences"}, wantErr: "address"},
 	}
 	for _, tc := range cases {

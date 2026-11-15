@@ -46,10 +46,7 @@ describe('sentenceFor', () => {
       'Synaplan follows the new setting, but this page could not keep it. Save again.'
     ],
     ['folder_check_failed', 'OpenCloud could not check this folder. Try again.'],
-    [
-      'not_reported',
-      'Synaplan did not receive this setting, so nothing changed. Try again in a minute.'
-    ],
+    ['not_reported', 'Synaplan did not confirm this save. Save again.'],
     [
       'cloud_not_linked',
       'Synaplan does not accept settings from this OpenCloud yet. Ask your administrator.'

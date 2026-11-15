@@ -128,6 +128,28 @@ test('an allowed folder carries its OpenCloud path and is removed on the Synapla
   await expect(folder).toHaveCount(0)
 })
 
+// The save is answered the way the service answers when it cannot confirm
+// the result. 15s is the same bound the other journeys in this file use
+// for the settings page to finish drawing.
+test('a save that is not confirmed shows one readable sentence', async () => {
+  await openSettings(userPage)
+  await userPage.route('**/api/synaplan/preferences', (route) =>
+    route.request().method() === 'PUT'
+      ? route.fulfill({ status: 502, json: { error: 'ignored', code: 'not_reported' } })
+      : route.fallback()
+  )
+
+  await userPage.locator('[data-testid="synaplan-settings-read-all"]').check()
+  await userPage.locator('[data-testid="synaplan-settings-save"]').click()
+
+  await expect(userPage.locator('[data-testid="synaplan-settings-error"]')).toHaveText(
+    'Synaplan did not confirm this save. Save again.',
+    { timeout: 15_000 }
+  )
+  await expect(userPage.locator('[data-testid="synaplan-settings-saved"]')).toHaveCount(0)
+  await userPage.unroute('**/api/synaplan/preferences')
+})
+
 test('a folder deleted after it was allowed leaves the setting on the next save', async ({
   request
 }) => {

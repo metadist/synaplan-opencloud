@@ -74,7 +74,7 @@ The offline tokens are kept in OpenCloud's NATS JetStream key-value store, one k
 | `SYNAPLAN_STORE` / `OC_PERSISTENT_STORE` | `nats-js-kv` (default) or `memory`. `memory` keeps the tokens in this process: a restart forgets them and other replicas never see them; the backend warns at start. Other values OpenCloud accepts in `OC_PERSISTENT_STORE`, such as `redis-sentinel`, stop the backend; set `SYNAPLAN_STORE` then. |
 | `SYNAPLAN_STORE_NODES` / `OC_PERSISTENT_STORE_NODES` | Addresses of OpenCloud's NATS, `host:port`, comma-separated. Default `127.0.0.1:9233`. OpenCloud's NATS listens on localhost unless `NATS_NATS_HOST` is set. |
 | `SYNAPLAN_STORE_DATABASE` | Key-value bucket for the tokens. Default `synaplan-delegation`. |
-| `SYNAPLAN_STORE_PREFERENCES_DATABASE` | Key-value bucket for each person's own settings (below). Default `synaplan-preferences`. |
+| `SYNAPLAN_STORE_PREFERENCES_DATABASE` | Key-value bucket for each person's own settings (below). Default `synaplan-preferences`. Must differ from `SYNAPLAN_STORE_DATABASE`. |
 | `SYNAPLAN_STORE_REPLICAS` | Copies of the bucket in a NATS cluster. Default `1`. The bucket's settings are applied at every start. |
 | `SYNAPLAN_STORE_AUTH_USERNAME` / `SYNAPLAN_STORE_AUTH_PASSWORD` (`OC_PERSISTENT_STORE_AUTH_*`) | Credentials for NATS, when it requires them. |
 | `SYNAPLAN_STORE_ENABLE_TLS` / `SYNAPLAN_STORE_TLS_INSECURE` / `SYNAPLAN_STORE_TLS_ROOT_CA_CERTIFICATE` (`OC_PERSISTENT_STORE_*`, `OC_INSECURE`) | TLS to NATS. Insecure skips verification and is ignored when a root CA is set. |
@@ -87,7 +87,7 @@ This needs, on the exchange client in Keycloak: the standard flow with PKCE (S25
 
 #### What Synaplan may read
 
-On the Synaplan page each person chooses what Synaplan may read of their files: only what they watch (the default), also folders they allow, or all of their files. The page lists the allowed folders and removes one. The backend replaces the path the browser sends with the one OpenCloud knows for the folder's id, as that person sees it, and reports the setting to Synaplan as the person (`PUT /api/v1/platform-links/read-scope`), which enforces it. Synaplan does not hand the setting back to a cloud, so the backend keeps a copy for the page in its own bucket of the same store as the offline tokens (`SYNAPLAN_STORE_PREFERENCES_DATABASE`), written only after Synaplan took it. With the shared API key there is no person, and the page shows no setting.
+On the Synaplan page each person chooses what Synaplan may read of their files: only what they watch (the default), also folders they allow, or all of their files. The page lists the allowed folders and removes one. The backend replaces the path the browser sends with the one OpenCloud knows for the folder's id, as that person sees it, and reports the setting to Synaplan as the person (`PUT /api/v1/platform-links/read-scope`), which enforces it. Synaplan does not hand the setting back to a cloud, so the backend keeps a copy for the page in its own bucket of the same store as the offline tokens (`SYNAPLAN_STORE_PREFERENCES_DATABASE`), written only after Synaplan took it and only while that copy is still the generation read before the report, so a slower save cannot replace a newer one. That bucket must not be the offline-token bucket: the keys are the same, and a saved setting would overwrite the encrypted token. The service refuses to start when the two names are equal. With the shared API key there is no person, and the page shows no setting.
 
 #### Notifications from Synaplan
 

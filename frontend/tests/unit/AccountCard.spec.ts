@@ -73,6 +73,16 @@ describe('AccountCard', () => {
     expect(wrapper.find('[data-testid="synaplan-settings-saved"]').exists()).toBe(true)
   })
 
+  it('hides the saved note when another mode is selected', async () => {
+    const wrapper = await mountCard()
+    await wrapper.get('[data-testid="synaplan-settings-read-all"]').setValue(true)
+    await wrapper.get('[data-testid="synaplan-settings-save"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-settings-saved"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="synaplan-settings-read-watched"]').setValue(true)
+    expect(wrapper.find('[data-testid="synaplan-settings-saved"]').exists()).toBe(false)
+  })
+
   it('removes a folder and saves the rest', async () => {
     const wrapper = await mountCard()
     await wrapper.findAll('[data-testid="synaplan-settings-folder-remove"]')[0].trigger('click')

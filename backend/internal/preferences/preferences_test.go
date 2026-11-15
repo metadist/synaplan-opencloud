@@ -25,8 +25,8 @@ func TestMemoryStore(t *testing.T) {
 			s := NewMemoryStore()
 			ctx := context.Background()
 			if tt.put != nil {
-				if err := s.Put(ctx, "ada", *tt.put); err != nil {
-					t.Fatal(err)
+				if ok, err := s.Update(ctx, "ada", *tt.put, 0); err != nil || !ok {
+					t.Fatalf("update: ok %v err %v", ok, err)
 				}
 			}
 			got, err := s.Get(ctx, "ada")
@@ -45,8 +45,38 @@ func TestMemoryStore(t *testing.T) {
 }
 
 func TestMemoryStoreNeedsASubject(t *testing.T) {
-	if err := NewMemoryStore().Put(context.Background(), "", Default()); err == nil {
+	if _, err := NewMemoryStore().Update(context.Background(), "", Default(), 0); err == nil {
 		t.Fatal("stored a record without a subject")
+	}
+}
+
+func TestUpdateRejectsAStaleRevision(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+	all := Preferences{ReadScope: ReadScope{Mode: ReadAll}}
+	ok, err := s.Update(ctx, "ada", all, 0)
+	if err != nil || !ok {
+		t.Fatalf("create: ok %v err %v", ok, err)
+	}
+	rev, err := s.Revision(ctx, "ada")
+	if err != nil || rev == 0 {
+		t.Fatalf("revision %d err %v", rev, err)
+	}
+	ok, err = s.Update(ctx, "ada", Default(), 0)
+	if err != nil || ok {
+		t.Fatalf("stale create: ok %v err %v", ok, err)
+	}
+	got, err := s.Get(ctx, "ada")
+	if err != nil || got.ReadScope.Mode != ReadAll {
+		t.Fatalf("stale write landed: %+v err %v", got, err)
+	}
+	ok, err = s.Update(ctx, "ada", Default(), rev)
+	if err != nil || !ok {
+		t.Fatalf("current update: ok %v err %v", ok, err)
+	}
+	got, err = s.Get(ctx, "ada")
+	if err != nil || got.ReadScope.Mode != ReadWatched {
+		t.Fatalf("after current update: %+v err %v", got, err)
 	}
 }
 

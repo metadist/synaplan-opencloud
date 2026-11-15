@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -73,6 +74,9 @@ type Handler struct {
 	audience    string
 	preferences preferences.Store
 	folders     folderPaths
+	// subjectMu serializes one person's settings save in this process.
+	// Another replica is outside it; the store revision decides that race.
+	subjectMu sync.Map
 
 	notifications notifications
 
@@ -136,6 +140,15 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		return nil, fmt.Errorf("creating synaplan API client: %w", err)
 	}
 	return h, nil
+}
+
+// lockSubject holds the in-process lock for one person's settings save.
+func (h *Handler) lockSubject(subject string) func() {
+	fresh := &sync.Mutex{}
+	actual, _ := h.subjectMu.LoadOrStore(subject, fresh)
+	mu := actual.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // writeJSON serialises v as JSON to w with the given HTTP status.

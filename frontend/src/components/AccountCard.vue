@@ -23,6 +23,7 @@
           name="synaplan-read-mode"
           :value="option.mode"
           :data-testid="`synaplan-settings-read-${option.mode}`"
+          @change="modeChanged"
         />
         {{ option.label }}
       </label>
@@ -109,6 +110,10 @@ function remove(id: string) {
   saved.value = false
 }
 
+function modeChanged() {
+  saved.value = false
+}
+
 onMounted(async () => {
   try {
     const [who, answer] = await Promise.all([loadLogin(), load()])
@@ -136,7 +141,7 @@ async function saveScope() {
     error.value = sentenceFor(
       $gettext,
       e,
-      $gettext('Synaplan did not receive this setting, so nothing changed. Try again in a minute.')
+      $gettext('Synaplan did not confirm this save. Save again.')
     )
   } finally {
     busy.value = false
