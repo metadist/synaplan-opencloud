@@ -83,7 +83,7 @@ func (h *Handler) reconcileEveryone(ctx context.Context) {
 			log.Printf("reconcile: acting for a person: %v", err)
 			continue
 		}
-		if _, err := h.reconcileWatches(away, h.cs3, ""); err != nil {
+		if _, err := h.reconcileWatches(away, h.cs3, "", sub); err != nil {
 			log.Printf("reconcile: %v", err)
 		}
 	}
@@ -123,7 +123,7 @@ func (h *Handler) WatchReconcileNow(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), passTimeout)
 	defer cancel()
-	result, err := h.reconcileWatches(ctx, h.cs3, targetID)
+	result, err := h.reconcileWatches(ctx, h.cs3, targetID, "")
 	if err != nil {
 		writeWatchFailure(w, "watch check", err)
 		return
@@ -141,7 +141,7 @@ type reconcileResult struct {
 // reconcileWatches checks the active watches ctx's credential can see, or
 // only those on targetID when it is set. A watch that fails is logged and
 // counted; the others still run.
-func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, targetID string) (reconcileResult, error) {
+func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, targetID, subject string) (reconcileResult, error) {
 	var result reconcileResult
 	all, err := h.watches(ctx)
 	if err != nil {
@@ -157,12 +157,12 @@ func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, target
 	slices.SortFunc(active, func(a, b watch) int { return a.ID - b.ID })
 	start := 0
 	if targetID == "" {
-		start = h.cursorStart(&h.watchCursor, len(active))
+		start = h.watchStart(subject, len(active))
 		active = rotate(active, start)
 	}
 	processed := 0
 	if targetID == "" {
-		defer func() { h.cursorAdvance(&h.watchCursor, start, processed, len(active)) }()
+		defer func() { h.watchAdvance(subject, start, processed, len(active)) }()
 	}
 	for _, each := range active {
 		if ctx.Err() != nil {
@@ -205,6 +205,7 @@ func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch)
 			if err := h.uploadWatchFile(ctx, files, w.ID, file); err != nil {
 				if errors.Is(err, errFileChanged) {
 					log.Printf("watch %d: %s changed; the next check sends the new version", w.ID, file.Name)
+					failed++
 					continue
 				}
 				log.Printf("watch %d: upload: %v", w.ID, err)
@@ -351,6 +352,42 @@ func writeUploadForm(mw *multipart.Writer, file cs3reader.Resource, opened *cs3r
 	}
 	_, err = io.Copy(part, opened.Body)
 	return err
+}
+
+// watchStart is where subject's watch list continues. An empty subject
+// is a check now, which does not move anyone's cursor.
+func (h *Handler) watchStart(subject string, n int) int {
+	if n == 0 || subject == "" {
+		return 0
+	}
+	h.reconcileMu.Lock()
+	defer h.reconcileMu.Unlock()
+	if h.watchCursors == nil {
+		h.watchCursors = map[string]int{}
+	}
+	cursor := h.watchCursors[subject]
+	if cursor < 0 {
+		cursor = 0
+	}
+	return cursor % n
+}
+
+// watchAdvance records how far subject's list got. Another person's list
+// has its own entry, so finishing their one watch cannot send this person
+// back to the start.
+func (h *Handler) watchAdvance(subject string, start, processed, n int) {
+	if n == 0 || processed <= 0 || subject == "" {
+		return
+	}
+	if processed > n {
+		processed = n
+	}
+	h.reconcileMu.Lock()
+	if h.watchCursors == nil {
+		h.watchCursors = map[string]int{}
+	}
+	h.watchCursors[subject] = (start + processed) % n
+	h.reconcileMu.Unlock()
 }
 
 // cursorStart is the index this pass begins at. n is how many items there

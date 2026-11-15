@@ -293,7 +293,7 @@ func TestReconcileWatches(t *testing.T) {
 				f.openEtag = map[string]string{"s$sp!c": "ec-new"}
 				return f
 			},
-			want:      reconcileResult{Watches: 1},
+			want:      reconcileResult{Watches: 1, Failed: 1},
 			wantAsked: map[int][][]string{8: {{"s$sp!c@ec"}}},
 		},
 		{
@@ -332,7 +332,7 @@ func TestReconcileWatches(t *testing.T) {
 			if tc.failUpload != nil {
 				syn.uploadStatus = tc.failUpload
 			}
-			got, err := syn.handler(t).reconcileWatches(context.Background(), tc.files(), tc.target)
+			got, err := syn.handler(t).reconcileWatches(context.Background(), tc.files(), tc.target, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -366,7 +366,7 @@ func TestReconcileAsksInBatchesSynaplanAccepts(t *testing.T) {
 	}
 	syn := newFakeSynaplan(t, []watch{{ID: 1, TargetKind: "folder", TargetID: "s$sp!big", State: "active"}})
 
-	if _, err := syn.handler(t).reconcileWatches(context.Background(), files, ""); err != nil {
+	if _, err := syn.handler(t).reconcileWatches(context.Background(), files, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	batches := syn.reconciled[1]
@@ -386,16 +386,35 @@ func TestReconcileStartsAtTheWatchTheLastPassDidNotFinish(t *testing.T) {
 	})
 	syn.process = map[int][]string{7: {"s$sp!a"}, 8: {"s$sp!c"}}
 	h := syn.handler(t)
-	h.watchCursor = 1
+	h.watchCursors = map[string]int{"ada": 1}
 
-	if _, err := h.reconcileWatches(context.Background(), inbox(), ""); err != nil {
+	if _, err := h.reconcileWatches(context.Background(), inbox(), "", "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if got := syn.askedOrder(); !slices.Equal(got, []int{8, 7}) {
 		t.Fatalf("asked %v, want [8 7]", got)
 	}
-	if h.watchCursor != 1 {
-		t.Fatalf("cursor %d, want 1 after a full pass that started at 1", h.watchCursor)
+	if h.watchCursors["ada"] != 1 {
+		t.Fatalf("cursor %d, want 1 after a full pass that started at 1", h.watchCursors["ada"])
+	}
+}
+
+func TestWatchProgressStaysWithItsPerson(t *testing.T) {
+	syn := newFakeSynaplan(t, []watch{
+		{ID: 7, TargetKind: "folder", TargetID: "s$sp!inbox", State: "active"},
+		{ID: 8, TargetKind: "file", TargetID: "s$sp!c", State: "active"},
+	})
+	h := syn.handler(t)
+	h.watchCursors = map[string]int{"ada": 1}
+
+	if _, err := h.reconcileWatches(context.Background(), inbox(), "", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if h.watchCursors["ada"] != 1 {
+		t.Fatalf("ada's place became %d after bob's check", h.watchCursors["ada"])
+	}
+	if h.watchCursors["bob"] != 0 {
+		t.Fatalf("bob's cursor %d, want 0 after a full one-person pass", h.watchCursors["bob"])
 	}
 }
 
