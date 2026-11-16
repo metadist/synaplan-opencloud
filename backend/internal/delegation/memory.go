@@ -14,6 +14,7 @@ type MemoryStore struct {
 	mu       sync.Mutex
 	revision uint64
 	entries  map[string]Entry
+	settings map[string]Entry
 	leases   map[string]*memLease
 }
 
@@ -24,7 +25,7 @@ type memLease struct {
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{entries: map[string]Entry{}, leases: map[string]*memLease{}}
+	return &MemoryStore{entries: map[string]Entry{}, settings: map[string]Entry{}, leases: map[string]*memLease{}}
 }
 
 // Get reads the person's token.

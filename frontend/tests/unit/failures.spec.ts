@@ -50,6 +50,14 @@ describe('sentenceFor', () => {
     ['cloud_not_linked', 'Synaplan does not know this OpenCloud yet. Ask your administrator.'],
     ['watches_off', 'Watching folders is turned off in Synaplan. Ask your administrator.'],
     [
+      'reads_unavailable',
+      'Synaplan cannot read folders in this OpenCloud. Ask your administrator.'
+    ],
+    ['reads_personal_only', 'Synaplan can only read folders in your personal space.'],
+    ['reads_changed', 'The setting was changed at the same time. Close this and try again.'],
+    ['folder_not_found', 'This folder is no longer there. Reload the folder and try again.'],
+    ['reads_everything', 'Synaplan may read all your folders, so one cannot be left out.'],
+    [
       'watch_shared_key',
       'Watching needs each person signed in to Synaplan. This installation uses one shared key.'
     ]

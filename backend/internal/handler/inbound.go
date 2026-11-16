@@ -44,7 +44,7 @@ type notifications struct {
 // Inbound is the address Synaplan calls. Nothing is acted on until the
 // notification verifies: its type, Synaplan's signature and issuer, this
 // instance, its time window, and an id not handled before. This service
-// acts on delivery and identity_revoked; other types are acknowledged and
+// acts on delivery, identity_revoked, and pickup; other types are acknowledged and
 // left to the features that need them.
 func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 	if !h.delegation.Configured() {
@@ -78,6 +78,10 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 	}
 	if claims.Type == "delivery" {
 		h.deliverCopy(w, r, claims)
+		return
+	}
+	if claims.Type == "pickup" {
+		h.startPickup(w, r, claims)
 		return
 	}
 	if claims.Type == "identity_revoked" && claims.Subject != "" {

@@ -15,7 +15,8 @@ OpenCloud user, swaps their Keycloak login for a Synaplan token with RFC 8693
 token exchange (or attaches one shared API key in the discouraged Mode B),
 reads the file through the CS3 gateway, and calls Synaplan with a client that
 is **generated** from the pinned Synaplan image's OpenAPI spec. There is no
-database of its own and no state beyond what Synaplan and OpenCloud hold.
+database of its own: what it keeps (offline tokens, a person's folder read
+setting) lives sealed in OpenCloud's NATS key-value store.
 
 ## Repository layout
 
@@ -25,7 +26,7 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `chat.go`, `models.go`, `memory.go`, `knowledge*.go`, `files.go`, `media.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications and `delivery.go` the copies they deliver, `watch.go` the watch routes, `sources.go` the kept-file checks, and `reconcile.go` the background pass) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
-| `backend/internal/delegation/`, `synced/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; searchable files kept up to date across edits; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
+| `backend/internal/delegation/`, `synced/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away, and the per-person settings kept beside them (the folder read scope); searchable files kept up to date across edits; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |

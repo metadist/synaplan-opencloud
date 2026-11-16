@@ -1,11 +1,12 @@
-import { Page, expect } from '@playwright/test'
+import { Locator, Page, expect } from '@playwright/test'
 
 /**
  * Allow and stop Synaplan's work while the person is away, from the
  * Synaplan page, the way the person does it.
  */
-
-export async function openDelegationSection(page: Page) {
+export async function openDelegationSection(
+  page: Page
+): Promise<{ connect: Locator; disconnect: Locator }> {
   if (!new URL(page.url()).pathname.endsWith('/synaplan')) {
     await page.goto('/synaplan')
   }

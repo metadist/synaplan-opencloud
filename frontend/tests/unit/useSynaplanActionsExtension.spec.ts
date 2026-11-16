@@ -16,8 +16,12 @@ vi.mock('vue3-gettext', () => ({
 import { useSynaplanActionsExtension } from '../../src/extensions/useSynaplanActionsExtension'
 import type { FileActionOptions } from '@opencloud-eu/web-pkg'
 
-function options(overrides: Partial<{ isFolder: boolean; mimeType: string }> = {}) {
+function options(
+  overrides: Partial<{ isFolder: boolean; mimeType: string }> = {},
+  driveType = 'personal'
+) {
   return {
+    space: { driveType },
     resources: [
       { id: 'r1', name: 'doc.txt', isFolder: false, mimeType: 'text/plain', ...overrides }
     ]
@@ -47,7 +51,7 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize, chat, knowledge, from-Synaplan and watch actions', () => {
+  it('groups the translate, summarize, chat, knowledge, from-Synaplan, watch and read-folder actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
@@ -55,7 +59,8 @@ describe('useSynaplanActionsExtension', () => {
       'chat-about-file',
       'add-to-knowledge',
       'from-synaplan',
-      'watch'
+      'watch',
+      'read-folder'
     ])
   })
 
@@ -66,7 +71,12 @@ describe('useSynaplanActionsExtension', () => {
     })
 
     it.each([
-      ['a folder', options({ isFolder: true }), ['from-synaplan', 'watch']],
+      ['a folder', options({ isFolder: true }), ['from-synaplan', 'watch', 'read-folder']],
+      [
+        'a folder in a project space',
+        options({ isFolder: true }, 'project'),
+        ['from-synaplan', 'watch']
+      ],
       ['an unsupported mime type', options({ mimeType: 'image/png' }), ['watch']],
       [
         'a supported file',

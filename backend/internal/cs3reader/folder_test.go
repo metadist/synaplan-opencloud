@@ -218,3 +218,26 @@ func TestOpenVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestInSpace(t *testing.T) {
+	cases := []struct {
+		name  string
+		id    string
+		space string
+		want  bool
+	}{
+		{"a folder in the space", "s$sp!f", "s$sp", true},
+		{"the space root", "s$sp!sp", "s$sp", true},
+		{"another space on the same storage", "s$project!f", "s$sp", false},
+		{"the same space id on another storage", "t$sp!f", "s$sp", false},
+		{"an id that does not parse", "nonsense", "s$sp", false},
+		{"no space", "s$sp!f", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := InSpace(tc.id, tc.space); got != tc.want {
+				t.Fatalf("InSpace(%q, %q) = %v, want %v", tc.id, tc.space, got, tc.want)
+			}
+		})
+	}
+}
