@@ -95,6 +95,22 @@ export async function downloadTextFile(
   return resp.text()
 }
 
+export async function downloadFile(
+  request: APIRequestContext,
+  webDavUrl: string,
+  accessToken: string,
+  fileName: string
+): Promise<Buffer> {
+  const url = buildFileUrl(webDavUrl, fileName)
+  const resp = await request.get(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`GET ${url} failed: ${resp.status()} ${await resp.text()}`)
+  }
+  return resp.body()
+}
+
 /**
  * Read a binary fixture from disk (relative to the frontend root) and
  * upload it. Used by tests that need to exercise Synaplan's binary
@@ -154,6 +170,32 @@ export async function ensureFolder(
   if (resp.status() !== 201 && resp.status() !== 405) {
     throw new Error(`MKCOL ${url} failed: ${resp.status()} ${await resp.text()}`)
   }
+}
+
+/**
+ * The resource id (`oc:fileid`, the "storageId$spaceId!opaqueId" form the
+ * web client uses) of a file or folder, via WebDAV PROPFIND.
+ */
+export async function getResourceId(
+  request: APIRequestContext,
+  webDavUrl: string,
+  accessToken: string,
+  filePath: string
+): Promise<string> {
+  const url = buildFileUrl(webDavUrl, filePath)
+  const resp = await request.fetch(url, {
+    method: 'PROPFIND',
+    headers: { Authorization: `Bearer ${accessToken}`, Depth: '0' },
+    data: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><oc:fileid/></d:prop></d:propfind>'
+  })
+  if (resp.status() !== 207) {
+    throw new Error(`PROPFIND ${url} failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const id = /<oc:fileid>([^<]+)<\/oc:fileid>/.exec(await resp.text())?.[1]
+  if (!id) {
+    throw new Error(`PROPFIND ${url} returned no oc:fileid`)
+  }
+  return id
 }
 
 function buildFileUrl(webDavUrl: string, filePath: string): string {

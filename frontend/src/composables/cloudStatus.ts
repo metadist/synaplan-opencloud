@@ -76,6 +76,11 @@ export function invalidateCloudStatus(id: string) {
   delete cloudMarks[id]
 }
 
+/** Forget freshness timestamps so open folders ask Synaplan again after a watch check. */
+export function invalidateAllCloudStatus() {
+  fetchedAt.clear()
+}
+
 function isFresh(id: string, version: string, now: number): boolean {
   const seen = fetchedAt.get(id)
   if (!seen || seen.version !== version) return false

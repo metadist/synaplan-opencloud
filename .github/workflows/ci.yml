@@ -16,8 +16,8 @@ env:
   # auto-updated by Renovate via the customManager defined in
   # renovate.json5. SYNAPLAN_REF is updated manually alongside the
   # digest when moving to a new synaplan release.
-  SYNAPLAN_REF: 1f1a2a8d1227209e0cad1b55931145e2c0d0f4ea
-  SYNAPLAN_IMAGE_DIGEST: sha256:50eb932cc3219f247c25f3523303cb4d24073b534ea26ee81a05c22cb9e409bc
+  SYNAPLAN_REF: df0062a94a9ebd8f69250843cec2e5ea30dbb9a2
+  SYNAPLAN_IMAGE_DIGEST: sha256:b667da8b17aef7a9ab1131b6023d30ea84b024d5c857069f002d3748df253766
 
 jobs:
   frontend:
@@ -33,7 +33,7 @@ jobs:
         with:
           version: 10.34.9
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: pnpm
@@ -61,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: "1.27"
           cache-dependency-path: backend/go.sum
@@ -97,13 +97,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Download frontend dist
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: frontend-dist
           path: frontend/dist/
 
       - name: Download generated Synaplan client
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: synaplan-client-gen
           path: backend/internal/synaplanapi/
@@ -152,14 +152,14 @@ jobs:
         with:
           version: 10.34.9
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Download frontend dist
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: frontend-dist
           path: frontend/dist/
@@ -216,7 +216,7 @@ jobs:
 
       # --- Start synaplan-opencloud stack ---
       - name: Download backend Docker image
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: docker-image
           path: /tmp
@@ -290,7 +290,7 @@ jobs:
       packages: write
     steps:
       - name: Download Docker image
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: docker-image
           path: /tmp

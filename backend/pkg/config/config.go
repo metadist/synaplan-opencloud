@@ -46,6 +46,12 @@ type Config struct {
 	DefaultAnswerLanguage string `yaml:"default_answer_language" env:"SYNAPLAN_DEFAULT_ANSWER_LANGUAGE" desc:"Language Synaplan answers in (ISO 639-1: en, de, fr, es, it, pt, nl, pl, tr, ru, ja, zh, ko or ar) until an administrator saves another one on the Synaplan page. Another value stops the service at start."`
 	UseUserLanguage       bool   `yaml:"use_user_language" env:"SYNAPLAN_USE_USER_LANGUAGE" desc:"Answer in each person's OpenCloud interface language when it is supported, with the default answer language as the fallback, until an administrator saves another choice on the Synaplan page."`
 
+	// Watches and folder reads use OpenCloud's machine auth to read the
+	// files of a person who is away, as that person.
+	MachineAuthAPIKey string `yaml:"machine_auth_api_key" env:"OC_MACHINE_AUTH_API_KEY;SYNAPLAN_MACHINE_AUTH_API_KEY" desc:"OpenCloud's machine auth API key. Watches and folder reads use it to read a person's files while that person is away, and only for people who allowed Synaplan to work while they are away. Empty turns that off: watched files are then only sent when the person checks a watch themselves."`
+	UserOIDCClaim     string `yaml:"user_oidc_claim" env:"SYNAPLAN_USER_OIDC_CLAIM" desc:"Claim of the person's token that names their OpenCloud user. Set it to OpenCloud's PROXY_USER_OIDC_CLAIM."`
+	UserCS3Claim      string `yaml:"user_cs3_claim" env:"SYNAPLAN_USER_CS3_CLAIM" desc:"OpenCloud user attribute that claim is matched against: 'username', 'mail' or 'userid'. Set it to OpenCloud's PROXY_USER_CS3_CLAIM."`
+
 	// Store keeps the offline tokens of people who allowed work while they
 	// are away and the administrator's settings, in the key-value store
 	// OpenCloud already runs.
@@ -98,6 +104,7 @@ type PersistentStore struct {
 	Nodes                     []string `yaml:"nodes" env:"OC_PERSISTENT_STORE_NODES;SYNAPLAN_STORE_NODES" desc:"Addresses of OpenCloud's NATS, as host:port. A comma-separated list when there is more than one. Only applies when the store is nats-js-kv. NATS must be 2.11 or later."`
 	Database                  string   `yaml:"database" env:"SYNAPLAN_STORE_DATABASE" desc:"JetStream key-value bucket for the offline tokens."`
 	SettingsDatabase          string   `yaml:"settings_database" env:"SYNAPLAN_STORE_SETTINGS_DATABASE" desc:"JetStream key-value bucket for the administrator's settings from the Synaplan page."`
+	SyncedDatabase            string   `yaml:"synced_database" env:"SYNAPLAN_STORE_SYNCED_DATABASE" desc:"JetStream key-value bucket for the searchable files people keep up to date: which file, in which knowledge folder, and the version Synaplan last took. The memory store keeps them in this process instead."`
 	Replicas                  int      `yaml:"replicas" env:"SYNAPLAN_STORE_REPLICAS" desc:"How many NATS servers keep a copy of each bucket, in a NATS cluster. The buckets' settings are applied at every start, so they replace changes made to them by hand."`
 	AuthUsername              string   `yaml:"username" env:"OC_PERSISTENT_STORE_AUTH_USERNAME;SYNAPLAN_STORE_AUTH_USERNAME" desc:"Username for OpenCloud's NATS. Only applies when the store is nats-js-kv."`
 	AuthPassword              string   `yaml:"password" env:"OC_PERSISTENT_STORE_AUTH_PASSWORD;SYNAPLAN_STORE_AUTH_PASSWORD" desc:"Password for OpenCloud's NATS. Only applies when the store is nats-js-kv."`

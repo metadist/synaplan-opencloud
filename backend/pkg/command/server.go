@@ -28,6 +28,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
+	"github.com/metadist/synaplan-opencloud/internal/synced"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
 	"github.com/metadist/synaplan-opencloud/pkg/config"
 	"github.com/metadist/synaplan-opencloud/pkg/config/parser"
@@ -66,6 +67,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			}
 
 			cs3 := cs3reader.New(gws, cfg.Insecure)
+			cs3.SetMachineAuth(cfg.MachineAuthAPIKey)
 
 			var editor synaplanapi.RequestEditorFn
 			var delegated *handler.Delegated
@@ -100,6 +102,10 @@ func Server(cfg *config.Config) *cobra.Command {
 					return fmt.Errorf("could not set up the delegation store key: %w", err)
 				}
 				store := delegation.NewSealedStore(inner, keys)
+				kept, err := syncedStore(cfg, inner)
+				if err != nil {
+					return err
+				}
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
 						Provider:     provider,
@@ -111,8 +117,11 @@ func Server(cfg *config.Config) *cobra.Command {
 							logger.Warn().Err(err).Msg("synaplan-opencloud: could not use the token store")
 						},
 					}),
-					Exchanger: exchanger,
-					Audience:  cfg.OIDCTargetAudience,
+					Exchanger:     exchanger,
+					Audience:      cfg.OIDCTargetAudience,
+					UserClaim:     cfg.UserOIDCClaim,
+					UserAttribute: cfg.UserCS3Claim,
+					Synced:        kept,
 				}
 			}
 
@@ -137,6 +146,10 @@ func Server(cfg *config.Config) *cobra.Command {
 			if cfg.SynaplanAPIKey != "" {
 				h.UseSharedKey()
 			}
+			if delegated != nil && cfg.MachineAuthAPIKey == "" {
+				logger.Info().Msg("synaplan-opencloud: OC_MACHINE_AUTH_API_KEY is not set; watched files are only sent when a person checks a watch themselves, and files are not kept up to date")
+			}
+			go h.RunReconciler(ctx)
 
 			mux := chi.NewMux()
 			mux.Use(
@@ -173,17 +186,28 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Put("/api/synaplan/settings", h.SaveSettings)
 				r.Post("/api/synaplan/translate", h.Translate)
 				r.Post("/api/synaplan/summarize", h.Summarize)
+				r.Post("/api/synaplan/chat", h.Chat)
+				r.Get("/api/synaplan/models", h.Models)
 				r.Post("/api/synaplan/knowledge", h.AddToKnowledge)
 				r.Get("/api/synaplan/knowledge/groups", h.KnowledgeGroups)
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
+				r.Post("/api/synaplan/knowledge/sync", h.KnowledgeSyncNow)
 				r.Post("/api/synaplan/cloud/status", h.CloudStatus)
 				r.Get("/api/synaplan/from-synaplan", h.ListSynaplanFiles)
 				r.Post("/api/synaplan/from-synaplan", h.CopyFromSynaplan)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
+				r.Post("/api/synaplan/media", h.GenerateImage)
+				r.Post("/api/synaplan/media/save", h.SaveImage)
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)
 				r.Post("/api/synaplan/delegation", h.DelegationConnect)
 				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
+				r.Get("/api/synaplan/watches/options", h.WatchOptions)
+				r.Post("/api/synaplan/watches", h.WatchStart)
+				r.Delete("/api/synaplan/watches", h.WatchStop)
+				r.Post("/api/synaplan/watches/reconcile", h.WatchReconcileNow)
+				r.Get("/api/synaplan/read-scope", h.ReadScope)
+				r.Put("/api/synaplan/read-scope", h.SetReadScope)
 			})
 
 			server := &stdhttp.Server{
@@ -220,6 +244,21 @@ func identityProviderClient(insecure bool) *stdhttp.Client {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // OC_INSECURE, development only
 	}
 	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
+}
+
+// syncedStore keeps the files people keep up to date where the offline
+// tokens are: a bucket of its own on the same NATS connection, or this
+// process's memory.
+func syncedStore(cfg *config.Config, tokens delegation.Store) (synced.Store, error) {
+	nats, ok := tokens.(*delegation.NATSStore)
+	if !ok {
+		return synced.NewMemoryStore(), nil
+	}
+	store, err := synced.NewNATS(nats.JetStream(), cfg.Store.SyncedDatabase, cfg.Store.Replicas)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the store of kept files: %w", err)
+	}
+	return store, nil
 }
 
 // delegationStore is the store the configuration names. There is no

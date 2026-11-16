@@ -1,13 +1,17 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
@@ -21,6 +25,40 @@ import (
 // front of this service allows a larger body; the buffer, and the
 // memory the process needs, grow with that cap.
 const defaultMaxCopyBytes int64 = 100 << 20
+
+// copyDownloadTimeout bounds reading a file from Synaplan and saving it
+// into OpenCloud.
+const copyDownloadTimeout = 5 * time.Minute
+
+var (
+	// errSynaplanUnreachable marks a transport failure talking to Synaplan
+	// (connection refused, timeout, or dropped body stream), distinct from
+	// an HTTP error status Synaplan answered with.
+	errSynaplanUnreachable = errors.New("synaplan unreachable")
+	// errCopyTooLarge marks a downloaded file exceeding copyLimit().
+	errCopyTooLarge = errors.New("file exceeds copy limit")
+)
+
+func unreachableFailure() errorResponse {
+	return errorResponse{
+		Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.",
+		Code:  "synaplan_unreachable",
+	}
+}
+
+func tooLargeFailure() errorResponse {
+	return errorResponse{
+		Error: "This file is too large to copy here.",
+		Code:  "file_too_large",
+	}
+}
+
+func copyFailedFailure() errorResponse {
+	return errorResponse{
+		Error: "The file was not copied. It is still in Synaplan.",
+		Code:  "copy_failed",
+	}
+}
 
 // SetMaxCopyBytes sets the copy cap from configuration. Zero keeps
 // the default.
@@ -51,6 +89,44 @@ func (h *Handler) copyLimit() int64 {
 	return defaultMaxCopyBytes
 }
 
+// readCappedSynaplanResponse reads at most h.copyLimit() bytes from a
+// Synaplan file response, distinguishing transport failures from HTTP
+// status failures even when an error body is truncated.
+func (h *Handler) readCappedSynaplanResponse(op string, resp *http.Response, reqErr error) ([]byte, error) {
+	if reqErr != nil {
+		return nil, fmt.Errorf("%s: %w: %w", op, errSynaplanUnreachable, reqErr)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	limit := h.copyLimit()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if resp.StatusCode != http.StatusOK {
+		return nil, wrapUpstreamStatus(op, resp.StatusCode, body)
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("%s: %w: %w", op, errSynaplanUnreachable, readErr)
+	}
+	if int64(len(body)) > limit {
+		return nil, errCopyTooLarge
+	}
+	return body, nil
+}
+
+// writeCopyFetchFailure logs err and writes the matching HTTP response
+// (413 for oversized files, 502 synaplan_unreachable for transport
+// failures, 502 synaplan_error for upstream HTTP failures).
+func writeCopyFetchFailure(w http.ResponseWriter, logPrefix string, err error) {
+	if errors.Is(err, errCopyTooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, tooLargeFailure())
+		return
+	}
+	log.Printf("%s: %v", logPrefix, err)
+	if errors.Is(err, errSynaplanUnreachable) {
+		writeJSON(w, http.StatusBadGateway, unreachableFailure())
+		return
+	}
+	writeJSON(w, http.StatusBadGateway, publicFailure(err))
+}
+
 // synaplanFilesPerPage is how many of the person's Synaplan files one
 // page of "From Synaplan" lists.
 const synaplanFilesPerPage = 50
@@ -72,10 +148,7 @@ func (h *Handler) ListSynaplanFiles(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("from synaplan: list: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{
-			Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.",
-			Code:  "synaplan_unreachable",
-		})
+		writeJSON(w, http.StatusBadGateway, unreachableFailure())
 		return
 	}
 	if res.StatusCode() != http.StatusOK {
@@ -121,47 +194,24 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.cs3 == nil {
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: storage is not configured"})
+		log.Printf("from synaplan: storage is not configured")
+		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
 
-	res, err := h.synaplanAPI.GetApiFilesDownload(r.Context(), req.FileID, nil)
+	ctx, cancel := context.WithTimeout(r.Context(), copyDownloadTimeout)
+	defer cancel()
+	resp, reqErr := h.synaplanAPI.GetApiFilesDownload(ctx, req.FileID, nil)
+	content, err := h.readCappedSynaplanResponse(fmt.Sprintf("download %d", req.FileID), resp, reqErr)
 	if err != nil {
-		log.Printf("from synaplan: download %d: %v", req.FileID, err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{
-			Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.",
-			Code:  "synaplan_unreachable",
-		})
-		return
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode != http.StatusOK {
-		log.Printf("from synaplan: download %d answered %d", req.FileID, res.StatusCode)
-		writeJSON(w, http.StatusBadGateway, publicFailure(nil))
-		return
-	}
-	limit := h.copyLimit()
-	content, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
-	if err != nil {
-		log.Printf("from synaplan: read %d: %v", req.FileID, err)
-		writeJSON(w, http.StatusBadGateway, publicFailure(nil))
-		return
-	}
-	if int64(len(content)) > limit {
-		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{
-			Error: "This file is too large to copy here.",
-			Code:  "file_too_large",
-		})
+		writeCopyFetchFailure(w, "from synaplan", err)
 		return
 	}
 
-	written, err := h.cs3.SaveChild(r.Context(), req.FolderID, name, content)
+	written, err := h.cs3.SaveChild(ctx, req.FolderID, name, content)
 	if err != nil {
 		log.Printf("from synaplan: save: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{
-			Error: "The file was not copied. It is still in Synaplan.",
-			Code:  "copy_failed",
-		})
+		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
 	writeJSON(w, http.StatusOK, copyFromSynaplanResponse{Path: written})

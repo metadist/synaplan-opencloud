@@ -23,10 +23,20 @@ describe('sentenceFor', () => {
       'no_text',
       'Synaplan found no text in this file. It may be a scan or protected by a password.'
     ],
+    ['image_unavailable', 'This Synaplan has no model that makes images. Ask your administrator.'],
+    [
+      'image_rate_limited',
+      'You have made as many images as Synaplan allows right now. Try again later.'
+    ],
+    [
+      'image_shared_key',
+      'Making and saving images needs each person signed in to Synaplan. This installation uses one shared key.'
+    ],
     [
       'synaplan_error',
       'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
     ],
+    ['rate_limited', 'Synaplan is busy or your limit is reached. Try again later.'],
     ['identity_check_failed', 'Synaplan could not check who you are. Try again.'],
     ['idp_unreachable', 'The sign-in service cannot be reached. Try again later.'],
     ['permission_unavailable', 'Synaplan cannot check this permission right now. Try again later.'],
@@ -38,7 +48,22 @@ describe('sentenceFor', () => {
     ],
     ['admin_only', 'Only an administrator can change this.'],
     ['unsupported_language', 'Choose one of the listed languages.'],
-    ['settings_unavailable', 'The settings were not saved. Try again in a minute.']
+    ['settings_unavailable', 'The settings were not saved. Try again in a minute.'],
+    ['watch_cap', 'You are watching as many folders and files as you can. Stop a watch first.'],
+    ['cloud_not_linked', 'Synaplan does not know this OpenCloud yet. Ask your administrator.'],
+    ['watches_off', 'Watching folders is turned off in Synaplan. Ask your administrator.'],
+    [
+      'reads_unavailable',
+      'Synaplan cannot read folders in this OpenCloud. Ask your administrator.'
+    ],
+    ['reads_personal_only', 'Synaplan can only read folders in your personal space.'],
+    ['reads_changed', 'The setting was changed at the same time. Close this and try again.'],
+    ['folder_not_found', 'This folder is no longer there. Reload the folder and try again.'],
+    ['reads_everything', 'Synaplan may read all your folders, so one cannot be left out.'],
+    [
+      'watch_shared_key',
+      'Watching needs each person signed in to Synaplan. This installation uses one shared key.'
+    ]
   ])('maps %s to its sentence', (code, sentence) => {
     const error = { response: { data: { code, error: 'ignored' } } }
     expect(sentenceFor($gettext, error, 'fallback')).toBe(sentence)

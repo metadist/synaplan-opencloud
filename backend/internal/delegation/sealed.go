@@ -85,6 +85,11 @@ func (s *SealedStore) Lease(ctx context.Context, subject string) (context.Contex
 	return s.inner.Lease(ctx, subject)
 }
 
+// Subjects lists the people of the store underneath.
+func (s *SealedStore) Subjects(ctx context.Context) ([]string, error) {
+	return s.inner.Subjects(ctx)
+}
+
 // Close closes the store underneath.
 func (s *SealedStore) Close() error { return s.inner.Close() }
 

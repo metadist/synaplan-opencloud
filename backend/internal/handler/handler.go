@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
+	"github.com/metadist/synaplan-opencloud/internal/synced"
 )
 
 // Delegated is what acting for a person while they are away needs: their
@@ -32,6 +34,15 @@ type Delegated struct {
 	Tokens    *delegation.Delegation
 	Exchanger synaplanauth.TokenExchanger
 	Audience  string
+	// UserClaim names the claim of the person's token that OpenCloud's
+	// proxy maps to the user attribute UserAttribute (PROXY_USER_OIDC_CLAIM
+	// and PROXY_USER_CS3_CLAIM). Watches find a person's OpenCloud user by
+	// it while that person is away.
+	UserClaim     string
+	UserAttribute string
+	// Synced lists the searchable files people keep up to date, which the
+	// background pass checks for changes.
+	Synced synced.Store
 }
 
 // PermissionChecker tells whether the signed-in person holds an OpenCloud
@@ -64,6 +75,9 @@ type Admin struct {
 //   - notifications verifies what Synaplan sends to /inbound.
 //   - permissions, settings and settingsDefaults serve the
 //     administrator's settings on the Synaplan page.
+//   - synced lists the searchable files people keep up to date.
+//   - RunReconciler keeps the watches and the kept files of people who
+//     are away moving.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -80,6 +94,9 @@ type Handler struct {
 	delegation  *delegation.Delegation
 	exchanger   synaplanauth.TokenExchanger
 	audience    string
+	userClaim   string
+	userAttr    string
+	synced      synced.Store
 
 	notifications notifications
 
@@ -87,12 +104,21 @@ type Handler struct {
 	maxCopyBytes int64
 	// sharedKey is set when every Synaplan call uses one API key.
 	// Listing files then lists the key owner's files, for every
-	// signed-in OpenCloud user, so From Synaplan stays closed.
-	sharedKey bool
-
+	// signed-in OpenCloud user, so From Synaplan, images, and watches stay closed.
+	sharedKey        bool
 	permissions      PermissionChecker
 	settings         settings.Store
 	settingsDefaults settings.Values
+	// memory keeps the last answer of Synaplan's memory-service check.
+	memory memoryCache
+
+	// reconcileMu guards the cursors a pass uses so the next pass starts
+	// where this one stopped. One process only; each replica keeps its own.
+	// Watch progress is per person so a pass or a one-watch check never
+	// resets someone else's place in their own list.
+	reconcileMu   sync.Mutex
+	subjectCursor int
+	watchCursors  map[string]int
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.
@@ -139,6 +165,9 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		h.delegation = delegated.Tokens
 		h.exchanger = delegated.Exchanger
 		h.audience = delegated.Audience
+		h.userClaim = delegated.UserClaim
+		h.userAttr = delegated.UserAttribute
+		h.synced = delegated.Synced
 	}
 	h.synaplanAPI, err = synaplanapi.NewClientWithResponses(
 		synaplanURL,
