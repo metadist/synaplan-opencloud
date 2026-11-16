@@ -67,9 +67,8 @@ func (h *Handler) KnowledgeSyncNow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// forgetKept stops following a file for the signed-in person. It is best
-// effort: a file that stays listed costs one stat per pass, and Synaplan
-// asks for no upload of a copy it no longer keeps up to date.
+// forgetKept stops following a file for the signed-in person, coordinated
+// under the file's lease so an in-flight background check cannot re-record it.
 func (h *Handler) forgetKept(ctx context.Context, resourceID string) {
 	if h.synced == nil || !h.delegation.Configured() {
 		return
@@ -78,6 +77,11 @@ func (h *Handler) forgetKept(ctx context.Context, resourceID string) {
 	if err != nil {
 		log.Printf("knowledge: who is signed in: %v", err)
 		return
+	}
+	held, release, leaseErr := h.synced.Lease(ctx, sub, resourceID)
+	if leaseErr == nil {
+		defer release()
+		ctx = held
 	}
 	if err := h.synced.Delete(ctx, sub, resourceID, 0); err != nil {
 		log.Printf("knowledge: forgetting a kept file: %v", err)
@@ -94,7 +98,7 @@ func (h *Handler) keepFilesCurrent(ctx context.Context, files watchFiles, sub st
 	var result keptResult
 	kept, err := h.synced.Files(ctx, sub)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("listing kept files: %w", err)
 	}
 	var changes []sourceChange
 	for _, file := range kept {
@@ -114,6 +118,9 @@ func (h *Handler) keepFilesCurrent(ctx context.Context, files watchFiles, sub st
 		changes = append(changes, change)
 	}
 	for start := 0; start < len(changes); start += sourceEventBatch {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
 		sent, failed, err := h.sendSourceEvents(ctx, files, changes[start:min(start+sourceEventBatch, len(changes))])
 		result.Sent += sent
 		result.Failed += failed
@@ -140,22 +147,24 @@ func sourceChangeFor(ctx context.Context, files watchFiles, kept synced.File) (s
 	return sourceChange{kept: kept, event: sourceEvent{ID: kept.ResourceID, Event: "changed", Version: meta.Etag}}, true
 }
 
-// sendSourceEvents reports one batch and settles each file. A kept version
-// moves on only after Synaplan took the event and, when it asked for the
-// new bytes, the upload succeeded; otherwise the next check reports the
-// change again.
+// sendSourceEvents reports one batch and settles each file under its own
+// distributed lease so concurrent replicas or manual checks never upload an
+// older version over a newer one. A kept version moves on only after
+// Synaplan took the event and, when it asked for new bytes, the upload
+// indexed at least one chunk.
 func (h *Handler) sendSourceEvents(ctx context.Context, files watchFiles, changes []sourceChange) (sent, failed int, err error) {
-	ctx, cancel := context.WithTimeout(ctx, watchTimeout)
-	defer cancel()
+	eventCtx, cancelEvents := context.WithTimeout(ctx, watchListTimeout)
 	events := make([]sourceEvent, 0, len(changes))
 	for _, change := range changes {
 		events = append(events, change.event)
 	}
 	payload, err := withJSON(map[string]any{"events": events})
 	if err != nil {
+		cancelEvents()
 		return 0, 0, err
 	}
-	resp, err := h.synaplanAPI.CloudSourceEventsWithResponse(ctx, payload)
+	resp, err := h.synaplanAPI.CloudSourceEventsWithResponse(eventCtx, payload)
+	cancelEvents()
 	if err != nil {
 		return 0, 0, fmt.Errorf("source events: %w", err)
 	}
@@ -175,48 +184,100 @@ func (h *Handler) sendSourceEvents(ctx context.Context, files watchFiles, change
 		wanted[item.ID] = true
 	}
 	for _, change := range changes {
-		kept := change.kept
-		if change.event.Event == "deleted" {
-			if err := h.synced.Delete(ctx, kept.Subject, kept.ResourceID, kept.Revision); err != nil {
-				log.Printf("kept file: forgetting: %v", err)
-			}
+		if ctx.Err() != nil {
+			return sent, failed, ctx.Err()
+		}
+		uploaded, fileErr := h.settleSourceChange(ctx, files, change, wanted[change.kept.ResourceID])
+		if fileErr != nil {
+			log.Printf("kept file %s: %v", change.kept.ResourceID, fileErr)
+			failed++
 			continue
 		}
-		next := kept
-		next.Etag = change.event.Version
-		if wanted[kept.ResourceID] {
-			version, err := h.reuploadKept(ctx, files, kept)
-			if err != nil {
-				log.Printf("kept file: upload: %v", err)
-				failed++
-				continue
-			}
-			next.Etag = version
+		if uploaded {
 			sent++
-		}
-		if _, err := h.synced.Update(ctx, next); err != nil {
-			log.Printf("kept file: recording the version: %v", err)
 		}
 	}
 	return sent, failed, nil
 }
 
-// reuploadKept replaces Synaplan's copy of a kept file with its current
-// bytes and returns the version it sent.
-func (h *Handler) reuploadKept(ctx context.Context, files watchFiles, kept synced.File) (string, error) {
-	opened, err := files.Open(ctx, kept.ResourceID)
+func (h *Handler) settleSourceChange(ctx context.Context, files watchFiles, change sourceChange, reupload bool) (bool, error) {
+	kept := change.kept
+	held, release, err := h.synced.Lease(ctx, kept.Subject, kept.ResourceID)
 	if err != nil {
-		return "", err
+		return false, fmt.Errorf("taking lease: %w", err)
+	}
+	defer release()
+
+	// Re-read the stored entry under the lease: if another replica or manual
+	// update already removed the file or moved it to a different revision,
+	// do not upload stale bytes over it.
+	current, found, err := h.synced.Get(held, kept.Subject, kept.ResourceID)
+	if err != nil {
+		return false, fmt.Errorf("reading kept entry: %w", err)
+	}
+	if !found || current.Revision != kept.Revision {
+		return false, nil
+	}
+
+	if change.event.Event == "deleted" {
+		if err := h.synced.Delete(held, current.Subject, current.ResourceID, current.Revision); err != nil {
+			return false, fmt.Errorf("forgetting deleted file: %w", err)
+		}
+		return false, nil
+	}
+
+	next := current
+	next.Etag = change.event.Version
+	uploaded := false
+	if reupload {
+		uploadCtx, cancelUpload := context.WithTimeout(held, watchUploadTimeout)
+		version, upErr := h.reuploadKept(uploadCtx, files, current, change.event.Version)
+		cancelUpload()
+		if upErr != nil {
+			if errors.Is(upErr, errFileChanged) {
+				log.Printf("kept file %s: changed since scan; next check sends the new version", current.ResourceID)
+				return false, nil
+			}
+			return false, upErr
+		}
+		next.Etag = version
+		uploaded = true
+	}
+	if _, err := h.synced.Update(held, next); err != nil {
+		log.Printf("kept file: recording the version: %v", err)
+	}
+	return uploaded, nil
+}
+
+// reuploadKept replaces Synaplan's copy of a kept file with the scanned
+// version's bytes and verifies that Synaplan indexed at least one chunk.
+func (h *Handler) reuploadKept(ctx context.Context, files watchFiles, kept synced.File, expectedEtag string) (string, error) {
+	opened, err := files.OpenVersion(ctx, kept.ResourceID, expectedEtag)
+	if err != nil {
+		if errors.Is(err, cs3reader.ErrChanged) {
+			return "", errFileChanged
+		}
+		return "", fmt.Errorf("open: %w", err)
 	}
 	defer func() { _ = opened.Body.Close() }()
+	if opened.Etag != expectedEtag {
+		return "", errFileChanged
+	}
+	if !isTextMime(opened.MimeType) && !isBinaryDocMime(opened.MimeType) {
+		return "", fmt.Errorf("%w: %q", errUnsupportedType, opened.MimeType)
+	}
 	keep := true
-	if _, err := h.upload(ctx, opened, kept.GroupKey, synaplanapi.Vectorize, &uploadProvenance{
+	u, err := h.upload(ctx, opened, kept.GroupKey, synaplanapi.Vectorize, &uploadProvenance{
 		SourceID:   kept.ResourceID,
 		SourceEtag: opened.Etag,
 		Overwrite:  true,
 		KeepSynced: &keep,
-	}); err != nil {
-		return "", err
+	})
+	if err != nil {
+		return "", fmt.Errorf("upload: %w", err)
+	}
+	if u.ChunksCreated == 0 {
+		return "", errNoText
 	}
 	return opened.Etag, nil
 }

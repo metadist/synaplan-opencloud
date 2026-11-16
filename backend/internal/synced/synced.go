@@ -17,8 +17,20 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+)
+
+const (
+	// leaseTTL bounds how long NATS holds a file's lease when a replica
+	// dies before releasing it.
+	leaseTTL = 2 * time.Minute
+	// leaseHold bounds the work run under a lease so the lease never
+	// lapses while an upload or commit is still in flight.
+	leaseHold = leaseTTL / 2
+	// leasePoll spaces retries while another holder has the lease.
+	leasePoll = 100 * time.Millisecond
 )
 
 // File is one searchable file kept up to date for a person. Revision is
@@ -34,6 +46,11 @@ type File struct {
 
 // Store keeps the files of every person.
 type Store interface {
+	// Get reads one kept file and its current revision.
+	Get(ctx context.Context, subject, resourceID string) (file File, ok bool, err error)
+	// Create stores file only when no entry exists yet, returning its
+	// initial revision. ok is false when a row already exists.
+	Create(ctx context.Context, file File) (revision uint64, ok bool, err error)
 	// Put records file, replacing what was kept for it.
 	Put(ctx context.Context, file File) error
 	// Update replaces file when its kept revision is still file.Revision.
@@ -43,6 +60,10 @@ type Store interface {
 	// is kept for it when match is 0. Forgetting a file that is not kept
 	// is not an error.
 	Delete(ctx context.Context, subject, resourceID string, match uint64) error
+	// Lease holds one person's file exclusively across replicas, waiting
+	// while another holder has it. Work under the lease uses held, which
+	// ends before the lease could lapse; release gives the lease back.
+	Lease(ctx context.Context, subject, resourceID string) (held context.Context, release func(), err error)
 	// Files lists the files kept for subject.
 	Files(ctx context.Context, subject string) ([]File, error)
 }
@@ -68,11 +89,12 @@ func NewNATS(js jetstream.JetStream, bucket string, replicas int) (*NATSStore, e
 		return nil, errors.New("synced: nats-js-kv replicas must not be negative")
 	}
 	return &NATSStore{js: js, bucket: jetstream.KeyValueConfig{
-		Bucket:      bucket,
-		Description: "Searchable files Synaplan keeps up to date",
-		History:     1,
-		Storage:     jetstream.FileStorage,
-		Replicas:    replicas,
+		Bucket:         bucket,
+		Description:    "Searchable files Synaplan keeps up to date",
+		History:        1,
+		Storage:        jetstream.FileStorage,
+		Replicas:       replicas,
+		LimitMarkerTTL: leaseTTL,
 	}}, nil
 }
 
@@ -93,6 +115,48 @@ func (s *NATSStore) open(ctx context.Context) (jetstream.KeyValue, error) {
 		s.kv = kv
 	}
 	return s.kv, nil
+}
+
+// Get reads one kept file by its key, including its current revision.
+func (s *NATSStore) Get(ctx context.Context, subject, resourceID string) (File, bool, error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return File{}, false, err
+	}
+	key := Key(subject, resourceID)
+	entry, err := kv.Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return File{}, false, nil
+	}
+	if err != nil {
+		return File{}, false, fmt.Errorf("synced: reading: %w", err)
+	}
+	file, ok := decode(key, entry.Value())
+	if !ok {
+		return File{}, false, nil
+	}
+	file.Revision = entry.Revision()
+	return file, true, nil
+}
+
+// Create stores file only when absent.
+func (s *NATSStore) Create(ctx context.Context, file File) (uint64, bool, error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	value, err := json.Marshal(file)
+	if err != nil {
+		return 0, false, fmt.Errorf("synced: encoding: %w", err)
+	}
+	rev, err := kv.Create(ctx, Key(file.Subject, file.ResourceID), value)
+	if keyExists(err) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("synced: creating: %w", err)
+	}
+	return rev, true, nil
 }
 
 // Put records file.
@@ -137,7 +201,7 @@ func (s *NATSStore) Delete(ctx context.Context, subject, resourceID string, matc
 	if err != nil {
 		return err
 	}
-	var opts []jetstream.KVDeleteOpt
+	opts := []jetstream.KVDeleteOpt{jetstream.PurgeTTL(leaseTTL)}
 	if match != 0 {
 		opts = append(opts, jetstream.LastRevision(match))
 	}
@@ -149,6 +213,45 @@ func (s *NATSStore) Delete(ctx context.Context, subject, resourceID string, matc
 	return fmt.Errorf("synced: forgetting: %w", err)
 }
 
+// Lease creates a TTL-bounded lease key for (subject, resourceID) so two
+// replicas never upload different versions of the same file out of order.
+func (s *NATSStore) Lease(ctx context.Context, subject, resourceID string) (context.Context, func(), error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	key := "lease." + Key(subject, resourceID)
+	for {
+		rev, err := kv.Create(ctx, key, []byte("held"), jetstream.KeyTTL(leaseTTL))
+		if err == nil {
+			held, cancel := context.WithTimeout(ctx, leaseHold)
+			return held, func() {
+				cancel()
+				release, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer done()
+				_ = kv.Purge(release, key, jetstream.LastRevision(rev), jetstream.PurgeTTL(leaseTTL))
+			}, nil
+		}
+		if !keyExists(err) {
+			return nil, nil, fmt.Errorf("synced: taking a lease: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, fmt.Errorf("synced: waiting for a lease: %w", ctx.Err())
+		case <-time.After(leasePoll):
+		}
+	}
+}
+
+func keyExists(err error) bool {
+	var apiErr *jetstream.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence ||
+			apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant
+	}
+	return errors.Is(err, jetstream.ErrKeyExists)
+}
+
 // Files lists the files kept for subject.
 func (s *NATSStore) Files(ctx context.Context, subject string) ([]File, error) {
 	kv, err := s.open(ctx)
@@ -156,6 +259,9 @@ func (s *NATSStore) Files(ctx context.Context, subject string) ([]File, error) {
 		return nil, err
 	}
 	lister, err := kv.ListKeysFiltered(ctx, encode(subject)+".*")
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("synced: listing: %w", err)
 	}
@@ -185,11 +291,39 @@ type MemoryStore struct {
 	mu       sync.Mutex
 	revision uint64
 	files    map[string]File
+	leases   map[string]*memLease
+}
+
+type memLease struct {
+	ch   chan struct{}
+	refs int
 }
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{files: map[string]File{}}
+	return &MemoryStore{files: map[string]File{}, leases: map[string]*memLease{}}
+}
+
+// Get reads one kept file.
+func (s *MemoryStore) Get(_ context.Context, subject, resourceID string) (File, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	file, ok := s.files[Key(subject, resourceID)]
+	return file, ok, nil
+}
+
+// Create stores file only when absent.
+func (s *MemoryStore) Create(_ context.Context, file File) (uint64, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := Key(file.Subject, file.ResourceID)
+	if _, ok := s.files[key]; ok {
+		return 0, false, nil
+	}
+	s.revision++
+	file.Revision = s.revision
+	s.files[key] = file
+	return s.revision, true, nil
 }
 
 // Put records file.
@@ -229,6 +363,44 @@ func (s *MemoryStore) Delete(_ context.Context, subject, resourceID string, matc
 	return nil
 }
 
+// Lease holds (subject, resourceID) until release is called.
+func (s *MemoryStore) Lease(ctx context.Context, subject, resourceID string) (context.Context, func(), error) {
+	key := Key(subject, resourceID)
+	s.mu.Lock()
+	lease, ok := s.leases[key]
+	if !ok {
+		lease = &memLease{ch: make(chan struct{}, 1)}
+		s.leases[key] = lease
+	}
+	lease.refs++
+	s.mu.Unlock()
+
+	dropRef := func() {
+		s.mu.Lock()
+		lease.refs--
+		if lease.refs == 0 {
+			delete(s.leases, key)
+		}
+		s.mu.Unlock()
+	}
+
+	select {
+	case lease.ch <- struct{}{}:
+		var once sync.Once
+		held, cancel := context.WithCancel(ctx)
+		return held, func() {
+			once.Do(func() {
+				cancel()
+				<-lease.ch
+				dropRef()
+			})
+		}, nil
+	case <-ctx.Done():
+		dropRef()
+		return nil, nil, fmt.Errorf("synced: waiting for a lease: %w", ctx.Err())
+	}
+}
+
 // Files lists the files kept for subject, by resource id.
 func (s *MemoryStore) Files(_ context.Context, subject string) ([]File, error) {
 	s.mu.Lock()
@@ -261,11 +433,11 @@ func decode(key string, value []byte) (File, bool) {
 		return File{}, false
 	}
 	subject, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(parts[0])
-	if err != nil {
+	if err != nil || len(subject) == 0 {
 		return File{}, false
 	}
 	resourceID, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(parts[1])
-	if err != nil {
+	if err != nil || len(resourceID) == 0 {
 		return File{}, false
 	}
 	var file File

@@ -193,18 +193,51 @@ describe('KnowledgeDialog', () => {
       name: 'says edits follow when the service keeps the file',
       keep: true,
       kept: true,
-      shown: 'kept'
+      blocked: undefined,
+      shown: 'kept',
+      text: 'Changes to this file follow in Synaplan.'
     },
-    { name: 'says why edits will not follow', keep: true, kept: false, shown: 'not-kept' },
-    { name: 'says nothing about edits it was not asked for', keep: false, kept: false, shown: '' }
-  ])('$name', async ({ keep, kept, shown }) => {
+    {
+      name: 'says why edits will not follow when consent is missing',
+      keep: true,
+      kept: false,
+      blocked: 'consent',
+      shown: 'not-kept',
+      text: 'allow Synaplan to work while you are away'
+    },
+    {
+      name: 'names machine authentication when it is what blocks automatic updates',
+      keep: true,
+      kept: false,
+      blocked: 'machine_auth',
+      shown: 'not-kept',
+      text: 'configure machine authentication'
+    },
+    {
+      name: 'explains when the tracking store is temporarily unavailable',
+      keep: true,
+      kept: false,
+      blocked: 'store',
+      shown: 'not-kept',
+      text: 'Update it in the knowledge folder later'
+    },
+    {
+      name: 'says nothing about edits it was not asked for',
+      keep: false,
+      kept: false,
+      blocked: undefined,
+      shown: '',
+      text: ''
+    }
+  ])('$name', async ({ keep, kept, blocked, shown, text }) => {
     post.mockResolvedValueOnce({
       data: {
         groupKey: 'DOCS',
         vectorized: true,
         chunksCreated: 1,
         extractedTextLength: 0,
-        keptUpToDate: kept
+        keptUpToDate: kept,
+        keptBlocked: blocked
       }
     })
     const wrapper = mountDialog()
@@ -219,6 +252,9 @@ describe('KnowledgeDialog', () => {
     expect(post.mock.calls[0][1]).toMatchObject({ keepSynced: keep })
     for (const id of ['kept', 'not-kept']) {
       expect(wrapper.find(`[data-testid="synaplan-knowledge-${id}"]`).exists()).toBe(id === shown)
+    }
+    if (shown && text) {
+      expect(wrapper.get(`[data-testid="synaplan-knowledge-${shown}"]`).text()).toContain(text)
     }
   })
 

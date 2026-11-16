@@ -9,6 +9,7 @@ import {
   getResourceId,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
+import { findFileRow } from '../../support/helpers/filesPageHelper'
 import {
   knowledgeFileNames,
   knowledgeTextPreview,
@@ -52,6 +53,10 @@ test.beforeEach(async ({ browser, request }) => {
     clientSecret: 'test-oidc-secret'
   })
   await wipeKnowledgeGroup(request, SYNAPLAN_API_URL, synaplanToken, GROUP)
+  const me = await request.get(`${OC_API_URL}/api/synaplan/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  })
+  expect(me.ok(), await me.text()).toBe(true)
   userPage = (await loginAsUser(browser, TEST_USER, TEST_PASSWORD)).page
   await allowWhileAway(userPage)
 })
@@ -122,6 +127,23 @@ test('a kept file deleted in OpenCloud leaves the knowledge folder', async ({ re
     .not.toContain(name)
 })
 
+test('does not follow edits when the person stopped allowing work while away', async ({
+  request
+}) => {
+  test.setTimeout(90_000)
+  const name = `keep-noconsent-${Date.now()}.txt`
+  const path = `${TESTS_DIR}/${name}`
+  await uploadTextFile(request, webDavUrl, accessToken, path, 'Without permission while away.')
+  filesToCleanup.push(path)
+
+  await stopWhileAway(userPage)
+  await addKept(userPage, name)
+  const notKept = userPage.locator('[data-testid="synaplan-knowledge-not-kept"]')
+  await expect(notKept).toBeVisible()
+  await expect(notKept).toContainText('allow Synaplan to work while you are away')
+  await closeDialog(userPage)
+})
+
 // Whether this service reads the person's files while they are away, as the
 // watch dialog learns it.
 async function editsCanFollow(request: APIRequestContext, path: string): Promise<boolean> {
@@ -152,9 +174,9 @@ function preview(request: APIRequestContext, name: string) {
 
 async function addKept(page: Page, name: string) {
   await page.goto('/', { waitUntil: 'domcontentloaded' })
-  const folder = await findRow(page, TESTS_DIR)
+  const folder = await findFileRow(page, TESTS_DIR)
   await folder.click()
-  const row = await findRow(page, name)
+  const row = await findFileRow(page, name)
   await openSynaplanMenu(row)
   await page.locator('.oc-files-actions-add-to-knowledge-trigger').click()
   await expect(page.locator('[data-testid="synaplan-knowledge-dialog"]')).toBeVisible({
@@ -180,12 +202,4 @@ async function addKept(page: Page, name: string) {
 async function closeDialog(page: Page) {
   await page.locator('.oc-modal-title-actions-cancel').click()
   await expect(page.locator('[data-testid="synaplan-knowledge-dialog"]')).toBeHidden()
-}
-
-async function findRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
 }

@@ -69,6 +69,9 @@ func Sanitize(cfg *config.Config) {
 	cfg.Store.Store = strings.TrimSpace(cfg.Store.Store)
 	cfg.Store.Database = strings.TrimSpace(cfg.Store.Database)
 	cfg.Store.SyncedDatabase = strings.TrimSpace(cfg.Store.SyncedDatabase)
+	if cfg.Store.SyncedDatabase == "" {
+		cfg.Store.SyncedDatabase = "synaplan-synced"
+	}
 	cfg.Store.Nodes = cleanList(cfg.Store.Nodes)
 	cfg.Store.EncryptionPreviousSecrets = cleanList(cfg.Store.EncryptionPreviousSecrets)
 	cfg.UserOIDCClaim = strings.TrimSpace(cfg.UserOIDCClaim)

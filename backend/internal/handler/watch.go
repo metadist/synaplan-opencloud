@@ -367,13 +367,6 @@ func (h *Handler) awayAllowance(ctx context.Context) (subject, blocked string) {
 	return sub, ""
 }
 
-// awaySubject is the signed-in person's subject when this service works
-// for them while they are away, or "" otherwise.
-func (h *Handler) awaySubject(ctx context.Context) string {
-	sub, _ := h.awayAllowance(ctx)
-	return sub
-}
-
 // uploadsBlocked says why files are not sent while the person is away.
 // machine_auth means the service cannot read files without a browser
 // session, so asking the person to allow it again would not help.

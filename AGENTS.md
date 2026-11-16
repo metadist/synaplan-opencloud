@@ -22,10 +22,10 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | Path | What lives there |
 | ---- | ---------------- |
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
-| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications, `watch.go` the watch routes and `reconcile.go` the background check) sharing the `Handler` struct in `handler.go`. |
+| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications, `watch.go` the watch routes, `sources.go` the kept-file checks, and `reconcile.go` the background pass) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
-| `backend/internal/delegation/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
+| `backend/internal/delegation/`, `synced/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; searchable files kept up to date across edits; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
@@ -363,9 +363,10 @@ order. None is optional and none is done in parallel with the next topic.
 ## Secrets
 
 - Never commit `.env` files, API keys (`sk_…`), tokens, or certificates. The
-  compose values `synaplan-dev-secret`, `synaplan-opencloud-secret` and
-  `test-oidc-secret` are development-only and must not appear in any
-  production config or documentation example as real values.
+  compose values `synaplan-dev-secret`, `synaplan-dev-machine-auth`,
+  `synaplan-opencloud-secret` and `test-oidc-secret` are development-only and
+  must not appear in any production config or documentation example as real
+  values.
 - Synaplan's provider keys live in `../synaplan/backend/.env`. Use them for
   local runs; never print, paste or log one — not in a PR, a trace, a
   screenshot or a chat.

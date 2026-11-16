@@ -85,11 +85,7 @@
         class="ext:mt-2 ext:text-xs"
         data-testid="synaplan-knowledge-not-kept"
       >
-        {{
-          $gettext(
-            'Changes to this file will not follow: allow Synaplan to work while you are away on the Synaplan page, then make the file searchable again. If you did, ask your administrator.'
-          )
-        }}
+        {{ notKeptSentence }}
       </p>
     </div>
 
@@ -104,6 +100,7 @@
     <oc-checkbox
       v-if="phase !== 'done'"
       v-model="keepSynced"
+      :disabled="phase === 'loading'"
       :label="$gettext('Keep it up to date when the file changes')"
       data-testid="synaplan-knowledge-keep"
     />
@@ -178,7 +175,8 @@ const knowledgeResponseSchema = z.object({
   chunksCreated: z.number(),
   extractedTextLength: z.number(),
   synaplanFileId: z.number().optional(),
-  keptUpToDate: z.boolean().optional()
+  keptUpToDate: z.boolean().optional(),
+  keptBlocked: z.string().optional()
 })
 
 type KnowledgeResult = z.infer<typeof knowledgeResponseSchema>
@@ -211,6 +209,23 @@ const submitLabel = computed(() => {
   return knowledgeStatus.value.inKnowledge
     ? $gettext('Update in the knowledge folder')
     : $gettext('Make searchable by AI')
+})
+
+const notKeptSentence = computed(() => {
+  const blocked = result.value?.keptBlocked
+  if (blocked === 'machine_auth') {
+    return $gettext(
+      'Changes to this file will not follow automatically: ask your administrator to configure machine authentication for this service.'
+    )
+  }
+  if (blocked === 'store') {
+    return $gettext(
+      'Changes to this file could not be set to follow right now. Update it in the knowledge folder later to try again.'
+    )
+  }
+  return $gettext(
+    'Changes to this file will not follow: allow Synaplan to work while you are away on the Synaplan page, then make the file searchable again.'
+  )
 })
 
 onMounted(async () => {

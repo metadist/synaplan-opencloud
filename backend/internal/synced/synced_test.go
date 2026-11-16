@@ -34,7 +34,7 @@ func TestKeyRoundTrips(t *testing.T) {
 }
 
 func TestDecodeRefusesForeignKeys(t *testing.T) {
-	for _, key := range []string{"lease.x.y", "nodot", "!!!.MFRGG"} {
+	for _, key := range []string{"lease.x.y", "nodot", "!!!.MFRGG", ".MFRGG", "MFRGG."} {
 		if _, ok := decode(key, []byte(`{}`)); ok {
 			t.Fatalf("decoded %q", key)
 		}
@@ -53,6 +53,23 @@ func TestMemoryStore(t *testing.T) {
 			run: func(t *testing.T, s *MemoryStore) {
 				must(t, s.Put(ctx, File{Subject: "ada", ResourceID: "r1", Etag: "e1"}))
 				must(t, s.Put(ctx, File{Subject: "eve", ResourceID: "r2", Etag: "e2"}))
+			},
+			want: []string{"r1@e1"},
+		},
+		{
+			name: "create succeeds only when absent and get reads its revision",
+			run: func(t *testing.T, s *MemoryStore) {
+				rev, ok, err := s.Create(ctx, File{Subject: "ada", ResourceID: "r1", Etag: "e1"})
+				if err != nil || !ok || rev == 0 {
+					t.Fatalf("create: rev=%d ok=%v err=%v", rev, ok, err)
+				}
+				if _, again, err := s.Create(ctx, File{Subject: "ada", ResourceID: "r1", Etag: "e2"}); err != nil || again {
+					t.Fatalf("second create: ok=%v err=%v", again, err)
+				}
+				got, found, err := s.Get(ctx, "ada", "r1")
+				if err != nil || !found || got.Revision != rev || got.Etag != "e1" {
+					t.Fatalf("get: %+v found=%v err=%v", got, found, err)
+				}
 			},
 			want: []string{"r1@e1"},
 		},
@@ -127,6 +144,33 @@ func TestMemoryStore(t *testing.T) {
 				t.Fatalf("kept %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestMemoryStoreLease(t *testing.T) {
+	s := NewMemoryStore()
+	_, release, err := s.Lease(context.Background(), "ada", "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := s.Lease(cancelled, "ada", "r1"); err == nil {
+		t.Fatal("a second holder took the held lease")
+	}
+	if _, other, err := s.Lease(context.Background(), "ada", "r2"); err != nil {
+		t.Fatal("a different file's lease waited:", err)
+	} else {
+		other()
+	}
+	release()
+	if _, again, err := s.Lease(context.Background(), "ada", "r1"); err != nil {
+		t.Fatal("released lease was not free:", err)
+	} else {
+		again()
+	}
+	if len(s.leases) != 0 {
+		t.Fatalf("released leases left %d entries behind", len(s.leases))
 	}
 }
 

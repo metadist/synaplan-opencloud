@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,7 @@ type fakeSourcesSynaplan struct {
 	// reupload is the ids Synaplan asks to upload again.
 	reupload     []string
 	uploadStatus map[string]int
+	uploadChunks map[string]int
 
 	mu      sync.Mutex
 	batches [][]string
@@ -32,7 +34,11 @@ type fakeSourcesSynaplan struct {
 
 func newFakeSourcesSynaplan(t *testing.T) *fakeSourcesSynaplan {
 	t.Helper()
-	f := &fakeSourcesSynaplan{eventsStatus: http.StatusOK, uploadStatus: map[string]int{}}
+	f := &fakeSourcesSynaplan{
+		eventsStatus: http.StatusOK,
+		uploadStatus: map[string]int{},
+		uploadChunks: map[string]int{},
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/platform-links/sources/events", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -64,7 +70,13 @@ func newFakeSourcesSynaplan(t *testing.T) *fakeSourcesSynaplan {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		field := func(name string) string { return r.MultipartForm.Value[name][0] }
+		field := func(name string) string {
+			vals := r.MultipartForm.Value[name]
+			if len(vals) == 0 {
+				return "<unset>"
+			}
+			return vals[0]
+		}
 		file, _, err := r.FormFile("files[]")
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -79,7 +91,11 @@ func newFakeSourcesSynaplan(t *testing.T) *fakeSourcesSynaplan {
 			w.WriteHeader(status)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "files": []map[string]any{{"id": 1, "chunks_created": 1}}})
+		chunks := 1
+		if custom, ok := f.uploadChunks[field("source_id")]; ok {
+			chunks = custom
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "files": []map[string]any{{"id": 1, "chunks_created": chunks}}})
 	})
 	f.Server = httptest.NewServer(mux)
 	t.Cleanup(f.Close)
@@ -120,6 +136,7 @@ func TestKeepFilesCurrent(t *testing.T) {
 		reupload     []string
 		eventsStatus int
 		failUpload   map[string]int
+		uploadChunks map[string]int
 		files        func() fakeFiles
 		want         keptResult
 		wantErr      bool
@@ -155,6 +172,28 @@ func TestKeepFilesCurrent(t *testing.T) {
 			wantKept:    []string{"s$sp!a@ea", "s$sp!b@old-b"},
 		},
 		{
+			name:         "an upload that indexes zero chunks fails and keeps the old version",
+			reupload:     []string{"s$sp!b"},
+			uploadChunks: map[string]int{"s$sp!b": 0},
+			files:        inbox,
+			want:         keptResult{Checked: 3, Changed: 1, Deleted: 1, Failed: 1},
+			wantBatches:  [][]string{{"changed:s$sp!b@eb", "deleted:s$sp!gone@eg"}},
+			wantUploads:  []string{"s$sp!b|eb|DOCS|1|1|%PDF"},
+			wantKept:     []string{"s$sp!a@ea", "s$sp!b@old-b"},
+		},
+		{
+			name:     "a file that changed again between scan and open is deferred without uploading",
+			reupload: []string{"s$sp!b"},
+			files: func() fakeFiles {
+				f := inbox()
+				f.openEtag = map[string]string{"s$sp!b": "eb-newer"}
+				return f
+			},
+			want:        keptResult{Checked: 3, Changed: 1, Deleted: 1},
+			wantBatches: [][]string{{"changed:s$sp!b@eb", "deleted:s$sp!gone@eg"}},
+			wantKept:    []string{"s$sp!a@ea", "s$sp!b@old-b"},
+		},
+		{
 			name: "a gateway that fails is not a deletion",
 			files: func() fakeFiles {
 				f := inbox()
@@ -185,6 +224,9 @@ func TestKeepFilesCurrent(t *testing.T) {
 			}
 			if tc.failUpload != nil {
 				syn.uploadStatus = tc.failUpload
+			}
+			if tc.uploadChunks != nil {
+				syn.uploadChunks = tc.uploadChunks
 			}
 			store := keptInbox(t)
 			got, err := syn.handler(t, store).keepFilesCurrent(context.Background(), tc.files(), "ada")
@@ -217,6 +259,133 @@ func TestKeepFilesCurrent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStaleSourceChangeDoesNotOverwriteNewerRevision(t *testing.T) {
+	syn := newFakeSourcesSynaplan(t)
+	syn.reupload = []string{"s$sp!b"}
+	store := synced.NewMemoryStore()
+	if err := store.Put(context.Background(), synced.File{Subject: "ada", ResourceID: "s$sp!b", Etag: "e1", GroupKey: "DOCS"}); err != nil {
+		t.Fatal(err)
+	}
+	stale, found, err := store.Get(context.Background(), "ada", "s$sp!b")
+	if err != nil || !found {
+		t.Fatalf("initial get: %v %v", found, err)
+	}
+	// Simulate another replica or manual AddToKnowledge moving the entry to e3.
+	newer := stale
+	newer.Etag = "e3"
+	if _, err := store.Update(context.Background(), newer); err != nil {
+		t.Fatal(err)
+	}
+
+	files := inbox()
+	r := files.resources["s$sp!b"]
+	r.Etag = "e2"
+	files.resources["s$sp!b"] = r
+
+	sent, failed, err := syn.handler(t, store).sendSourceEvents(context.Background(), files, []sourceChange{{
+		kept:  stale,
+		event: sourceEvent{ID: "s$sp!b", Event: "changed", Version: "e2"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent != 0 || failed != 0 {
+		t.Fatalf("sent=%d failed=%d, want 0/0", sent, failed)
+	}
+	if len(syn.uploads) != 0 {
+		t.Fatalf("stale pass uploaded %v over newer revision", syn.uploads)
+	}
+	got, _, _ := store.Get(context.Background(), "ada", "s$sp!b")
+	if got.Etag != "e3" {
+		t.Fatalf("stored etag %q, want e3", got.Etag)
+	}
+}
+
+// brokenSyncedStore simulates a store failure on Get or Create.
+type brokenSyncedStore struct {
+	*synced.MemoryStore
+	failGet    bool
+	failCreate bool
+}
+
+func (b *brokenSyncedStore) Get(ctx context.Context, sub, id string) (synced.File, bool, error) {
+	if b.failGet {
+		return synced.File{}, false, errors.New("store unreachable")
+	}
+	return b.MemoryStore.Get(ctx, sub, id)
+}
+
+func (b *brokenSyncedStore) Create(ctx context.Context, f synced.File) (uint64, bool, error) {
+	if b.failCreate {
+		return 0, false, errors.New("store write refused")
+	}
+	return b.MemoryStore.Create(ctx, f)
+}
+
+func TestUploadKnowledgeTracksAtomically(t *testing.T) {
+	sample := func() *cs3reader.File {
+		return &cs3reader.File{
+			Name:     "notes.txt",
+			MimeType: "text/plain",
+			Etag:     "etag-1",
+			Body:     io.NopCloser(strings.NewReader("hello")),
+		}
+	}
+
+	t.Run("records version when upload succeeds", func(t *testing.T) {
+		syn := newFakeSourcesSynaplan(t)
+		store := synced.NewMemoryStore()
+		_, kept, blocked, err := syn.handler(t, store).uploadKnowledge(context.Background(), sample(), "s$sp!n", "DOCS", "ada", true)
+		if err != nil || !kept || blocked != "" {
+			t.Fatalf("got kept=%v blocked=%q err=%v", kept, blocked, err)
+		}
+		row, found, _ := store.Get(context.Background(), "ada", "s$sp!n")
+		if !found || row.Etag != "etag-1" || row.GroupKey != "DOCS" {
+			t.Fatalf("stored %+v found=%v", row, found)
+		}
+		if !slices.Equal(syn.uploads, []string{"s$sp!n|etag-1|DOCS|1|1|hello"}) {
+			t.Fatalf("uploads %v", syn.uploads)
+		}
+	})
+
+	t.Run("removes placeholder when upload fails", func(t *testing.T) {
+		syn := newFakeSourcesSynaplan(t)
+		syn.uploadStatus["s$sp!n"] = http.StatusBadGateway
+		store := synced.NewMemoryStore()
+		_, _, _, err := syn.handler(t, store).uploadKnowledge(context.Background(), sample(), "s$sp!n", "DOCS", "ada", false)
+		if err == nil {
+			t.Fatal("expected upload error")
+		}
+		if _, found, _ := store.Get(context.Background(), "ada", "s$sp!n"); found {
+			t.Fatal("failed upload left an orphaned placeholder in the store")
+		}
+	})
+
+	t.Run("sends keep_synced=0 when placeholder creation fails", func(t *testing.T) {
+		syn := newFakeSourcesSynaplan(t)
+		store := &brokenSyncedStore{MemoryStore: synced.NewMemoryStore(), failCreate: true}
+		_, kept, blocked, err := syn.handler(t, store).uploadKnowledge(context.Background(), sample(), "s$sp!n", "DOCS", "ada", false)
+		if err != nil || kept || blocked != "store" {
+			t.Fatalf("got kept=%v blocked=%q err=%v, want false/store/nil", kept, blocked, err)
+		}
+		if !slices.Equal(syn.uploads, []string{"s$sp!n|etag-1|DOCS|<unset>|0|hello"}) {
+			t.Fatalf("uploads %v, want keep_synced=0", syn.uploads)
+		}
+	})
+
+	t.Run("leaves keep_synced unset when reading existing state fails", func(t *testing.T) {
+		syn := newFakeSourcesSynaplan(t)
+		store := &brokenSyncedStore{MemoryStore: synced.NewMemoryStore(), failGet: true}
+		_, kept, blocked, err := syn.handler(t, store).uploadKnowledge(context.Background(), sample(), "s$sp!n", "DOCS", "ada", true)
+		if err != nil || kept || blocked != "store" {
+			t.Fatalf("got kept=%v blocked=%q err=%v, want false/store/nil", kept, blocked, err)
+		}
+		if !slices.Equal(syn.uploads, []string{"s$sp!n|etag-1|DOCS|1|<unset>|hello"}) {
+			t.Fatalf("uploads %v, want keep_synced unset", syn.uploads)
+		}
+	})
 }
 
 func TestSourceEventsGoInBatchesSynaplanAccepts(t *testing.T) {
