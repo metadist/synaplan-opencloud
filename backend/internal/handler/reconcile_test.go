@@ -154,7 +154,7 @@ func newFakeSynaplan(t *testing.T, watches []watch) *fakeWatchSynaplan {
 
 func (f *fakeWatchSynaplan) handler(t *testing.T) *Handler {
 	t.Helper()
-	h, err := New(nil, f.URL, nil, nil)
+	h, err := New(nil, f.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,7 +548,7 @@ func TestReconcileEveryoneActsForConnectedPeople(t *testing.T) {
 	del.UserAttribute = "username"
 
 	syn := newFakeSynaplan(t, []watch{{ID: 7, TargetKind: "folder", TargetID: "s$sp!inbox", State: "active"}})
-	h, err := New(nil, syn.URL, cs3, del)
+	h, err := New(nil, syn.URL, cs3, del, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

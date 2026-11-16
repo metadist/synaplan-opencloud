@@ -24,15 +24,9 @@ const (
 // model's context is the limit, not the file: a longer file is cut.
 const chatFileMaxRunes = 20000
 
-// answerLanguages are the languages the AI can be asked to answer in,
-// with the English name the model instruction uses. Same list as the
-// Nextcloud app.
-var answerLanguages = map[string]string{
-	"en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian",
-	"pt": "Portuguese", "nl": "Dutch", "pl": "Polish", "tr": "Turkish", "ru": "Russian",
-	"ja": "Japanese", "zh": "Chinese", "ko": "Korean", "ar": "Arabic",
-}
-
+// defaultAnswerLanguage is the answer language when the person's OpenCloud
+// language is not one answerLanguages lists. That list lives with the
+// administrator's settings.
 const defaultAnswerLanguage = "en"
 
 type chatRequest struct {

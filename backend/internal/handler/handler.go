@@ -4,6 +4,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
+	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/synced"
@@ -43,6 +45,21 @@ type Delegated struct {
 	Synced synced.Store
 }
 
+// PermissionChecker tells whether the signed-in person holds an OpenCloud
+// permission (see internal/cs3permission).
+type PermissionChecker interface {
+	Has(ctx context.Context, permission string) (bool, error)
+}
+
+// Admin is what the administrator's settings need: who counts as an
+// administrator, where the settings are kept, and the configured values
+// that apply until an administrator saves others.
+type Admin struct {
+	Permissions PermissionChecker
+	Settings    settings.Store
+	Defaults    settings.Values
+}
+
 // Handler holds the state shared by all endpoints:
 //
 //   - synaplanAPI is the generated Synaplan client, the one way to
@@ -56,6 +73,8 @@ type Delegated struct {
 //   - delegation holds the offline tokens of people who allowed this
 //     service to act for them while they are away.
 //   - notifications verifies what Synaplan sends to /inbound.
+//   - permissions, settings and settingsDefaults serve the
+//     administrator's settings on the Synaplan page.
 //   - synced lists the searchable files people keep up to date.
 //   - RunReconciler keeps the watches and the kept files of people who
 //     are away moving.
@@ -86,7 +105,10 @@ type Handler struct {
 	// sharedKey is set when every Synaplan call uses one API key.
 	// Listing files then lists the key owner's files, for every
 	// signed-in OpenCloud user, so From Synaplan, images, and watches stay closed.
-	sharedKey bool
+	sharedKey        bool
+	permissions      PermissionChecker
+	settings         settings.Store
+	settingsDefaults settings.Values
 	// memory keeps the last answer of Synaplan's memory-service check.
 	memory memoryCache
 
@@ -108,7 +130,10 @@ func (h *Handler) UseSharedKey() {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated, admin Admin) (*Handler, error) {
+	if lang := admin.Defaults.DefaultAnswerLanguage; lang != "" && normalizeLanguage(lang) == "" {
+		return nil, fmt.Errorf("default answer language %q is not supported", lang)
+	}
 	target, err := url.Parse(synaplanURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing synaplan url: %w", err)
@@ -130,6 +155,10 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		httpClient:  &http.Client{},
 		cs3:         cs3,
 		assetProxy:  assetProxy,
+
+		permissions:      admin.Permissions,
+		settings:         admin.Settings,
+		settingsDefaults: admin.Defaults,
 	}
 	h.notifications.seen = notify.NewSeen()
 	if delegated != nil {

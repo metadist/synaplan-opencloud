@@ -104,7 +104,7 @@ func newFakeSourcesSynaplan(t *testing.T) *fakeSourcesSynaplan {
 
 func (f *fakeSourcesSynaplan) handler(t *testing.T, store synced.Store) *Handler {
 	t.Helper()
-	h, err := New(nil, f.URL, nil, nil)
+	h, err := New(nil, f.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

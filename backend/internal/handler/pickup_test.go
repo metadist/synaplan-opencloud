@@ -270,7 +270,7 @@ func TestRunPickup(t *testing.T) {
 			synaplan.claim = tc.claim
 			synaplan.watches = tc.watches
 			synaplan.upload = tc.upload
-			h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), ""))
+			h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), ""), Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -332,7 +332,7 @@ func equalResults(a, b pickupResult) bool {
 func TestInboundPickupThatCannotStartIsLeftForTheRetry(t *testing.T) {
 	synaplan := newSignedSynaplan(t)
 	defer synaplan.Close()
-	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"), Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

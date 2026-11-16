@@ -153,7 +153,7 @@ func TestChatAnswersAQuestion(t *testing.T) {
 			fake := tc.fake
 			synaplan := httptest.NewServer(fake.handler(t))
 			defer synaplan.Close()
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -231,7 +231,7 @@ func TestChatMessageLimitCountsRunes(t *testing.T) {
 			}
 			synaplan := httptest.NewServer(fake.handler(t))
 			defer synaplan.Close()
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -310,7 +310,7 @@ func TestMemoriesAvailableCachesDefinitiveAnswersAndRetriesTransientFailures(t *
 		_, _ = w.Write([]byte(`{"available":true}`))
 	}))
 	defer synaplan.Close()
-	h, err := New(nil, synaplan.URL, nil, nil)
+	h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestStalledMemorySearchFallsBackWithoutBlockingChat(t *testing.T) {
 	}))
 	t.Cleanup(synaplan.Close)
 	t.Cleanup(func() { close(unblock) })
-	h, err := New(nil, synaplan.URL, nil, nil)
+	h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +410,7 @@ func TestModelsListsAvailableChatModels(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer synaplan.Close()
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}

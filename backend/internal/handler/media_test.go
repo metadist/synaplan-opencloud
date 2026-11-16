@@ -101,7 +101,7 @@ func TestGenerateImageAsksSynaplanForAnImage(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer synaplan.Close()
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -175,7 +175,7 @@ func TestFetchGeneratedReadsTheFileFromSynaplan(t *testing.T) {
 				_, _ = w.Write(tc.body)
 			}))
 			defer synaplan.Close()
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -200,7 +200,7 @@ func TestFetchGeneratedDistinguishesTransportFailures(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer upstream.Close()
-	h, err := New(nil, upstream.URL, nil, nil)
+	h, err := New(nil, upstream.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestFetchGeneratedDistinguishesTransportFailures(t *testing.T) {
 	refused := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	refusedURL := refused.URL
 	refused.Close()
-	h, err = New(nil, refusedURL, nil, nil)
+	h, err = New(nil, refusedURL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestFetchGeneratedDistinguishesTransportFailures(t *testing.T) {
 		_, _ = w.Write([]byte("no"))
 	}))
 	defer truncated.Close()
-	h, err = New(nil, truncated.URL, nil, nil)
+	h, err = New(nil, truncated.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestSaveImageMapsFetchFailures(t *testing.T) {
 			}
 		}))
 		defer synaplan.Close()
-		h, err := New(nil, synaplan.URL, &cs3reader.Reader{}, nil)
+		h, err := New(nil, synaplan.URL, &cs3reader.Reader{}, nil, Admin{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -291,7 +291,7 @@ func TestSaveImageMapsFetchFailures(t *testing.T) {
 
 func saveImageAgainst(t *testing.T, synaplanURL string) *httptest.ResponseRecorder {
 	t.Helper()
-	h, err := New(nil, synaplanURL, &cs3reader.Reader{}, nil)
+	h, err := New(nil, synaplanURL, &cs3reader.Reader{}, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -241,7 +241,7 @@ func TestDeliver(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			synaplan := newDeliveringSynaplan(t, tc.claimStatus, tc.claim, "hello")
-			h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+			h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"), Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -296,7 +296,7 @@ func TestDeliver(t *testing.T) {
 func TestADeliveryForAPersonWhoDidNotAllowItIsLeftForTheRetry(t *testing.T) {
 	synaplan := newSignedSynaplan(t)
 	defer synaplan.Close()
-	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"), Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestADeliveryForAPersonWhoDidNotAllowItIsLeftForTheRetry(t *testing.T) {
 // result is still posted, and Synaplan still sees the person's own token.
 func TestACancelledDeliveryStillReportsItsResult(t *testing.T) {
 	synaplan := newDeliveringSynaplan(t, http.StatusOK, claimFor("ada", nil), "hello")
-	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"), Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestACancelledDeliveryStillReportsItsResult(t *testing.T) {
 func TestADeliveryNotificationNeedsANumericID(t *testing.T) {
 	synaplan := newSignedSynaplan(t)
 	defer synaplan.Close()
-	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"), Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

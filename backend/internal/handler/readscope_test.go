@@ -151,7 +151,7 @@ func TestKeptReadScope(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h, err := New(nil, "http://synaplan.invalid", nil, delegated(t, fakeIdentityProvider(t, "ada"), ""))
+			h, err := New(nil, "http://synaplan.invalid", nil, delegated(t, fakeIdentityProvider(t, "ada"), ""), Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}

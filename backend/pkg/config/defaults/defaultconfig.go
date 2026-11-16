@@ -27,15 +27,18 @@ func DefaultConfig() *config.Config {
 		Service: config.Service{
 			Name: "synaplan",
 		},
-		RevaGateway:   shared.DefaultRevaConfig().Address,
-		UserOIDCClaim: "preferred_username",
-		UserCS3Claim:  "username",
+		RevaGateway:           shared.DefaultRevaConfig().Address,
+		DefaultAnswerLanguage: "en",
+		UseUserLanguage:       true,
+		UserOIDCClaim:         "preferred_username",
+		UserCS3Claim:          "username",
 		Store: config.PersistentStore{
-			Store:          "nats-js-kv",
-			Nodes:          []string{"127.0.0.1:9233"},
-			Database:       "synaplan-delegation",
-			SyncedDatabase: "synaplan-synced",
-			Replicas:       1,
+			Store:            "nats-js-kv",
+			Nodes:            []string{"127.0.0.1:9233"},
+			Database:         "synaplan-delegation",
+			SettingsDatabase: "synaplan-settings",
+			SyncedDatabase:   "synaplan-synced",
+			Replicas:         1,
 		},
 		HTTP: config.HTTP{
 			Addr:      "127.0.0.1:9106",
@@ -43,7 +46,7 @@ func DefaultConfig() *config.Config {
 			Namespace: "eu.opencloud.synaplan",
 			CORS: config.CORS{
 				AllowedOrigins:   []string{"*"},
-				AllowedMethods:   []string{"GET", "POST", "DELETE"},
+				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
 				AllowedHeaders:   []string{"Authorization", "Origin", "Content-Type", "Accept", "X-Requested-With", "X-Request-Id"},
 				AllowCredentials: true,
 			},
@@ -68,6 +71,8 @@ func Sanitize(cfg *config.Config) {
 	}
 	cfg.Store.Store = strings.TrimSpace(cfg.Store.Store)
 	cfg.Store.Database = strings.TrimSpace(cfg.Store.Database)
+	cfg.Store.SettingsDatabase = strings.TrimSpace(cfg.Store.SettingsDatabase)
+	cfg.DefaultAnswerLanguage = strings.TrimSpace(cfg.DefaultAnswerLanguage)
 	cfg.Store.SyncedDatabase = strings.TrimSpace(cfg.Store.SyncedDatabase)
 	if cfg.Store.SyncedDatabase == "" {
 		cfg.Store.SyncedDatabase = "synaplan-synced"
