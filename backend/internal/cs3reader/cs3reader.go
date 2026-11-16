@@ -26,6 +26,10 @@ import (
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
+// ErrChanged means the file is not the version the caller named, so the
+// bytes must not be uploaded under that version.
+var ErrChanged = errors.New("cs3reader: file changed")
+
 // File is a handle to a file opened via the CS3 gateway.
 // The caller is responsible for closing Body.
 type File struct {
@@ -45,6 +49,7 @@ type File struct {
 type Reader struct {
 	gws        pool.Selectable[gateway.GatewayAPIClient]
 	httpClient *http.Client
+	machineKey string
 }
 
 // New creates a Reader that routes gateway calls through the given
@@ -57,30 +62,48 @@ func New(gws pool.Selectable[gateway.GatewayAPIClient], insecure bool) *Reader {
 	}
 }
 
-// Stat returns the file's name, mime type, size, etag and relative
-// path without downloading the bytes.
-func (r *Reader) Stat(ctx context.Context, resourceID string) (*File, error) {
+// gateway returns a gateway client, a gRPC context carrying the reva
+// access token from ctx, and the token itself.
+func (r *Reader) gateway(ctx context.Context) (gateway.GatewayAPIClient, context.Context, string, error) {
 	if r == nil || r.gws == nil {
-		return nil, errors.New("cs3reader: not configured")
+		return nil, nil, "", errors.New("cs3reader: not configured")
 	}
 	accessToken, ok := revactx.ContextGetToken(ctx)
 	if !ok || accessToken == "" {
-		return nil, errors.New("cs3reader: no reva access token in context (missing synaplanauth.Middleware?)")
+		return nil, nil, "", errors.New("cs3reader: no reva access token in context (missing synaplanauth.Middleware?)")
 	}
 	gwc, err := r.gws.Next()
 	if err != nil {
-		return nil, fmt.Errorf("cs3reader: gateway client: %w", err)
+		return nil, nil, "", fmt.Errorf("cs3reader: gateway client: %w", err)
 	}
-	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
-	return statFile(gwCtx, gwc, resourceID)
+	return gwc, grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken), accessToken, nil
 }
 
-func statFile(ctx context.Context, gwc gateway.GatewayAPIClient, resourceID string) (*File, error) {
+// parseRef parses a "storageId$spaceId!opaqueId" resource ID into a CS3 reference.
+func parseRef(resourceID string) (*provider.Reference, error) {
 	rid, err := storagespace.ParseID(resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("cs3reader: parse resource id %q: %w", resourceID, err)
 	}
-	statRes, err := gwc.Stat(ctx, &provider.StatRequest{Ref: &provider.Reference{ResourceId: &rid}})
+	return &provider.Reference{ResourceId: &rid}, nil
+}
+
+func relativePath(raw string) string {
+	return strings.Trim(strings.TrimPrefix(utils.MakeRelativePath(raw), "."), "/")
+}
+
+// Stat returns the file's name, mime type, size, etag and relative
+// path without downloading the bytes.
+func (r *Reader) Stat(ctx context.Context, resourceID string) (*File, error) {
+	gwc, gwCtx, _, err := r.gateway(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := parseRef(resourceID)
+	if err != nil {
+		return nil, err
+	}
+	statRes, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: ref})
 	if err != nil {
 		return nil, fmt.Errorf("cs3reader: stat: %w", err)
 	}
@@ -96,7 +119,7 @@ func statFile(ctx context.Context, gwc gateway.GatewayAPIClient, resourceID stri
 		MimeType: info.GetMimeType(),
 		Size:     info.GetSize(),
 		Etag:     info.GetEtag(),
-		Path:     strings.Trim(utils.MakeRelativePath(info.GetPath()), "/"),
+		Path:     relativePath(info.GetPath()),
 	}, nil
 }
 
@@ -108,25 +131,21 @@ func statFile(ctx context.Context, gwc gateway.GatewayAPIClient, resourceID stri
 //
 // Callers MUST close File.Body when done.
 func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
-	if r == nil || r.gws == nil {
-		return nil, errors.New("cs3reader: not configured")
-	}
-	accessToken, ok := revactx.ContextGetToken(ctx)
-	if !ok || accessToken == "" {
-		return nil, errors.New("cs3reader: no reva access token in context (missing synaplanauth.Middleware?)")
-	}
-	gwc, err := r.gws.Next()
-	if err != nil {
-		return nil, fmt.Errorf("cs3reader: gateway client: %w", err)
-	}
+	return r.OpenVersion(ctx, resourceID, "")
+}
 
-	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
-
-	rid, err := storagespace.ParseID(resourceID)
+// OpenVersion is Open restricted to etag. An empty etag accepts any
+// version. A change between the stat and the start of the download is
+// rejected by a second stat once the data server has opened the file.
+func (r *Reader) OpenVersion(ctx context.Context, resourceID, etag string) (*File, error) {
+	gwc, gwCtx, accessToken, err := r.gateway(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("cs3reader: parse resource id %q: %w", resourceID, err)
+		return nil, err
 	}
-	ref := &provider.Reference{ResourceId: &rid}
+	ref, err := parseRef(resourceID)
+	if err != nil {
+		return nil, err
+	}
 
 	statRes, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: ref})
 	if err != nil {
@@ -138,6 +157,9 @@ func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
 	info := statRes.GetInfo()
 	if info.GetType() != provider.ResourceType_RESOURCE_TYPE_FILE {
 		return nil, errors.New("cs3reader: resource is not a file")
+	}
+	if etag != "" && info.GetEtag() != etag {
+		return nil, ErrChanged
 	}
 
 	// InitiateFileDownload needs a path-based reference (space root +
@@ -187,13 +209,28 @@ func (r *Reader) Open(ctx context.Context, resourceID string) (*File, error) {
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("cs3reader: download from %q returned %d: %s", endpoint, resp.StatusCode, string(bodySnippet))
 	}
+	if etag != "" {
+		again, statErr := gwc.Stat(gwCtx, &provider.StatRequest{Ref: ref})
+		if statErr != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("cs3reader: stat after download: %w", statErr)
+		}
+		if again.GetStatus().GetCode() != rpc.Code_CODE_OK {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("cs3reader: stat after download: %s", again.GetStatus().GetMessage())
+		}
+		if again.GetInfo().GetEtag() != etag {
+			_ = resp.Body.Close()
+			return nil, ErrChanged
+		}
+	}
 
 	return &File{
 		Name:     info.GetName(),
 		MimeType: info.GetMimeType(),
 		Size:     info.GetSize(),
 		Etag:     info.GetEtag(),
-		Path:     strings.Trim(utils.MakeRelativePath(info.GetPath()), "/"),
+		Path:     relativePath(info.GetPath()),
 		Body:     resp.Body,
 	}, nil
 }

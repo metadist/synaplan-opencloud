@@ -2,7 +2,7 @@ package cs3reader
 
 import "testing"
 
-func TestSpaceRelative(t *testing.T) {
+func TestRelativePath(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -17,8 +17,8 @@ func TestSpaceRelative(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := spaceRelative(tt.in); got != tt.want {
-				t.Errorf("spaceRelative(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := relativePath(tt.in); got != tt.want {
+				t.Errorf("relativePath(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

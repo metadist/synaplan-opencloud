@@ -18,13 +18,20 @@ import (
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
-	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
 const (
 	synaplanRoot = "Synaplan"
 	maxNameTries = 50
 )
+
+// Written is a file this service wrote into OpenCloud: its space-relative
+// path and its CS3 resource id (for Synaplan's copy ledger and loop guard).
+type Written struct {
+	Path string
+	ID   string
+	Etag string
+}
 
 // kindFolder maps a file extension to the folder Nextcloud uses under
 // Synaplan/. Unknown extensions land in the Synaplan root.
@@ -51,34 +58,48 @@ func kindFolder(filename string) string {
 // taken it appends " (2)", " (3)", … and returns the space-relative
 // path that was written.
 func (r *Reader) Save(ctx context.Context, filename string, content []byte) (string, error) {
-	return r.SaveInKind(ctx, kindFolder(filename), filename, content)
+	written, err := r.SaveWritten(ctx, filename, content)
+	if err != nil {
+		return "", err
+	}
+	return written.Path, nil
+}
+
+// SaveWritten is Save returning the written file's path and resource id.
+func (r *Reader) SaveWritten(ctx context.Context, filename string, content []byte) (Written, error) {
+	name, err := cleanWriteName(filename)
+	if err != nil {
+		return Written{}, err
+	}
+	return r.saveUnder(ctx, kindFolder(name), name, content)
 }
 
 // SaveInKind writes content into the signed-in user's personal space under
 // Synaplan/<kind>/ (or Synaplan/ when kind is empty), regardless of the
-// file's extension.
+// file's extension. A generated image is saved this way so it lands in
+// Images even when its name has no image extension.
 func (r *Reader) SaveInKind(ctx context.Context, kind, filename string, content []byte) (string, error) {
-	if r == nil || r.gws == nil {
-		return "", errors.New("cs3reader: not configured")
-	}
-	name := path.Base(strings.TrimSpace(filename))
-	if name == "" || name == "." || name == ".." {
-		return "", errors.New("cs3reader: invalid filename")
-	}
-
-	accessToken, ok := revactx.ContextGetToken(ctx)
-	if !ok || accessToken == "" {
-		return "", errors.New("cs3reader: no reva access token in context")
-	}
-	gwc, err := r.gws.Next()
-	if err != nil {
-		return "", fmt.Errorf("cs3reader: gateway client: %w", err)
-	}
-	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
-
-	root, err := personalRoot(gwCtx, gwc)
+	name, err := cleanWriteName(filename)
 	if err != nil {
 		return "", err
+	}
+	written, err := r.saveUnder(ctx, kind, name, content)
+	if err != nil {
+		return "", err
+	}
+	return written.Path, nil
+}
+
+// saveUnder writes content under Synaplan/<kind>/ in the personal space.
+// name is already a single path segment.
+func (r *Reader) saveUnder(ctx context.Context, kind, name string, content []byte) (Written, error) {
+	gwc, gwCtx, _, err := r.gateway(ctx)
+	if err != nil {
+		return Written{}, err
+	}
+	root, err := personalRoot(gwCtx, gwc)
+	if err != nil {
+		return Written{}, err
 	}
 
 	folder := synaplanRoot
@@ -86,48 +107,39 @@ func (r *Reader) SaveInKind(ctx context.Context, kind, filename string, content 
 		folder = synaplanRoot + "/" + cleaned
 	}
 	if err := ensureFolder(gwCtx, gwc, root, synaplanRoot); err != nil {
-		return "", err
+		return Written{}, err
 	}
 	if folder != synaplanRoot {
 		if err := ensureFolder(gwCtx, gwc, root, folder); err != nil {
-			return "", err
+			return Written{}, err
 		}
 	}
 
 	id, err := resourceIDAt(gwCtx, gwc, root, folder)
 	if err != nil {
-		return "", err
+		return Written{}, err
 	}
-	return r.SaveChild(ctx, id, name, content)
+	return r.SaveChildWritten(ctx, id, name, content)
 }
 
 // ParentFolderID is the folder that contains resourceID. A summary or
 // a translation is saved there, through SaveChild, so the result sits
 // next to its source file in whichever space that file is in.
 func (r *Reader) ParentFolderID(ctx context.Context, resourceID string) (string, error) {
-	if r == nil || r.gws == nil {
-		return "", errors.New("cs3reader: not configured")
-	}
-	accessToken, ok := revactx.ContextGetToken(ctx)
-	if !ok || accessToken == "" {
-		return "", errors.New("cs3reader: no reva access token in context")
-	}
-	gwc, err := r.gws.Next()
+	gwc, gwCtx, _, err := r.gateway(ctx)
 	if err != nil {
-		return "", fmt.Errorf("cs3reader: gateway client: %w", err)
+		return "", err
 	}
-	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
-
-	rid, err := storagespace.ParseID(resourceID)
+	ref, err := parseRef(resourceID)
 	if err != nil {
-		return "", fmt.Errorf("cs3reader: parse resource id %q: %w", resourceID, err)
+		return "", err
 	}
-	statRes, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: &provider.Reference{ResourceId: &rid}})
+	statRes, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: ref})
 	if err != nil {
 		return "", fmt.Errorf("cs3reader: stat: %w", err)
 	}
-	if statRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
-		return "", fmt.Errorf("cs3reader: stat: %s", statRes.GetStatus().GetMessage())
+	if err := checkStatus("stat", statRes.GetStatus()); err != nil {
+		return "", err
 	}
 	info := statRes.GetInfo()
 	// A parent id without its space cannot be opened again. Fall
@@ -139,11 +151,20 @@ func (r *Reader) ParentFolderID(ctx context.Context, resourceID string) (string,
 	if root == nil {
 		return "", errors.New("cs3reader: stat did not return a space root")
 	}
-	parentPath := path.Dir(strings.Trim(utils.MakeRelativePath(info.GetPath()), "/"))
+	parentPath := path.Dir(relativePath(info.GetPath()))
 	if parentPath == "." {
 		parentPath = ""
 	}
 	return resourceIDAt(gwCtx, gwc, root, parentPath)
+}
+
+func cleanWriteName(filename string) (string, error) {
+	trimmed := strings.ReplaceAll(strings.TrimSpace(filename), "\\", "/")
+	name := path.Base(trimmed)
+	if name == "" || name == "." || name == ".." || name == "/" || strings.ContainsRune(name, 0) {
+		return "", errors.New("cs3reader: invalid filename")
+	}
+	return name, nil
 }
 
 func resourceIDAt(ctx context.Context, gwc gateway.GatewayAPIClient, root *provider.ResourceId, rel string) (string, error) {
@@ -161,6 +182,21 @@ func resourceIDAt(ctx context.Context, gwc gateway.GatewayAPIClient, root *provi
 		return "", fmt.Errorf("cs3reader: stat %s: no id", rel)
 	}
 	return storagespace.FormatResourceID(id), nil
+}
+
+func writtenAt(ctx context.Context, gwc gateway.GatewayAPIClient, space *provider.ResourceId, rel string) Written {
+	clean := relativePath(rel)
+	res, err := gwc.Stat(ctx, &provider.StatRequest{
+		Ref: &provider.Reference{ResourceId: space, Path: utils.MakeRelativePath(rel)},
+	})
+	if err != nil || res.GetStatus().GetCode() != rpc.Code_CODE_OK || res.GetInfo().GetId().GetOpaqueId() == "" {
+		return Written{Path: clean}
+	}
+	return Written{
+		Path: clean,
+		ID:   storagespace.FormatResourceID(res.GetInfo().GetId()),
+		Etag: res.GetInfo().GetEtag(),
+	}
 }
 
 func personalRoot(ctx context.Context, gwc gateway.GatewayAPIClient) (*provider.ResourceId, error) {
@@ -298,53 +334,46 @@ func (r *Reader) uploadSimple(ctx context.Context, gwc gateway.GatewayAPIClient,
 // folder the person has open. When the name is taken it appends " (2)",
 // " (3)", … and returns the space-relative path that was written.
 func (r *Reader) SaveChild(ctx context.Context, folderID, filename string, content []byte) (string, error) {
-	if r == nil || r.gws == nil {
-		return "", errors.New("cs3reader: not configured")
-	}
-	name := path.Base(strings.TrimSpace(filename))
-	if name == "" || name == "." || name == ".." || name == "/" {
-		return "", errors.New("cs3reader: invalid filename")
-	}
-	accessToken, ok := revactx.ContextGetToken(ctx)
-	if !ok || accessToken == "" {
-		return "", errors.New("cs3reader: no reva access token in context")
-	}
-	gwc, err := r.gws.Next()
+	written, err := r.SaveChildWritten(ctx, folderID, filename, content)
 	if err != nil {
-		return "", fmt.Errorf("cs3reader: gateway client: %w", err)
+		return "", err
 	}
-	gwCtx := grpcmetadata.AppendToOutgoingContext(ctx, revactx.TokenHeader, accessToken)
+	return written.Path, nil
+}
 
+// SaveChildWritten is SaveChild returning the written file's path and resource id.
+func (r *Reader) SaveChildWritten(ctx context.Context, folderID, filename string, content []byte) (Written, error) {
+	name, err := cleanWriteName(filename)
+	if err != nil {
+		return Written{}, err
+	}
+	gwc, gwCtx, accessToken, err := r.gateway(ctx)
+	if err != nil {
+		return Written{}, err
+	}
 	rid, err := storagespace.ParseID(folderID)
 	if err != nil {
-		return "", fmt.Errorf("cs3reader: parse folder id %q: %w", folderID, err)
+		return Written{}, fmt.Errorf("cs3reader: parse folder id %q: %w", folderID, err)
 	}
 	statRes, err := gwc.Stat(gwCtx, &provider.StatRequest{Ref: &provider.Reference{ResourceId: &rid}})
 	if err != nil {
-		return "", fmt.Errorf("cs3reader: stat folder: %w", err)
+		return Written{}, fmt.Errorf("cs3reader: stat folder: %w", err)
 	}
-	if statRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
-		return "", fmt.Errorf("cs3reader: stat folder: %s", statRes.GetStatus().GetMessage())
+	if err := checkStatus("stat folder", statRes.GetStatus()); err != nil {
+		return Written{}, err
 	}
 	if statRes.GetInfo().GetType() != provider.ResourceType_RESOURCE_TYPE_CONTAINER {
-		return "", errors.New("cs3reader: not a folder")
+		return Written{}, errors.New("cs3reader: not a folder")
 	}
 	space := &provider.ResourceId{StorageId: rid.GetStorageId(), SpaceId: rid.GetSpaceId()}
-	folder := spaceRelative(statRes.GetInfo().GetPath())
+	folder := relativePath(statRes.GetInfo().GetPath())
 
 	rel, err := freeName(gwCtx, gwc, space, folder, name)
 	if err != nil {
-		return "", err
+		return Written{}, err
 	}
 	if err := r.uploadSimple(ctx, gwc, gwCtx, accessToken, space, rel, content); err != nil {
-		return "", err
+		return Written{}, err
 	}
-	return strings.TrimPrefix(rel, "/"), nil
-}
-
-// spaceRelative turns a path inside a space into the form shown to people
-// and passed on as a relative reference: no leading "./" or "/", and "" for
-// the space root.
-func spaceRelative(p string) string {
-	return strings.Trim(strings.TrimPrefix(utils.MakeRelativePath(p), "."), "/")
+	return writtenAt(gwCtx, gwc, space, rel), nil
 }

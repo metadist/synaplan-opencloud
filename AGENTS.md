@@ -22,7 +22,7 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | Path | What lives there |
 | ---- | ---------------- |
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
-| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `media.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications) sharing the `Handler` struct in `handler.go`. |
+| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `media.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications and `delivery.go` the copies they deliver, `watch.go` the watch routes and `reconcile.go` the background check) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
 | `backend/internal/delegation/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
@@ -133,10 +133,14 @@ server's copy of the same app id.
   call to Synaplan carries one of two things: the token the exchange minted
   for Synaplan (`synaplanauth.NewRequestEditor`), or, while the person is
   away, a Synaplan token minted from their own offline token
-  (`onBehalfOf(ctx, sub)`, `internal/delegation`). The shared API key
-  of Mode B replaces both; Synaplan's open documents carry none
-  (`anonymous(ctx)`). There is no service or machine credential. The
-  generated client is the only HTTP path to Synaplan's API (only its key
+  (`onBehalfOf(ctx, sub)`, `internal/delegation`). The  shared API key
+ of Mode B replaces both; Synaplan's open documents carry none
+ (`anonymous(ctx)`). Reading a person's files while they are away uses
+ OpenCloud's machine-auth key (`OC_MACHINE_AUTH_API_KEY`,
+ `cs3reader.Impersonate`): that key is an OpenCloud credential, not a
+ Synaplan one, and it only mints a reva token for a person who allowed
+ the work. There is no Synaplan service or machine credential. The
+ generated client is the only HTTP path to Synaplan's API (only its key
   set is read by keyfunc, without a credential): its editors pick the
   credential (`Handler.authenticate`) and end with `refuseOpenCloudToken`,
   which refuses a request whose bearer equals the incoming OpenCloud token.
@@ -359,9 +363,10 @@ order. None is optional and none is done in parallel with the next topic.
 ## Secrets
 
 - Never commit `.env` files, API keys (`sk_…`), tokens, or certificates. The
-  compose values `synaplan-dev-secret`, `synaplan-opencloud-secret` and
-  `test-oidc-secret` are development-only and must not appear in any
-  production config or documentation example as real values.
+  compose values `synaplan-dev-secret`, `synaplan-dev-machine-auth`,
+  `synaplan-opencloud-secret` and `test-oidc-secret` are development-only and
+  must not appear in any production config or documentation example as real
+  values.
 - Synaplan's provider keys live in `../synaplan/backend/.env`. Use them for
   local runs; never print, paste or log one — not in a PR, a trace, a
   screenshot or a chat.
