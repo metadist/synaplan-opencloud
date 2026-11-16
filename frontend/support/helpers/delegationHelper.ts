@@ -5,7 +5,7 @@ import { Page, expect } from '@playwright/test'
  * Synaplan page, the way the person does it.
  */
 
-async function openSection(page: Page) {
+export async function openDelegationSection(page: Page) {
   if (!new URL(page.url()).pathname.endsWith('/synaplan')) {
     await page.goto('/synaplan')
   }
@@ -16,7 +16,7 @@ async function openSection(page: Page) {
 }
 
 export async function allowWorkWhileAway(page: Page): Promise<void> {
-  const { connect, disconnect } = await openSection(page)
+  const { connect, disconnect } = await openDelegationSection(page)
   if (await connect.isVisible()) {
     await connect.click()
   }
@@ -24,7 +24,7 @@ export async function allowWorkWhileAway(page: Page): Promise<void> {
 }
 
 export async function stopWorkWhileAway(page: Page): Promise<void> {
-  const { connect, disconnect } = await openSection(page)
+  const { connect, disconnect } = await openDelegationSection(page)
   if (await disconnect.isVisible()) {
     await disconnect.click()
   }

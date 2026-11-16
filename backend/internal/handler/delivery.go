@@ -10,36 +10,46 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
 const (
-	// maxDeliveryBytes is the largest copy this service takes from
-	// Synaplan; the copy is held in memory until it is written.
+	// maxDeliveryBytes matches Synaplan's PlatformDestinationProvider::MAX_BYTES
+	// (100 MiB); the copy is held in memory until it is written.
 	maxDeliveryBytes = 100 << 20
-	// deliveryTimeout bounds claiming, downloading, writing and reporting
-	// one copy. Synaplan waits 30 seconds for the answer to its
-	// notification; a copy that takes longer is still written and then
-	// reported on the result route.
+	// deliveryTimeout bounds claiming, downloading and writing one copy.
+	// Synaplan waits 30 seconds for the answer to its notification; a
+	// copy that takes longer is still written and then reported on the
+	// result route.
 	deliveryTimeout = 2 * time.Minute
-	// targetKindFolder is Synaplan's target for a copy without a folder:
-	// the person's Synaplan folder for the file's kind.
-	targetKindFolder = "kind_folder"
+	// reportTimeout bounds that result report. It starts from a context
+	// that ignores cancellation of the download, so a copy that already
+	// used up deliveryTimeout is still reported with the person's
+	// credentials on the context.
+	reportTimeout = 30 * time.Second
 )
 
-// Delivery outcomes and the failure codes Synaplan knows
+// Delivery targets, outcomes and the failure codes Synaplan knows
 // (DestinationFailureCode).
 const (
+	deliveryTargetKindFolder = "kind_folder"
+	deliveryTargetFolderID   = "folder_id"
+	deliveryTargetNextTo     = "next_to"
+
 	deliveryDelivered = "delivered"
 	deliveryFailed    = "failed"
-	failUnauthorized  = "unauthorized"
-	failTooLarge      = "too_large"
-	failUnreachable   = "unreachable"
-	failUnsupported   = "unsupported"
+
+	failUnauthorized = "unauthorized"
+	failNotFound     = "not_found"
+	failTooLarge     = "too_large"
+	failUnreachable  = "unreachable"
+	failUnsupported  = "unsupported"
 )
 
 // errClaimLater means the copy was not claimed and Synaplan's retry of the
@@ -53,7 +63,9 @@ var (
 // deliveryFiles is where a copy is written. The reva token on the context
 // decides as whom: machine auth for the person the copy is for.
 type deliveryFiles interface {
-	Save(ctx context.Context, filename string, content []byte) (string, error)
+	SaveWritten(ctx context.Context, filename string, content []byte) (cs3reader.Written, error)
+	SaveChildWritten(ctx context.Context, folderID, filename string, content []byte) (cs3reader.Written, error)
+	ParentFolderID(ctx context.Context, resourceID string) (string, error)
 }
 
 // deliveryResult is what Synaplan records for a copy, both as the answer
@@ -61,6 +73,7 @@ type deliveryFiles interface {
 type deliveryResult struct {
 	Status     string `json:"status"`
 	RemotePath string `json:"remote_path,omitempty"`
+	RemoteID   string `json:"remote_id,omitempty"`
 	ErrorCode  string `json:"error_code,omitempty"`
 }
 
@@ -129,18 +142,20 @@ func (h *Handler) deliver(ctx context.Context, files deliveryFiles, sub string, 
 func (h *Handler) claimDelivery(ctx context.Context, id int) (deliveryClaim, error) {
 	resp, err := h.synaplanAPI.ClaimCloudDeliveryWithResponse(ctx, id)
 	if err != nil {
-		return deliveryClaim{}, fmt.Errorf("%w: %v", errClaimLater, err)
+		return deliveryClaim{}, fmt.Errorf("%w: %w", errClaimLater, err)
 	}
 	switch status := resp.StatusCode(); {
 	case status == http.StatusOK:
-	case status >= http.StatusInternalServerError:
+	case status == http.StatusTooManyRequests || status >= http.StatusInternalServerError:
+		// A rate limit and a Synaplan outage are temporary. Leaving them
+		// as a refusal would drop the notification and the retry with it.
 		return deliveryClaim{}, fmt.Errorf("%w: synaplan answered %d", errClaimLater, status)
 	default:
-		return deliveryClaim{}, fmt.Errorf("%w: %v", errClaimRefused, upstream(status, resp.Body))
+		return deliveryClaim{}, fmt.Errorf("%w: %w", errClaimRefused, upstream(status, resp.Body))
 	}
 	var claim deliveryClaim
 	if err := json.Unmarshal(resp.Body, &claim); err != nil {
-		return deliveryClaim{}, fmt.Errorf("%w: decoding the claim: %v", errClaimRefused, err)
+		return deliveryClaim{}, fmt.Errorf("%w: decoding the claim: %w", errClaimRefused, err)
 	}
 	return claim, nil
 }
@@ -158,12 +173,25 @@ func (h *Handler) writeDelivery(ctx context.Context, files deliveryFiles, sub st
 		log.Printf("delivery %d: unexpected download path", id)
 		return deliveryResult{Status: deliveryFailed, ErrorCode: failUnreachable}
 	}
-	if claim.Target.Kind != "" && claim.Target.Kind != targetKindFolder {
-		log.Printf("delivery %d: target %q is not supported", id, claim.Target.Kind)
+	targetKind := claim.Target.Kind
+	targetRef := strings.TrimSpace(claim.Target.Ref)
+	switch targetKind {
+	case "", deliveryTargetKindFolder:
+	case deliveryTargetFolderID, deliveryTargetNextTo:
+		if targetRef == "" {
+			log.Printf("delivery %d: target %q is missing its ref", id, targetKind)
+			return deliveryResult{Status: deliveryFailed, ErrorCode: failNotFound}
+		}
+	default:
+		log.Printf("delivery %d: target %q is not supported", id, targetKind)
 		return deliveryResult{Status: deliveryFailed, ErrorCode: failUnsupported}
 	}
-	if claim.Size > maxDeliveryBytes {
+	if claim.Size < 0 || claim.Size > maxDeliveryBytes {
 		return deliveryResult{Status: deliveryFailed, ErrorCode: failTooLarge}
+	}
+	if files == nil {
+		log.Printf("delivery %d: storage is not configured", id)
+		return deliveryResult{Status: deliveryFailed, ErrorCode: failUnreachable}
 	}
 	content, err := h.downloadDelivery(ctx, id, ticket)
 	if errors.Is(err, errTooLarge) {
@@ -173,16 +201,38 @@ func (h *Handler) writeDelivery(ctx context.Context, files deliveryFiles, sub st
 		log.Printf("delivery %d: download: %v", id, err)
 		return deliveryResult{Status: deliveryFailed, ErrorCode: failUnreachable}
 	}
-	name := claim.Name
-	if name == "" {
+	name, problem := cleanSavedName(claim.Name)
+	if problem != "" {
 		name = "file"
 	}
-	written, err := files.Save(ctx, name, content)
+	written, err := saveDelivery(ctx, files, targetKind, targetRef, name, content)
 	if err != nil {
 		log.Printf("delivery %d: write: %v", id, err)
+		if errors.Is(err, cs3reader.ErrNotFound) {
+			return deliveryResult{Status: deliveryFailed, ErrorCode: failNotFound}
+		}
 		return deliveryResult{Status: deliveryFailed, ErrorCode: failUnreachable}
 	}
-	return deliveryResult{Status: deliveryDelivered, RemotePath: "/" + written}
+	return deliveryResult{
+		Status:     deliveryDelivered,
+		RemotePath: "/" + strings.TrimLeft(written.Path, "/"),
+		RemoteID:   written.ID,
+	}
+}
+
+func saveDelivery(ctx context.Context, files deliveryFiles, kind, ref, name string, content []byte) (cs3reader.Written, error) {
+	switch kind {
+	case deliveryTargetFolderID:
+		return files.SaveChildWritten(ctx, ref, name, content)
+	case deliveryTargetNextTo:
+		folderID, err := files.ParentFolderID(ctx, ref)
+		if err != nil {
+			return cs3reader.Written{}, err
+		}
+		return files.SaveChildWritten(ctx, folderID, name, content)
+	default:
+		return files.SaveWritten(ctx, name, content)
+	}
 }
 
 // errTooLarge means a copy is larger than maxDeliveryBytes.
@@ -191,7 +241,7 @@ var errTooLarge = errors.New("copy is too large")
 func (h *Handler) downloadDelivery(ctx context.Context, id int, ticket string) ([]byte, error) {
 	resp, err := h.synaplanAPI.DownloadCloudDelivery(ctx, id, &synaplanapi.DownloadCloudDeliveryParams{Ticket: ticket})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("download request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -199,7 +249,7 @@ func (h *Handler) downloadDelivery(ctx context.Context, id int, ticket string) (
 	}
 	content, err := io.ReadAll(io.LimitReader(resp.Body, maxDeliveryBytes+1))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading download: %w", err)
 	}
 	if len(content) > maxDeliveryBytes {
 		return nil, errTooLarge
@@ -208,23 +258,31 @@ func (h *Handler) downloadDelivery(ctx context.Context, id int, ticket string) (
 }
 
 // downloadTicket is the one-time ticket of the download path a claim
-// names. Only the path of this copy is accepted: the download goes through
-// the generated client, never to a URL from an answer.
+// names. Only the exact path of this copy is accepted: the download goes
+// through the generated client, never to a URL from an answer.
 func downloadTicket(id int, downloadPath string) (string, bool) {
 	parsed, err := url.Parse(downloadPath)
-	if err != nil || parsed.Scheme != "" || parsed.Host != "" {
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.Opaque != "" || parsed.User != nil || strings.HasPrefix(downloadPath, "//") {
 		return "", false
 	}
 	if parsed.Path != "/api/v1/platform-links/deliveries/"+strconv.Itoa(id)+"/file" {
 		return "", false
 	}
-	ticket := parsed.Query().Get("ticket")
+	values, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(values["ticket"]) != 1 {
+		return "", false
+	}
+	ticket := values.Get("ticket")
 	return ticket, ticket != ""
 }
 
 // reportDelivery records the outcome on Synaplan's result route, so it is
 // kept even when Synaplan stopped waiting for the notification's answer.
+// The download's deadline must not cancel this call: the person's
+// credentials stay on the context, and the report has its own short limit.
 func (h *Handler) reportDelivery(ctx context.Context, id int, result deliveryResult) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
+	defer cancel()
 	payload, err := withJSON(result)
 	if err != nil {
 		log.Printf("delivery %d: report: %v", id, err)

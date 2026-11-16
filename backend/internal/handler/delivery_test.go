@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 )
 
 // deliveringSynaplan answers the claim, download and result routes of
@@ -53,19 +55,57 @@ func newDeliveringSynaplan(t *testing.T, claimStatus int, claim map[string]any, 
 
 // savedFiles stands in for the person's OpenCloud.
 type savedFiles struct {
-	fail  bool
-	saved map[string]string
+	fail       bool
+	missing    bool
+	parents    map[string]string
+	folderPath map[string]string
+	saved      map[string]string
 }
 
-func (f *savedFiles) Save(_ context.Context, filename string, content []byte) (string, error) {
+func (f *savedFiles) SaveWritten(_ context.Context, filename string, content []byte) (cs3reader.Written, error) {
 	if f.fail {
-		return "", errors.New("read-only")
+		return cs3reader.Written{}, errors.New("read-only")
 	}
 	if f.saved == nil {
 		f.saved = map[string]string{}
 	}
 	f.saved[filename] = string(content)
-	return "Synaplan/Documents/" + filename, nil
+	return cs3reader.Written{
+		Path: "Synaplan/Documents/" + filename,
+		ID:   "s$sp!written-" + filename,
+	}, nil
+}
+
+func (f *savedFiles) SaveChildWritten(_ context.Context, folderID, filename string, content []byte) (cs3reader.Written, error) {
+	if f.missing {
+		return cs3reader.Written{}, cs3reader.ErrNotFound
+	}
+	if f.fail {
+		return cs3reader.Written{}, errors.New("read-only")
+	}
+	if f.saved == nil {
+		f.saved = map[string]string{}
+	}
+	f.saved[filename] = string(content)
+	folder := f.folderPath[folderID]
+	if folder == "" {
+		folder = "Chosen"
+	}
+	return cs3reader.Written{
+		Path: folder + "/" + filename,
+		ID:   "s$sp!child-" + filename,
+	}, nil
+}
+
+func (f *savedFiles) ParentFolderID(_ context.Context, resourceID string) (string, error) {
+	if f.missing {
+		return "", cs3reader.ErrNotFound
+	}
+	parent, ok := f.parents[resourceID]
+	if !ok {
+		return "", cs3reader.ErrNotFound
+	}
+	return parent, nil
 }
 
 func claimFor(sub string, edit func(map[string]any)) map[string]any {
@@ -88,15 +128,71 @@ func TestDeliver(t *testing.T) {
 		claimStatus int
 		claim       map[string]any
 		failWrite   bool
+		missingRef  bool
 		want        deliveryResult
 		wantErr     error
-		wantSaved   bool
+		wantSaved   string
 	}{
 		"written to the person's Synaplan folder": {
 			claimStatus: http.StatusOK,
 			claim:       claimFor("ada", nil),
-			want:        deliveryResult{Status: "delivered", RemotePath: "/Synaplan/Documents/notes.txt"},
-			wantSaved:   true,
+			want: deliveryResult{
+				Status:     "delivered",
+				RemotePath: "/Synaplan/Documents/notes.txt",
+				RemoteID:   "s$sp!written-notes.txt",
+			},
+			wantSaved: "notes.txt",
+		},
+		"written into a chosen folder": {
+			claimStatus: http.StatusOK,
+			claim: claimFor("ada", func(c map[string]any) {
+				c["target"] = map[string]string{"kind": "folder_id", "ref": "s$sp!inbox"}
+			}),
+			want: deliveryResult{
+				Status:     "delivered",
+				RemotePath: "/Inbox/notes.txt",
+				RemoteID:   "s$sp!child-notes.txt",
+			},
+			wantSaved: "notes.txt",
+		},
+		"written next to a source file": {
+			claimStatus: http.StatusOK,
+			claim: claimFor("ada", func(c map[string]any) {
+				c["target"] = map[string]string{"kind": "next_to", "ref": "s$sp!source"}
+			}),
+			want: deliveryResult{
+				Status:     "delivered",
+				RemotePath: "/Inbox/notes.txt",
+				RemoteID:   "s$sp!child-notes.txt",
+			},
+			wantSaved: "notes.txt",
+		},
+		"a gone target folder reports not_found": {
+			claimStatus: http.StatusOK,
+			claim: claimFor("ada", func(c map[string]any) {
+				c["target"] = map[string]string{"kind": "folder_id", "ref": "s$sp!gone"}
+			}),
+			missingRef: true,
+			want:       deliveryResult{Status: "failed", ErrorCode: "not_found"},
+		},
+		"an unknown target kind reports unsupported": {
+			claimStatus: http.StatusOK,
+			claim: claimFor("ada", func(c map[string]any) {
+				c["target"] = map[string]string{"kind": "space_root", "ref": "s$sp!root"}
+			}),
+			want: deliveryResult{Status: "failed", ErrorCode: "unsupported"},
+		},
+		"a path-like claim name is cleaned to its basename": {
+			claimStatus: http.StatusOK,
+			claim: claimFor("ada", func(c map[string]any) {
+				c["name"] = "../../secret.txt"
+			}),
+			want: deliveryResult{
+				Status:     "delivered",
+				RemotePath: "/Synaplan/Documents/secret.txt",
+				RemoteID:   "s$sp!written-secret.txt",
+			},
+			wantSaved: "secret.txt",
 		},
 		"a claim for another person is not written": {
 			claimStatus: http.StatusOK,
@@ -110,16 +206,14 @@ func TestDeliver(t *testing.T) {
 			}),
 			want: deliveryResult{Status: "failed", ErrorCode: "unreachable"},
 		},
-		"a folder target is not supported yet": {
-			claimStatus: http.StatusOK,
-			claim: claimFor("ada", func(c map[string]any) {
-				c["target"] = map[string]string{"kind": "folder_id", "ref": "space$root!folder"}
-			}),
-			want: deliveryResult{Status: "failed", ErrorCode: "unsupported"},
-		},
 		"too large": {
 			claimStatus: http.StatusOK,
 			claim:       claimFor("ada", func(c map[string]any) { c["size"] = maxDeliveryBytes + 1 }),
+			want:        deliveryResult{Status: "failed", ErrorCode: "too_large"},
+		},
+		"negative size": {
+			claimStatus: http.StatusOK,
+			claim:       claimFor("ada", func(c map[string]any) { c["size"] = -1 }),
 			want:        deliveryResult{Status: "failed", ErrorCode: "too_large"},
 		},
 		"the write fails": {
@@ -138,6 +232,11 @@ func TestDeliver(t *testing.T) {
 			claim:       map[string]any{},
 			wantErr:     errClaimLater,
 		},
+		"Synaplan is rate limiting": {
+			claimStatus: http.StatusTooManyRequests,
+			claim:       map[string]any{},
+			wantErr:     errClaimLater,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -146,7 +245,12 @@ func TestDeliver(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			files := &savedFiles{fail: tc.failWrite}
+			files := &savedFiles{
+				fail:       tc.failWrite,
+				missing:    tc.missingRef,
+				parents:    map[string]string{"s$sp!source": "s$sp!inbox"},
+				folderPath: map[string]string{"s$sp!inbox": "Inbox"},
+			}
 
 			got, err := h.deliver(onBehalfOf(t.Context(), "ada"), files, "ada", 7)
 
@@ -168,11 +272,15 @@ func TestDeliver(t *testing.T) {
 			if len(synaplan.reported) != 1 || synaplan.reported[0] != tc.want {
 				t.Fatalf("reported %+v, want %+v", synaplan.reported, tc.want)
 			}
-			if tc.wantSaved != (files.saved["notes.txt"] == "hello") {
-				t.Fatalf("saved %v, want saved %v", files.saved, tc.wantSaved)
+			if tc.wantSaved != "" {
+				if files.saved[tc.wantSaved] != "hello" {
+					t.Fatalf("saved %v, want %q = hello", files.saved, tc.wantSaved)
+				}
+			} else if len(files.saved) != 0 {
+				t.Fatalf("unexpectedly saved %v", files.saved)
 			}
-			if !tc.wantSaved && synaplan.downloads != 0 && !tc.failWrite {
-				t.Fatalf("downloaded a copy that was not written")
+			if tc.wantSaved == "" && synaplan.downloads != 0 && !tc.failWrite && !tc.missingRef {
+				t.Fatalf("downloaded a copy that was rejected before download")
 			}
 			for _, bearer := range synaplan.bearers {
 				if bearer != "Bearer for-synaplan-app" {
@@ -202,6 +310,27 @@ func TestADeliveryForAPersonWhoDidNotAllowItIsLeftForTheRetry(t *testing.T) {
 	}
 }
 
+// A download that already ran out of time has a cancelled context. The
+// result is still posted, and Synaplan still sees the person's own token.
+func TestACancelledDeliveryStillReportsItsResult(t *testing.T) {
+	synaplan := newDeliveringSynaplan(t, http.StatusOK, claimFor("ada", nil), "hello")
+	h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), "ada"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, cancel := context.WithCancel(onBehalfOf(t.Context(), "ada"))
+	cancel()
+
+	h.reportDelivery(parent, 7, deliveryResult{Status: deliveryDelivered, RemotePath: "/Synaplan/Documents/notes.txt", RemoteID: "s$sp!1"})
+
+	if len(synaplan.reported) != 1 || synaplan.reported[0].Status != deliveryDelivered {
+		t.Fatalf("reported %+v, want the result of the cancelled download", synaplan.reported)
+	}
+	if len(synaplan.bearers) != 1 || synaplan.bearers[0] != "Bearer for-synaplan-app" {
+		t.Fatalf("Synaplan saw %v, want the person's own token", synaplan.bearers)
+	}
+}
+
 func TestADeliveryNotificationNeedsANumericID(t *testing.T) {
 	synaplan := newSignedSynaplan(t)
 	defer synaplan.Close()
@@ -222,12 +351,14 @@ func TestDownloadTicket(t *testing.T) {
 		want string
 		ok   bool
 	}{
-		"this copy":          {"/api/v1/platform-links/deliveries/7/file?ticket=t1", "t1", true},
-		"another copy":       {"/api/v1/platform-links/deliveries/8/file?ticket=t1", "", false},
-		"another host":       {"https://elsewhere.example/api/v1/platform-links/deliveries/7/file?ticket=t1", "", false},
-		"no ticket":          {"/api/v1/platform-links/deliveries/7/file", "", false},
-		"another route":      {"/api/v1/files/7?ticket=t1", "", false},
-		"a path that climbs": {"/api/v1/platform-links/deliveries/7/../8/file?ticket=t1", "", false},
+		"this copy":           {"/api/v1/platform-links/deliveries/7/file?ticket=t1", "t1", true},
+		"another copy":        {"/api/v1/platform-links/deliveries/8/file?ticket=t1", "", false},
+		"another host":        {"https://elsewhere.example/api/v1/platform-links/deliveries/7/file?ticket=t1", "", false},
+		"scheme-relative url": {"//elsewhere.example/api/v1/platform-links/deliveries/7/file?ticket=t1", "", false},
+		"duplicate ticket":    {"/api/v1/platform-links/deliveries/7/file?ticket=t1&ticket=t2", "", false},
+		"no ticket":           {"/api/v1/platform-links/deliveries/7/file", "", false},
+		"another route":       {"/api/v1/files/7?ticket=t1", "", false},
+		"a path that climbs":  {"/api/v1/platform-links/deliveries/7/../8/file?ticket=t1", "", false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

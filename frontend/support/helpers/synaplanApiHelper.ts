@@ -135,20 +135,48 @@ export async function sendToOpenCloud(
   token: string,
   fileId: number,
   linkId: number
-): Promise<{ status: number; state: string; reference: string }> {
+): Promise<{ status: number; state: string; deliveryId: string; reference: string }> {
   const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/${fileId}/send`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { destination: 'platform', identity_id: linkId }
   })
   const body = (await resp.json().catch(() => ({}))) as {
     reference?: string | null
-    context?: { state?: string }
+    context?: { state?: string; delivery_id?: string }
   }
   return {
     status: resp.status(),
     state: body.context?.state ?? '',
+    deliveryId: body.context?.delivery_id ?? '',
     reference: body.reference ?? ''
   }
+}
+
+export interface SynaplanFileCopy {
+  id: number
+  file_id: number
+  state: string
+  remote_path: string
+  open_url: string
+  error_code: string
+}
+
+/** List Synaplan's copy ledger rows for a file via /api/v1/files/copies. */
+export async function listFileCopies(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  fileId: number
+): Promise<SynaplanFileCopy[]> {
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/copies`, {
+    params: { ids: String(fileId) },
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan copies list failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as { copies?: SynaplanFileCopy[] }
+  return body.copies ?? []
 }
 
 /** Delete a file from the person's Synaplan files; ignores failures. */
