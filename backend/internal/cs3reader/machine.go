@@ -32,13 +32,19 @@ func (r *Reader) CanImpersonate() bool {
 // attribute claim ("username", "mail" or "userid") is value. The gateway
 // mints a reva token for that user with OpenCloud's machine auth, the way
 // OpenCloud's own services act for a user who is not signed in; the token
-// carries only the owner scope of that user. Stat, Open, StatResource and
-// List then work on the returned context as they do on a request's.
+// carries only the owner scope of that user. Stat, Open, OpenVersion,
+// StatResource and List then work on the returned context as they do on a
+// request's.
 func (r *Reader) Impersonate(ctx context.Context, claim, value string) (context.Context, error) {
 	if !r.CanImpersonate() {
 		return nil, ErrNoMachineAuth
 	}
-	if claim == "" || value == "" {
+	switch claim {
+	case "username", "mail", "userid":
+	default:
+		return nil, fmt.Errorf("cs3reader: unsupported user attribute %q", claim)
+	}
+	if value == "" {
 		return nil, errors.New("cs3reader: no user to act for")
 	}
 	gwc, err := r.gws.Next()

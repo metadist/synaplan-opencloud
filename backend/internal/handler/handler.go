@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -84,8 +85,16 @@ type Handler struct {
 	maxCopyBytes int64
 	// sharedKey is set when every Synaplan call uses one API key.
 	// Listing files then lists the key owner's files, for every
-	// signed-in OpenCloud user, so From Synaplan stays closed.
+	// signed-in OpenCloud user, so From Synaplan and watches stay closed.
 	sharedKey bool
+
+	// reconcileMu guards the cursors a pass uses so the next pass starts
+	// where this one stopped. One process only; each replica keeps its own.
+	// Watch progress is per person so a pass or a one-watch check never
+	// resets someone else's place in their own list.
+	reconcileMu   sync.Mutex
+	subjectCursor int
+	watchCursors  map[string]int
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.

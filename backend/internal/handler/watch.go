@@ -9,15 +9,23 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-
-	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 )
 
-// Watch presets Synaplan knows: keep the files searchable in a knowledge
-// folder, or run one of the person's own tasks on them.
+// Watch presets, target kinds, states and upload-block reasons shared across
+// the watch routes and background reconciliation.
 const (
 	presetSearchable = "keep_searchable"
 	presetTask       = "task"
+
+	targetFolder = "folder"
+	targetFile   = "file"
+
+	watchStateActive    = "active"
+	watchStatePaused    = "paused"
+	watchStateAttention = "attention"
+
+	blockedMachineAuth = "machine_auth"
+	blockedConsent     = "consent"
 )
 
 // maxGroupKey is the longest knowledge folder name Synaplan keeps.
@@ -80,13 +88,26 @@ func writeWatchFailure(w http.ResponseWriter, op string, err error) {
 	writeJSON(w, status, body)
 }
 
-// WatchOptions lists what the watch dialog can offer: the person's tasks
-// and knowledge folders, whether the item is watched already, and whether
-// files are sent while the person is away.
-func (h *Handler) WatchOptions(w http.ResponseWriter, r *http.Request) {
+// requireTargetID reads targetId from the query string, answering 400 when
+// it is absent or blank.
+func requireTargetID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	targetID := strings.TrimSpace(r.URL.Query().Get("targetId"))
 	if targetID == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetId is required"})
+		return "", false
+	}
+	return targetID, true
+}
+
+// WatchOptions lists what the watch dialog can offer: the person's tasks
+// and knowledge folders, whether the item is watched already (and in which
+// state), and whether files are sent while the person is away.
+func (h *Handler) WatchOptions(w http.ResponseWriter, r *http.Request) {
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
+	targetID, ok := requireTargetID(w, r)
+	if !ok {
 		return
 	}
 	resp, err := h.synaplanAPI.CloudWatchOptionsWithResponse(r.Context())
@@ -115,12 +136,33 @@ func (h *Handler) WatchOptions(w http.ResponseWriter, r *http.Request) {
 	for _, f := range resp.JSON200.Folders {
 		folders = append(folders, f.GroupKey)
 	}
+	blocked := h.uploadsBlocked(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tasks":          tasks,
 		"folders":        folders,
 		"watching":       len(watches) > 0,
-		"uploadsEnabled": h.worksWhileAway(r.Context()),
+		"watchState":     watchStateOf(watches),
+		"uploadsEnabled": blocked == "",
+		"uploadsBlocked": blocked,
 	})
+}
+
+// watchStateOf summarises the watches on one target: active wins over
+// attention, which wins over paused. Empty when there are none.
+func watchStateOf(watches []watch) string {
+	if len(watches) == 0 {
+		return ""
+	}
+	state := watchStatePaused
+	for _, each := range watches {
+		if each.State == watchStateActive {
+			return watchStateActive
+		}
+		if each.State == watchStateAttention {
+			state = watchStateAttention
+		}
+	}
+	return state
 }
 
 type watchStartRequest struct {
@@ -136,7 +178,7 @@ func (req *watchStartRequest) validate() string {
 	req.TargetID = strings.TrimSpace(req.TargetID)
 	req.GroupKey = strings.TrimSpace(req.GroupKey)
 	switch {
-	case req.TargetKind != "folder" && req.TargetKind != "file", req.TargetID == "":
+	case req.TargetKind != targetFolder && req.TargetKind != targetFile, req.TargetID == "":
 		return "Choose a folder or a file."
 	case req.Preset != presetSearchable && req.Preset != presetTask:
 		return "Choose what should happen."
@@ -154,6 +196,9 @@ func (req *watchStartRequest) validate() string {
 // read first, as the signed-in person, so a watch is only started on
 // something they can open, and Synaplan gets its path to show.
 func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
 	var req watchStartRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body: " + err.Error()})
@@ -164,11 +209,18 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target, err := h.cs3.StatResource(r.Context(), req.TargetID)
-	if err != nil || target.IsFolder != (req.TargetKind == "folder") {
+	if err != nil {
 		log.Printf("watch start: stat: %v", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{
 			Error: "This file is no longer there. Reload the folder and try again.",
 			Code:  "file_not_found",
+		})
+		return
+	}
+	if target.IsFolder != (req.TargetKind == targetFolder) {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: "Choose a folder or a file.",
+			Code:  "watch_invalid",
 		})
 		return
 	}
@@ -202,18 +254,22 @@ func (h *Handler) WatchStart(w http.ResponseWriter, r *http.Request) {
 		writeWatchFailure(w, "watch start", fmt.Errorf("decoding the new watch: %w", err))
 		return
 	}
+	blocked := h.uploadsBlocked(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":             created.ID,
-		"uploadsEnabled": h.worksWhileAway(r.Context()),
+		"uploadsEnabled": blocked == "",
+		"uploadsBlocked": blocked,
 	})
 }
 
 // WatchStop stops every watch the signed-in person has on one folder or
 // file.
 func (h *Handler) WatchStop(w http.ResponseWriter, r *http.Request) {
-	targetID := strings.TrimSpace(r.URL.Query().Get("targetId"))
-	if targetID == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetId is required"})
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
+	targetID, ok := requireTargetID(w, r)
+	if !ok {
 		return
 	}
 	watches, err := h.watchesOn(r.Context(), targetID)
@@ -245,7 +301,7 @@ func (h *Handler) WatchStop(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) watches(ctx context.Context) ([]watch, error) {
 	resp, err := h.synaplanAPI.CloudWatchesWithResponse(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing watches: %w", err)
 	}
 	if resp.StatusCode() != http.StatusOK {
 		return nil, upstream(resp.StatusCode(), resp.Body)
@@ -274,41 +330,56 @@ func (h *Handler) watchesOn(ctx context.Context, targetID string) ([]watch, erro
 	return on, nil
 }
 
-// worksWhileAway reports whether watched files are sent while the
-// signed-in person is away.
-func (h *Handler) worksWhileAway(ctx context.Context) bool {
-	return h.awaySubject(ctx) != ""
+// refuseWatchSharedKey closes the watch routes when every OpenCloud user
+// shares one Synaplan key. That key's watches belong to one Synaplan
+// account, so any signed-in user could list or stop them by target id.
+func (h *Handler) refuseWatchSharedKey(w http.ResponseWriter) bool {
+	if h == nil || !h.sharedKey {
+		return false
+	}
+	writeJSON(w, http.StatusForbidden, errorResponse{
+		Error: "Watching needs each person signed in to Synaplan. This installation uses one shared key.",
+		Code:  "watch_shared_key",
+	})
+	return true
 }
 
-// awaySubject is the signed-in person's subject when this service works
-// for them while they are away: it can read files without a browser
-// session, and the person allowed Synaplan to work for them. It is ""
-// otherwise.
-func (h *Handler) awaySubject(ctx context.Context) string {
-	if !h.delegation.Configured() || !h.cs3.CanImpersonate() {
-		return ""
+// awayAllowance returns the signed-in person's subject when this service
+// works for them while they are away, or "" and the reason ("machine_auth"
+// or "consent") when it cannot.
+func (h *Handler) awayAllowance(ctx context.Context) (subject, blocked string) {
+	if h == nil || h.cs3 == nil || !h.cs3.CanImpersonate() || !h.delegation.Configured() {
+		return "", blockedMachineAuth
 	}
 	sub, err := h.signedInSubject(ctx)
 	if err != nil {
 		log.Printf("away: who is signed in: %v", err)
-		return ""
+		return "", blockedConsent
 	}
 	connected, err := h.delegation.Connected(ctx, sub)
 	if err != nil {
 		log.Printf("away: allowed while away: %v", err)
-		return ""
+		return "", blockedConsent
 	}
 	if !connected {
-		return ""
+		return "", blockedConsent
 	}
+	return sub, ""
+}
+
+// awaySubject is the signed-in person's subject when this service works
+// for them while they are away, or "" otherwise.
+func (h *Handler) awaySubject(ctx context.Context) string {
+	sub, _ := h.awayAllowance(ctx)
 	return sub
 }
 
-// watchFiles is how a watch reaches the files it follows. The reva token
-// on the context decides as whom: the signed-in person's own session, or
-// machine auth for a person who is away.
-type watchFiles interface {
-	StatResource(ctx context.Context, resourceID string) (cs3reader.Resource, error)
-	List(ctx context.Context, folderID string) ([]cs3reader.Resource, error)
-	Open(ctx context.Context, resourceID string) (*cs3reader.File, error)
+// uploadsBlocked says why files are not sent while the person is away.
+// machine_auth means the service cannot read files without a browser
+// session, so asking the person to allow it again would not help.
+// consent means they have not allowed Synaplan to work for them.
+// An empty string means uploads while they are away are on.
+func (h *Handler) uploadsBlocked(ctx context.Context) string {
+	_, blocked := h.awayAllowance(ctx)
+	return blocked
 }

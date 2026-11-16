@@ -71,6 +71,14 @@ func Sanitize(cfg *config.Config) {
 	cfg.Store.SyncedDatabase = strings.TrimSpace(cfg.Store.SyncedDatabase)
 	cfg.Store.Nodes = cleanList(cfg.Store.Nodes)
 	cfg.Store.EncryptionPreviousSecrets = cleanList(cfg.Store.EncryptionPreviousSecrets)
+	cfg.UserOIDCClaim = strings.TrimSpace(cfg.UserOIDCClaim)
+	if cfg.UserOIDCClaim == "" {
+		cfg.UserOIDCClaim = "preferred_username"
+	}
+	cfg.UserCS3Claim = strings.TrimSpace(cfg.UserCS3Claim)
+	if cfg.UserCS3Claim == "" {
+		cfg.UserCS3Claim = "username"
+	}
 	// 100 MiB: Cloudflare's body limit. Keep this in step with
 	// handler.defaultMaxCopyBytes.
 	if cfg.MaxCopyBytes <= 0 {
