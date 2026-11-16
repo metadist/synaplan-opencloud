@@ -8,6 +8,8 @@ OpenCloud web extension that integrates [Synaplan](https://github.com/metadist/s
 
 From a file you can summarize, translate, and add it to the Synaplan knowledge base (including update and remove when the file is already there). From a folder, "From Synaplan…" copies one of your Synaplan files into it. The default cap is 100 MB, which is what Cloudflare accepts; `SYNAPLAN_MAX_COPY_BYTES` raises it where a larger body is allowed, because a film does not fit in 100 MB. The file stays in Synaplan. A folder or a file can be watched: Synaplan keeps its files searchable in a knowledge folder, or runs one of your tasks on new ones. A summary or a translation is saved next to the file it came from. With no source file, it is saved in the personal space under `Synaplan/Documents`. Files sent to Synaplan are labelled as coming from OpenCloud.
 
+On the Synaplan page you can describe an image; Synaplan makes it with your default image model and it is saved into your personal space under `Synaplan/Images`. The image stays in Synaplan as well.
+
 A file Synaplan can search carries the Synaplan bird in the file list, with its state (searchable, being made searchable, changed since, failed) as the label. The bird needs Synaplan's cloud file state (`CLOUD_FILES_ENABLED` on Synaplan); without it the file list shows no bird. The Synaplan tab in the file sidebar names that same state and the knowledge folder, and removes the file from it. The tab is shown for a file only, and only when Synaplan reports that cloud file state is on.
 
 ![Screenshot](docs/screenshot.png)
@@ -109,7 +111,7 @@ For single-tenant deployments where Synaplan and OpenCloud don't share an identi
 | `SYNAPLAN_URL` | Base URL of the Synaplan instance. |
 | `SYNAPLAN_API_KEY` | Synaplan API key (`sk_…`). Sent as `X-API-Key` on every outbound call. |
 
-**Caveat:** in this mode every call to Synaplan looks like the same user. There is no per-user identity, no per-OC-user audit trail, no per-user quotas, and you cannot revoke access for an individual OpenCloud user without revoking the key for everyone. "From Synaplan" and watches are closed in this mode: the file list and watches would belong to the key owner's account, so any signed-in OpenCloud user could copy their files or list and stop their watches. Prefer Mode A unless you understand and accept these tradeoffs.
+**Caveat:** in this mode every call to Synaplan looks like the same user. There is no per-user identity, no per-OC-user audit trail, no per-user quotas, and you cannot revoke access for an individual OpenCloud user without revoking the key for everyone. "From Synaplan", image generation, and watches are closed in this mode: the file list, saved media, and watches would belong to the key owner's account, so any signed-in OpenCloud user could copy their files, make and save images as them, or list and stop their watches. Prefer Mode A unless you understand and accept these tradeoffs.
 
 When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` variables are ignored.
 

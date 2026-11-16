@@ -43,7 +43,7 @@ func kindFolder(filename string) string {
 		return "Audio"
 	case ".ics":
 		return "Calendar"
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp", ".tif", ".tiff":
 		return "Images"
 	case ".mp4", ".webm", ".mov", ".mkv":
 		return "Video"
@@ -71,6 +71,28 @@ func (r *Reader) SaveWritten(ctx context.Context, filename string, content []byt
 	if err != nil {
 		return Written{}, err
 	}
+	return r.saveUnder(ctx, kindFolder(name), name, content)
+}
+
+// SaveInKind writes content into the signed-in user's personal space under
+// Synaplan/<kind>/ (or Synaplan/ when kind is empty), regardless of the
+// file's extension. A generated image is saved this way so it lands in
+// Images even when its name has no image extension.
+func (r *Reader) SaveInKind(ctx context.Context, kind, filename string, content []byte) (string, error) {
+	name, err := cleanWriteName(filename)
+	if err != nil {
+		return "", err
+	}
+	written, err := r.saveUnder(ctx, kind, name, content)
+	if err != nil {
+		return "", err
+	}
+	return written.Path, nil
+}
+
+// saveUnder writes content under Synaplan/<kind>/ in the personal space.
+// name is already a single path segment.
+func (r *Reader) saveUnder(ctx context.Context, kind, name string, content []byte) (Written, error) {
 	gwc, gwCtx, _, err := r.gateway(ctx)
 	if err != nil {
 		return Written{}, err
@@ -81,8 +103,8 @@ func (r *Reader) SaveWritten(ctx context.Context, filename string, content []byt
 	}
 
 	folder := synaplanRoot
-	if kind := kindFolder(name); kind != "" {
-		folder = synaplanRoot + "/" + kind
+	if cleaned := strings.Trim(strings.TrimSpace(kind), "/"); cleaned != "" {
+		folder = synaplanRoot + "/" + cleaned
 	}
 	if err := ensureFolder(gwCtx, gwc, root, synaplanRoot); err != nil {
 		return Written{}, err
@@ -163,7 +185,7 @@ func resourceIDAt(ctx context.Context, gwc gateway.GatewayAPIClient, root *provi
 }
 
 func writtenAt(ctx context.Context, gwc gateway.GatewayAPIClient, space *provider.ResourceId, rel string) Written {
-	clean := strings.TrimPrefix(rel, "/")
+	clean := relativePath(rel)
 	res, err := gwc.Stat(ctx, &provider.StatRequest{
 		Ref: &provider.Reference{ResourceId: space, Path: utils.MakeRelativePath(rel)},
 	})

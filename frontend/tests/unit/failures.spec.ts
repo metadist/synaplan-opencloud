@@ -23,6 +23,15 @@ describe('sentenceFor', () => {
       'no_text',
       'Synaplan found no text in this file. It may be a scan or protected by a password.'
     ],
+    ['image_unavailable', 'This Synaplan has no model that makes images. Ask your administrator.'],
+    [
+      'image_rate_limited',
+      'You have made as many images as Synaplan allows right now. Try again later.'
+    ],
+    [
+      'image_shared_key',
+      'Making and saving images needs each person signed in to Synaplan. This installation uses one shared key.'
+    ],
     [
       'synaplan_error',
       'Synaplan could not finish this. Try again in a minute, or ask your administrator.'

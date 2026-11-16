@@ -70,6 +70,8 @@
         {{ error }}
       </p>
 
+      <ImagePanel />
+
       <DelegationSection />
     </div>
   </div>
@@ -81,6 +83,7 @@ import { useGettext } from 'vue3-gettext'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
 import DelegationSection from '../components/DelegationSection.vue'
+import ImagePanel from '../components/ImagePanel.vue'
 import { useSynaplanBird } from '../composables/useSynaplanBird'
 
 const props = defineProps<{
