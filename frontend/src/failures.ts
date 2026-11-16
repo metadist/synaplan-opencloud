@@ -61,6 +61,10 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext('Synaplan does not know this OpenCloud yet. Ask your administrator.')
     case 'watches_off':
       return $gettext('Watching folders is turned off in Synaplan. Ask your administrator.')
+    case 'watch_shared_key':
+      return $gettext(
+        'Watching needs each person signed in to Synaplan. This installation uses one shared key.'
+      )
     default:
       return fallback
   }

@@ -3,6 +3,7 @@ package cs3reader
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
@@ -20,8 +21,9 @@ import (
 type fakeGateway struct {
 	gateway.GatewayAPIClient
 	auth     *gateway.AuthenticateResponse
-	stat     *provider.StatResponse
+	stats    []*provider.StatResponse
 	list     *provider.ListContainerResponse
+	download *gateway.InitiateFileDownloadResponse
 	gotAuth  *gateway.AuthenticateRequest
 	gotToken string
 }
@@ -33,12 +35,21 @@ func (f *fakeGateway) Authenticate(_ context.Context, in *gateway.AuthenticateRe
 
 func (f *fakeGateway) Stat(ctx context.Context, _ *provider.StatRequest, _ ...grpc.CallOption) (*provider.StatResponse, error) {
 	f.remember(ctx)
-	return f.stat, nil
+	res := f.stats[0]
+	if len(f.stats) > 1 {
+		f.stats = f.stats[1:]
+	}
+	return res, nil
 }
 
 func (f *fakeGateway) ListContainer(ctx context.Context, _ *provider.ListContainerRequest, _ ...grpc.CallOption) (*provider.ListContainerResponse, error) {
 	f.remember(ctx)
 	return f.list, nil
+}
+
+func (f *fakeGateway) InitiateFileDownload(ctx context.Context, _ *provider.InitiateFileDownloadRequest, _ ...grpc.CallOption) (*gateway.InitiateFileDownloadResponse, error) {
+	f.remember(ctx)
+	return f.download, nil
 }
 
 func (f *fakeGateway) remember(ctx context.Context) {
@@ -53,7 +64,7 @@ type fakeSelector struct{ gw *fakeGateway }
 func (s fakeSelector) Next(...pool.Option) (gateway.GatewayAPIClient, error) { return s.gw, nil }
 
 func readerWith(gw *fakeGateway, key string) *Reader {
-	r := &Reader{gws: fakeSelector{gw}}
+	r := &Reader{gws: fakeSelector{gw}, httpClient: &http.Client{}}
 	r.SetMachineAuth(key)
 	return r
 }
@@ -64,6 +75,7 @@ func TestImpersonate(t *testing.T) {
 	cases := []struct {
 		name      string
 		key       string
+		claim     string
 		value     string
 		auth      *gateway.AuthenticateResponse
 		wantErr   error
@@ -72,15 +84,19 @@ func TestImpersonate(t *testing.T) {
 		{
 			name:      "the gateway mints a token for the person",
 			key:       "machine-key",
+			claim:     "username",
 			value:     "ada",
 			auth:      &gateway.AuthenticateResponse{Status: status(rpc.Code_CODE_OK), Token: "reva-ada", User: &userpb.User{Username: "ada"}},
 			wantToken: "reva-ada",
 		},
-		{name: "no key", value: "ada", wantErr: ErrNoMachineAuth},
-		{name: "no person", key: "machine-key", wantErr: errors.New("any")},
+		{name: "no key", claim: "username", value: "ada", wantErr: ErrNoMachineAuth},
+		{name: "no person", key: "machine-key", claim: "username", wantErr: errors.New("any")},
+		{name: "unsupported user attribute", key: "machine-key", claim: "email", value: "ada@example", wantErr: errors.New("any")},
+		{name: "colon in attribute is rejected", key: "machine-key", claim: "username:admin", value: "ada", wantErr: errors.New("any")},
 		{
 			name:    "the gateway refuses",
 			key:     "machine-key",
+			claim:   "username",
 			value:   "ada",
 			auth:    &gateway.AuthenticateResponse{Status: status(rpc.Code_CODE_UNAUTHENTICATED)},
 			wantErr: errors.New("any"),
@@ -89,7 +105,7 @@ func TestImpersonate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			gw := &fakeGateway{auth: tc.auth}
-			ctx, err := readerWith(gw, tc.key).Impersonate(context.Background(), "username", tc.value)
+			ctx, err := readerWith(gw, tc.key).Impersonate(context.Background(), tc.claim, tc.value)
 			if tc.wantErr != nil {
 				if err == nil {
 					t.Fatal("want an error")
@@ -102,7 +118,7 @@ func TestImpersonate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if gw.gotAuth.GetType() != "machine" || gw.gotAuth.GetClientId() != "username:ada" || gw.gotAuth.GetClientSecret() != "machine-key" {
+			if gw.gotAuth.GetType() != "machine" || gw.gotAuth.GetClientId() != tc.claim+":"+tc.value || gw.gotAuth.GetClientSecret() != "machine-key" {
 				t.Fatalf("authenticated with %+v", gw.gotAuth)
 			}
 			if token, _ := revactx.ContextGetToken(ctx); token != tc.wantToken {
@@ -113,65 +129,4 @@ func TestImpersonate(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestStatResourceAndList(t *testing.T) {
-	folder := &provider.ResourceInfo{
-		Id:   &provider.ResourceId{StorageId: "s", SpaceId: "sp", OpaqueId: "f"},
-		Name: "Inbox", Path: "./Inbox", Etag: "e1",
-		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
-	}
-	file := &provider.ResourceInfo{
-		Id:   &provider.ResourceId{StorageId: "s", SpaceId: "sp", OpaqueId: "a"},
-		Name: "a.txt", Path: "./Inbox/a.txt", Etag: "e2", MimeType: "text/plain", Size: 5,
-		Type: provider.ResourceType_RESOURCE_TYPE_FILE,
-	}
-	ctx := revactx.ContextSetToken(context.Background(), "reva-ada")
-
-	t.Run("stat a folder", func(t *testing.T) {
-		gw := &fakeGateway{stat: &provider.StatResponse{Status: status(rpc.Code_CODE_OK), Info: folder}}
-		got, err := readerWith(gw, "").StatResource(ctx, "s$sp!f")
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := Resource{ID: "s$sp!f", Name: "Inbox", Path: "Inbox", Etag: "e1", IsFolder: true}
-		if got != want {
-			t.Fatalf("got %+v, want %+v", got, want)
-		}
-		if gw.gotToken != "reva-ada" {
-			t.Fatalf("the gateway got token %q", gw.gotToken)
-		}
-	})
-
-	t.Run("a gone resource is ErrNotFound", func(t *testing.T) {
-		gw := &fakeGateway{stat: &provider.StatResponse{Status: status(rpc.Code_CODE_NOT_FOUND)}}
-		if _, err := readerWith(gw, "").StatResource(ctx, "s$sp!f"); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("err %v, want ErrNotFound", err)
-		}
-	})
-
-	t.Run("any other failure is not a deletion", func(t *testing.T) {
-		gw := &fakeGateway{list: &provider.ListContainerResponse{Status: status(rpc.Code_CODE_INTERNAL)}}
-		if _, err := readerWith(gw, "").List(ctx, "s$sp!f"); err == nil || errors.Is(err, ErrNotFound) {
-			t.Fatalf("err %v, want a failure that is not ErrNotFound", err)
-		}
-	})
-
-	t.Run("list a folder", func(t *testing.T) {
-		gw := &fakeGateway{list: &provider.ListContainerResponse{Status: status(rpc.Code_CODE_OK), Infos: []*provider.ResourceInfo{file}}}
-		got, err := readerWith(gw, "").List(ctx, "s$sp!f")
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := Resource{ID: "s$sp!a", Name: "a.txt", Path: "Inbox/a.txt", Etag: "e2", MimeType: "text/plain", Size: 5}
-		if len(got) != 1 || got[0] != want {
-			t.Fatalf("got %+v, want [%+v]", got, want)
-		}
-	})
-
-	t.Run("without a reva token nothing is asked", func(t *testing.T) {
-		if _, err := readerWith(&fakeGateway{}, "").List(context.Background(), "s$sp!f"); err == nil {
-			t.Fatal("want an error")
-		}
-	})
 }

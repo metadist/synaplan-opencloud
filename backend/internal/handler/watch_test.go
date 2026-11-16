@@ -1,12 +1,23 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
+	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
+	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
+	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
+	"google.golang.org/grpc"
+
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 )
 
 // The watch handlers validate before any CS3 or Synaplan call, so their
@@ -63,6 +74,84 @@ func TestWatchStartAcceptsValidInput(t *testing.T) {
 	}
 }
 
+type staticGateway struct {
+	gateway.GatewayAPIClient
+	auth *gateway.AuthenticateResponse
+	stat *provider.StatResponse
+	list *provider.ListContainerResponse
+}
+
+func (g *staticGateway) Authenticate(context.Context, *gateway.AuthenticateRequest, ...grpc.CallOption) (*gateway.AuthenticateResponse, error) {
+	return g.auth, nil
+}
+
+func (g *staticGateway) Stat(context.Context, *provider.StatRequest, ...grpc.CallOption) (*provider.StatResponse, error) {
+	return g.stat, nil
+}
+
+func (g *staticGateway) ListContainer(context.Context, *provider.ListContainerRequest, ...grpc.CallOption) (*provider.ListContainerResponse, error) {
+	return g.list, nil
+}
+
+type staticSelector struct{ gw gateway.GatewayAPIClient }
+
+func (s staticSelector) Next(...pool.Option) (gateway.GatewayAPIClient, error) { return s.gw, nil }
+
+func TestWatchStartRejectsKindMismatch(t *testing.T) {
+	gw := &staticGateway{
+		stat: &provider.StatResponse{
+			Status: &rpc.Status{Code: rpc.Code_CODE_OK},
+			Info: &provider.ResourceInfo{
+				Id:   &provider.ResourceId{StorageId: "s", SpaceId: "sp", OpaqueId: "f"},
+				Name: "note.txt", Path: "./note.txt", Etag: "e1",
+				Type: provider.ResourceType_RESOURCE_TYPE_FILE,
+			},
+		},
+	}
+	h := &Handler{cs3: cs3reader.New(staticSelector{gw}, false)}
+	ctx := revactx.ContextSetToken(context.Background(), "reva-ada")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/synaplan/watches",
+		strings.NewReader(`{"targetKind":"folder","targetId":"s$sp!f","preset":"keep_searchable","groupKey":"INVOICES"}`))
+
+	h.WatchStart(rr, req)
+
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), `"watch_invalid"`) {
+		t.Fatalf("got %d %s, want 400 watch_invalid", rr.Code, rr.Body.String())
+	}
+}
+
+func TestWatchRoutesRefuseASharedKey(t *testing.T) {
+	syn := newFakeSynaplan(t, []watch{{ID: 1, TargetKind: "file", TargetID: "s$sp!f", State: "active"}})
+	h := syn.handler(t)
+	h.UseSharedKey()
+	body := strings.NewReader(`{"targetKind":"file","targetId":"s$sp!f","preset":"keep_searchable","groupKey":"INVOICES"}`)
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   io.Reader
+		serve  http.HandlerFunc
+	}{
+		{"options", http.MethodGet, "/api/synaplan/watches/options?targetId=s$sp!f", nil, h.WatchOptions},
+		{"start", http.MethodPost, "/api/synaplan/watches", body, h.WatchStart},
+		{"stop", http.MethodDelete, "/api/synaplan/watches?targetId=s$sp!f", nil, h.WatchStop},
+		{"check now", http.MethodPost, "/api/synaplan/watches/reconcile?targetId=s$sp!f", nil, h.WatchReconcileNow},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			tc.serve(rr, httptest.NewRequest(tc.method, tc.path, tc.body))
+			if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"watch_shared_key"`) {
+				t.Fatalf("got %d %s, want 403 watch_shared_key", rr.Code, rr.Body.String())
+			}
+		})
+	}
+	if got := syn.stopped(); len(got) != 0 {
+		t.Fatalf("shared key stopped watches %v", got)
+	}
+}
+
 func TestWatchRoutesNeedATarget(t *testing.T) {
 	h := &Handler{}
 	cases := []struct {
@@ -81,6 +170,44 @@ func TestWatchRoutesNeedATarget(t *testing.T) {
 			tc.serve(rr, httptest.NewRequest(tc.method, tc.path, nil))
 			if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "targetId is required") {
 				t.Fatalf("got %d %s, want 400 targetId is required", rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestWatchOptionsReportsWatchState(t *testing.T) {
+	cases := []struct {
+		name         string
+		watches      []watch
+		wantWatching bool
+		wantState    string
+	}{
+		{"unwatched", nil, false, ""},
+		{"active", []watch{{ID: 1, TargetID: "s$sp!f", State: "active"}}, true, "active"},
+		{"paused", []watch{{ID: 1, TargetID: "s$sp!f", State: "paused"}}, true, "paused"},
+		{"attention", []watch{{ID: 1, TargetID: "s$sp!f", State: "attention"}}, true, "attention"},
+		{
+			"active wins when paired with paused",
+			[]watch{{ID: 1, TargetID: "s$sp!f", State: "paused"}, {ID: 2, TargetID: "s$sp!f", State: "active"}},
+			true, "active",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			syn := newFakeSynaplan(t, tc.watches)
+			rr := httptest.NewRecorder()
+			syn.handler(t).WatchOptions(rr, httptest.NewRequest(http.MethodGet, "/api/synaplan/watches/options?targetId=s$sp!f", nil))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+			}
+			var got struct {
+				Watching       bool   `json:"watching"`
+				WatchState     string `json:"watchState"`
+				UploadsBlocked string `json:"uploadsBlocked"`
+			}
+			_ = json.Unmarshal(rr.Body.Bytes(), &got)
+			if got.Watching != tc.wantWatching || got.WatchState != tc.wantState || got.UploadsBlocked != "machine_auth" {
+				t.Fatalf("got %+v, want watching=%v state=%q blocked=machine_auth", got, tc.wantWatching, tc.wantState)
 			}
 		})
 	}
