@@ -96,7 +96,7 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 // never buffered whole. Documents go through Synaplan's extraction, and
 // the extracted text is then cut on a rune boundary.
 func (h *Handler) fileText(ctx context.Context, file *cs3reader.File) (string, error) {
-	if isTextMime(file.MimeType) {
+	if readsAsText(file) {
 		text, err := readRunePrefix(file.Body, chatFileMaxRunes)
 		if err != nil {
 			return "", fmt.Errorf("read file body: %w", err)
