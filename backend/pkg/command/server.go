@@ -25,6 +25,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/idp"
 	"github.com/metadist/synaplan-opencloud/internal/natskv"
+	"github.com/metadist/synaplan-opencloud/internal/preferences"
 	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
@@ -102,6 +103,11 @@ func Server(cfg *config.Config) *cobra.Command {
 					return fmt.Errorf("could not set up the delegation store key: %w", err)
 				}
 				store := delegation.NewSealedStore(inner, keys)
+				prefs, err := preferencesStore(cfg)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = prefs.Close() }()
 				kept, err := syncedStore(cfg, inner)
 				if err != nil {
 					return err
@@ -119,6 +125,7 @@ func Server(cfg *config.Config) *cobra.Command {
 					}),
 					Exchanger:     exchanger,
 					Audience:      cfg.OIDCTargetAudience,
+					Preferences:   prefs,
 					UserClaim:     cfg.UserOIDCClaim,
 					UserAttribute: cfg.UserCS3Claim,
 					Synced:        kept,
@@ -202,6 +209,9 @@ func Server(cfg *config.Config) *cobra.Command {
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)
 				r.Post("/api/synaplan/delegation", h.DelegationConnect)
 				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
+				r.Get("/api/synaplan/connection", h.Connection)
+				r.Get("/api/synaplan/preferences", h.Preferences)
+				r.Put("/api/synaplan/preferences", h.SavePreferences)
 				r.Get("/api/synaplan/watches/options", h.WatchOptions)
 				r.Post("/api/synaplan/watches", h.WatchStart)
 				r.Delete("/api/synaplan/watches", h.WatchStop)
@@ -287,6 +297,25 @@ func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, e
 	default:
 		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported; set SYNAPLAN_STORE to nats-js-kv or memory (it may be inherited from OC_PERSISTENT_STORE)", cfg.Store.Store)
 	}
+}
+
+// preferencesStore keeps each person's own settings in the same store as
+// the offline tokens, in a bucket of its own. delegationStore already
+// refused a store that is not supported. The two buckets must differ: both
+// key a person by the same encoded subject, so a shared bucket would let a
+// saved setting overwrite that person's offline token.
+func preferencesStore(cfg *config.Config) (preferences.Store, error) {
+	if cfg.Store.Store == "memory" {
+		return preferences.NewMemoryStore(), nil
+	}
+	if cfg.Store.PreferencesDatabase == cfg.Store.Database {
+		return nil, fmt.Errorf("synaplan-opencloud: SYNAPLAN_STORE_PREFERENCES_DATABASE and SYNAPLAN_STORE_DATABASE both name the bucket %q; give each its own", cfg.Store.Database)
+	}
+	store, err := preferences.NewNATS(natsConfig(cfg), cfg.Store.PreferencesDatabase, cfg.Store.Replicas)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the preferences store: %w", err)
+	}
+	return store, nil
 }
 
 // adminSettingsStore keeps the administrator's settings in the store the

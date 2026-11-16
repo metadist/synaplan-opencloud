@@ -117,7 +117,6 @@ func (b *Bucket) Open(ctx context.Context) (jetstream.KeyValue, error) {
 	return b.kv, nil
 }
 
-// Close disconnects from NATS.
 // JetStream is the connection this bucket uses, so another bucket of this
 // service can share it.
 func (b *Bucket) JetStream() jetstream.JetStream {
@@ -127,6 +126,7 @@ func (b *Bucket) JetStream() jetstream.JetStream {
 	return b.js
 }
 
+// Close disconnects from NATS.
 func (b *Bucket) Close() error {
 	if b == nil || b.conn == nil {
 		return nil

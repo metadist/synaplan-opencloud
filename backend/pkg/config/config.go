@@ -53,8 +53,8 @@ type Config struct {
 	UserCS3Claim      string `yaml:"user_cs3_claim" env:"SYNAPLAN_USER_CS3_CLAIM" desc:"OpenCloud user attribute that claim is matched against: 'username', 'mail' or 'userid'. Set it to OpenCloud's PROXY_USER_CS3_CLAIM."`
 
 	// Store keeps the offline tokens of people who allowed work while they
-	// are away and the administrator's settings, in the key-value store
-	// OpenCloud already runs.
+	// are away, each person's own settings, and the administrator's
+	// settings, in the key-value store OpenCloud already runs.
 	Store PersistentStore `yaml:"store"`
 
 	Context context.Context `yaml:"-"`
@@ -95,14 +95,15 @@ type TokenManager struct {
 	JWTSecret string `yaml:"jwt_secret" env:"OC_JWT_SECRET;SYNAPLAN_JWT_SECRET" desc:"The secret to mint and validate jwt tokens."`
 }
 
-// PersistentStore is OpenCloud's shared store for the offline tokens and
-// the administrator's settings.
+// PersistentStore is OpenCloud's shared store for the offline tokens,
+// each person's own settings, and the administrator's settings.
 // The variable names are the ones OpenCloud services use for their own
 // persistent store, plus a SYNAPLAN_ alias.
 type PersistentStore struct {
-	Store                     string   `yaml:"store" env:"OC_PERSISTENT_STORE;SYNAPLAN_STORE" desc:"Where the offline tokens of people who allowed work while away and the administrator's settings are kept. 'nats-js-kv' is OpenCloud's JetStream key-value store, shared by every replica of this service. 'memory' keeps them in this process: a restart forgets them and other replicas never see them. Other values OpenCloud knows, such as redis-sentinel, are not supported here."`
+	Store                     string   `yaml:"store" env:"OC_PERSISTENT_STORE;SYNAPLAN_STORE" desc:"Where the offline tokens of people who allowed work while away, each person's own settings, and the administrator's settings are kept. 'nats-js-kv' is OpenCloud's JetStream key-value store, shared by every replica of this service. 'memory' keeps them in this process: a restart forgets them and other replicas never see them. Other values OpenCloud knows, such as redis-sentinel, are not supported here."`
 	Nodes                     []string `yaml:"nodes" env:"OC_PERSISTENT_STORE_NODES;SYNAPLAN_STORE_NODES" desc:"Addresses of OpenCloud's NATS, as host:port. A comma-separated list when there is more than one. Only applies when the store is nats-js-kv. NATS must be 2.11 or later."`
 	Database                  string   `yaml:"database" env:"SYNAPLAN_STORE_DATABASE" desc:"JetStream key-value bucket for the offline tokens."`
+	PreferencesDatabase       string   `yaml:"preferences_database" env:"SYNAPLAN_STORE_PREFERENCES_DATABASE" desc:"JetStream key-value bucket for each person's own Synaplan settings, such as what Synaplan may read. Kept in the same store as the offline tokens."`
 	SettingsDatabase          string   `yaml:"settings_database" env:"SYNAPLAN_STORE_SETTINGS_DATABASE" desc:"JetStream key-value bucket for the administrator's settings from the Synaplan page."`
 	SyncedDatabase            string   `yaml:"synced_database" env:"SYNAPLAN_STORE_SYNCED_DATABASE" desc:"JetStream key-value bucket for the searchable files people keep up to date: which file, in which knowledge folder, and the version Synaplan last took. The memory store keeps them in this process instead."`
 	Replicas                  int      `yaml:"replicas" env:"SYNAPLAN_STORE_REPLICAS" desc:"How many NATS servers keep a copy of each bucket, in a NATS cluster. The buckets' settings are applied at every start, so they replace changes made to them by hand."`

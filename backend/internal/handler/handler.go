@@ -20,20 +20,22 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
+	"github.com/metadist/synaplan-opencloud/internal/preferences"
 	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
 	"github.com/metadist/synaplan-opencloud/internal/synced"
 )
 
-// Delegated is what acting for a person while they are away needs: their
-// offline tokens, the exchange that proves who the signed-in person is,
-// and the Synaplan client their tokens are exchanged for. It is nil with
-// the shared API key.
+// Delegated is what acting as a person needs: their offline tokens, the
+// exchange that proves who the signed-in person is, the Synaplan client
+// their tokens are exchanged for, and their own settings. It is nil with
+// the shared API key, which knows no person.
 type Delegated struct {
-	Tokens    *delegation.Delegation
-	Exchanger synaplanauth.TokenExchanger
-	Audience  string
+	Tokens      *delegation.Delegation
+	Exchanger   synaplanauth.TokenExchanger
+	Audience    string
+	Preferences preferences.Store
 	// UserClaim names the claim of the person's token that OpenCloud's
 	// proxy maps to the user attribute UserAttribute (PROXY_USER_OIDC_CLAIM
 	// and PROXY_USER_CS3_CLAIM). Watches find a person's OpenCloud user by
@@ -43,6 +45,11 @@ type Delegated struct {
 	// Synced lists the searchable files people keep up to date, which the
 	// background pass checks for changes.
 	Synced synced.Store
+}
+
+// folderPaths finds where a folder lives, as the signed-in person sees it.
+type folderPaths interface {
+	FolderPath(ctx context.Context, resourceID string) (string, error)
 }
 
 // PermissionChecker tells whether the signed-in person holds an OpenCloud
@@ -72,6 +79,8 @@ type Admin struct {
 //     Synaplan install for the public /api/synaplan/assets endpoint.
 //   - delegation holds the offline tokens of people who allowed this
 //     service to act for them while they are away.
+//   - preferences keeps each person's own settings; folders resolves
+//     the folders they name to the paths OpenCloud knows.
 //   - notifications verifies what Synaplan sends to /inbound.
 //   - permissions, settings and settingsDefaults serve the
 //     administrator's settings on the Synaplan page.
@@ -94,6 +103,8 @@ type Handler struct {
 	delegation  *delegation.Delegation
 	exchanger   synaplanauth.TokenExchanger
 	audience    string
+	preferences preferences.Store
+	folders     folderPaths
 	userClaim   string
 	userAttr    string
 	synced      synced.Store
@@ -161,7 +172,11 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		settingsDefaults: admin.Defaults,
 	}
 	h.notifications.seen = notify.NewSeen()
+	if cs3 != nil {
+		h.folders = cs3
+	}
 	if delegated != nil {
+		h.preferences = delegated.Preferences
 		h.delegation = delegated.Tokens
 		h.exchanger = delegated.Exchanger
 		h.audience = delegated.Audience
