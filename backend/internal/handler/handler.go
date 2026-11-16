@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -20,8 +21,10 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/notify"
 	"github.com/metadist/synaplan-opencloud/internal/preferences"
+	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
+	"github.com/metadist/synaplan-opencloud/internal/synced"
 )
 
 // Delegated is what acting as a person needs: their offline tokens, the
@@ -33,11 +36,35 @@ type Delegated struct {
 	Exchanger   synaplanauth.TokenExchanger
 	Audience    string
 	Preferences preferences.Store
+	// UserClaim names the claim of the person's token that OpenCloud's
+	// proxy maps to the user attribute UserAttribute (PROXY_USER_OIDC_CLAIM
+	// and PROXY_USER_CS3_CLAIM). Watches find a person's OpenCloud user by
+	// it while that person is away.
+	UserClaim     string
+	UserAttribute string
+	// Synced lists the searchable files people keep up to date, which the
+	// background pass checks for changes.
+	Synced synced.Store
 }
 
 // folderPaths finds where a folder lives, as the signed-in person sees it.
 type folderPaths interface {
 	FolderPath(ctx context.Context, resourceID string) (string, error)
+}
+
+// PermissionChecker tells whether the signed-in person holds an OpenCloud
+// permission (see internal/cs3permission).
+type PermissionChecker interface {
+	Has(ctx context.Context, permission string) (bool, error)
+}
+
+// Admin is what the administrator's settings need: who counts as an
+// administrator, where the settings are kept, and the configured values
+// that apply until an administrator saves others.
+type Admin struct {
+	Permissions PermissionChecker
+	Settings    settings.Store
+	Defaults    settings.Values
 }
 
 // Handler holds the state shared by all endpoints:
@@ -55,6 +82,11 @@ type folderPaths interface {
 //   - preferences keeps each person's own settings; folders resolves
 //     the folders they name to the paths OpenCloud knows.
 //   - notifications verifies what Synaplan sends to /inbound.
+//   - permissions, settings and settingsDefaults serve the
+//     administrator's settings on the Synaplan page.
+//   - synced lists the searchable files people keep up to date.
+//   - RunReconciler keeps the watches and the kept files of people who
+//     are away moving.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -73,6 +105,9 @@ type Handler struct {
 	audience    string
 	preferences preferences.Store
 	folders     folderPaths
+	userClaim   string
+	userAttr    string
+	synced      synced.Store
 
 	notifications notifications
 
@@ -80,8 +115,21 @@ type Handler struct {
 	maxCopyBytes int64
 	// sharedKey is set when every Synaplan call uses one API key.
 	// Listing files then lists the key owner's files, for every
-	// signed-in OpenCloud user, so From Synaplan stays closed.
-	sharedKey bool
+	// signed-in OpenCloud user, so From Synaplan, images, and watches stay closed.
+	sharedKey        bool
+	permissions      PermissionChecker
+	settings         settings.Store
+	settingsDefaults settings.Values
+	// memory keeps the last answer of Synaplan's memory-service check.
+	memory memoryCache
+
+	// reconcileMu guards the cursors a pass uses so the next pass starts
+	// where this one stopped. One process only; each replica keeps its own.
+	// Watch progress is per person so a pass or a one-watch check never
+	// resets someone else's place in their own list.
+	reconcileMu   sync.Mutex
+	subjectCursor int
+	watchCursors  map[string]int
 }
 
 // UseSharedKey records that outbound Synaplan calls use one API key.
@@ -93,7 +141,10 @@ func (h *Handler) UseSharedKey() {
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
-func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated) (*Handler, error) {
+func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated, admin Admin) (*Handler, error) {
+	if lang := admin.Defaults.DefaultAnswerLanguage; lang != "" && normalizeLanguage(lang) == "" {
+		return nil, fmt.Errorf("default answer language %q is not supported", lang)
+	}
 	target, err := url.Parse(synaplanURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing synaplan url: %w", err)
@@ -115,6 +166,10 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		httpClient:  &http.Client{},
 		cs3:         cs3,
 		assetProxy:  assetProxy,
+
+		permissions:      admin.Permissions,
+		settings:         admin.Settings,
+		settingsDefaults: admin.Defaults,
 	}
 	h.notifications.seen = notify.NewSeen()
 	if cs3 != nil {
@@ -125,6 +180,9 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		h.delegation = delegated.Tokens
 		h.exchanger = delegated.Exchanger
 		h.audience = delegated.Audience
+		h.userClaim = delegated.UserClaim
+		h.userAttr = delegated.UserAttribute
+		h.synced = delegated.Synced
 	}
 	h.synaplanAPI, err = synaplanapi.NewClientWithResponses(
 		synaplanURL,

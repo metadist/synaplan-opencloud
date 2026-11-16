@@ -51,7 +51,8 @@ const ocStub = (tag: string) =>
 const globalStubs = {
   'oc-select': ocStub('oc-select'),
   'oc-button': ocStub('oc-button'),
-  'oc-icon': ocStub('oc-icon')
+  'oc-icon': ocStub('oc-icon'),
+  'oc-checkbox': ocStub('oc-checkbox')
 }
 
 import KnowledgeDialog from '../../src/components/KnowledgeDialog.vue'
@@ -159,7 +160,7 @@ describe('KnowledgeDialog', () => {
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body] = post.mock.calls[0]
     expect(url).toBe('/api/synaplan/knowledge')
-    expect(body).toEqual({ resourceId: 'res-1', groupKey: 'RESEARCH' })
+    expect(body).toEqual({ resourceId: 'res-1', groupKey: 'RESEARCH', keepSynced: true })
 
     const success = wrapper.get('[data-testid="synaplan-knowledge-success"]')
     expect(success.text()).toContain('RESEARCH')
@@ -180,7 +181,81 @@ describe('KnowledgeDialog', () => {
     await flushPromises()
 
     // KnowledgeDialog uppercases + trims via createOption.
-    expect(post.mock.calls[0][1]).toEqual({ resourceId: 'res-1', groupKey: 'NEW_ONE' })
+    expect(post.mock.calls[0][1]).toEqual({
+      resourceId: 'res-1',
+      groupKey: 'NEW_ONE',
+      keepSynced: true
+    })
+  })
+
+  it.each([
+    {
+      name: 'says edits follow when the service keeps the file',
+      keep: true,
+      kept: true,
+      blocked: undefined,
+      shown: 'kept',
+      text: 'Changes to this file follow in Synaplan.'
+    },
+    {
+      name: 'says why edits will not follow when consent is missing',
+      keep: true,
+      kept: false,
+      blocked: 'consent',
+      shown: 'not-kept',
+      text: 'allow Synaplan to work while you are away'
+    },
+    {
+      name: 'names machine authentication when it is what blocks automatic updates',
+      keep: true,
+      kept: false,
+      blocked: 'machine_auth',
+      shown: 'not-kept',
+      text: 'configure machine authentication'
+    },
+    {
+      name: 'explains when the tracking store is temporarily unavailable',
+      keep: true,
+      kept: false,
+      blocked: 'store',
+      shown: 'not-kept',
+      text: 'Update it in the knowledge folder later'
+    },
+    {
+      name: 'says nothing about edits it was not asked for',
+      keep: false,
+      kept: false,
+      blocked: undefined,
+      shown: '',
+      text: ''
+    }
+  ])('$name', async ({ keep, kept, blocked, shown, text }) => {
+    post.mockResolvedValueOnce({
+      data: {
+        groupKey: 'DOCS',
+        vectorized: true,
+        chunksCreated: 1,
+        extractedTextLength: 0,
+        keptUpToDate: kept,
+        keptBlocked: blocked
+      }
+    })
+    const wrapper = mountDialog()
+    await flushPromises()
+    await pickExistingGroup(wrapper, 'DOCS')
+    if (!keep) {
+      await wrapper.findComponent({ name: 'oc-checkbox' }).vm.$emit('update:modelValue', false)
+    }
+    await wrapper.get('[data-testid="synaplan-knowledge-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(post.mock.calls[0][1]).toMatchObject({ keepSynced: keep })
+    for (const id of ['kept', 'not-kept']) {
+      expect(wrapper.find(`[data-testid="synaplan-knowledge-${id}"]`).exists()).toBe(id === shown)
+    }
+    if (shown && text) {
+      expect(wrapper.get(`[data-testid="synaplan-knowledge-${shown}"]`).text()).toContain(text)
+    }
   })
 
   it('appends a freshly created tag to the option list so it stays selectable', async () => {

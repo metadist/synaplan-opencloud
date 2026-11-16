@@ -24,7 +24,7 @@ func TestTheOpenCloudTokenNeverReachesSynaplan(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+synaplanauth.OIDCTokenFromContext(ctx))
 		return nil
 	}
-	h, err := New(forwarding, upstream.URL, nil, nil)
+	h, err := New(forwarding, upstream.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestEachCallCarriesTheRightCredential(t *testing.T) {
 				req.Header.Set("Authorization", "Bearer exchanged")
 				return nil
 			}
-			h, err := New(exchanged, upstream.URL, nil, delegated(t, idp, "ada"))
+			h, err := New(exchanged, upstream.URL, nil, delegated(t, idp, "ada"), Admin{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +88,7 @@ func TestOpenDocumentsCarryNoCredential(t *testing.T) {
 	h, err := New(func(_ context.Context, req *http.Request) error {
 		req.Header.Set("X-API-Key", "sk_shared")
 		return nil
-	}, upstream.URL, nil, nil)
+	}, upstream.URL, nil, nil, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,14 +19,17 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/version"
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 
+	"github.com/metadist/synaplan-opencloud/internal/cs3permission"
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/idp"
 	"github.com/metadist/synaplan-opencloud/internal/natskv"
 	"github.com/metadist/synaplan-opencloud/internal/preferences"
+	"github.com/metadist/synaplan-opencloud/internal/settings"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
+	"github.com/metadist/synaplan-opencloud/internal/synced"
 	"github.com/metadist/synaplan-opencloud/internal/tokenexchange"
 	"github.com/metadist/synaplan-opencloud/pkg/config"
 	"github.com/metadist/synaplan-opencloud/pkg/config/parser"
@@ -65,6 +68,7 @@ func Server(cfg *config.Config) *cobra.Command {
 			}
 
 			cs3 := cs3reader.New(gws, cfg.Insecure)
+			cs3.SetMachineAuth(cfg.MachineAuthAPIKey)
 
 			var editor synaplanapi.RequestEditorFn
 			var delegated *handler.Delegated
@@ -104,6 +108,10 @@ func Server(cfg *config.Config) *cobra.Command {
 					return err
 				}
 				defer func() { _ = prefs.Close() }()
+				kept, err := syncedStore(cfg, inner)
+				if err != nil {
+					return err
+				}
 				delegated = &handler.Delegated{
 					Tokens: delegation.New(delegation.Config{
 						Provider:     provider,
@@ -115,13 +123,29 @@ func Server(cfg *config.Config) *cobra.Command {
 							logger.Warn().Err(err).Msg("synaplan-opencloud: could not use the token store")
 						},
 					}),
-					Exchanger:   exchanger,
-					Audience:    cfg.OIDCTargetAudience,
-					Preferences: prefs,
+					Exchanger:     exchanger,
+					Audience:      cfg.OIDCTargetAudience,
+					Preferences:   prefs,
+					UserClaim:     cfg.UserOIDCClaim,
+					UserAttribute: cfg.UserCS3Claim,
+					Synced:        kept,
 				}
 			}
 
-			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated)
+			settingsStore, err := adminSettingsStore(cfg, logger)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = settingsStore.Close() }()
+
+			h, err := handler.New(editor, cfg.SynaplanURL, cs3, delegated, handler.Admin{
+				Permissions: cs3permission.New(gws),
+				Settings:    settingsStore,
+				Defaults: settings.Values{
+					DefaultAnswerLanguage: cfg.DefaultAnswerLanguage,
+					UseUserLanguage:       cfg.UseUserLanguage,
+				},
+			})
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
 			}
@@ -129,6 +153,10 @@ func Server(cfg *config.Config) *cobra.Command {
 			if cfg.SynaplanAPIKey != "" {
 				h.UseSharedKey()
 			}
+			if delegated != nil && cfg.MachineAuthAPIKey == "" {
+				logger.Info().Msg("synaplan-opencloud: OC_MACHINE_AUTH_API_KEY is not set; watched files are only sent when a person checks a watch themselves, and files are not kept up to date")
+			}
+			go h.RunReconciler(ctx)
 
 			mux := chi.NewMux()
 			mux.Use(
@@ -160,22 +188,36 @@ func Server(cfg *config.Config) *cobra.Command {
 			mux.Group(func(r chi.Router) {
 				r.Use(synaplanauth.Middleware)
 				r.Get("/api/synaplan/me", h.Me)
+				r.Get("/api/synaplan/instance", h.InstanceStatus)
+				r.Get("/api/synaplan/settings", h.Settings)
+				r.Put("/api/synaplan/settings", h.SaveSettings)
 				r.Post("/api/synaplan/translate", h.Translate)
 				r.Post("/api/synaplan/summarize", h.Summarize)
+				r.Post("/api/synaplan/chat", h.Chat)
+				r.Get("/api/synaplan/models", h.Models)
 				r.Post("/api/synaplan/knowledge", h.AddToKnowledge)
 				r.Get("/api/synaplan/knowledge/groups", h.KnowledgeGroups)
 				r.Get("/api/synaplan/knowledge/status", h.KnowledgeStatus)
+				r.Post("/api/synaplan/knowledge/sync", h.KnowledgeSyncNow)
 				r.Post("/api/synaplan/cloud/status", h.CloudStatus)
 				r.Get("/api/synaplan/from-synaplan", h.ListSynaplanFiles)
 				r.Post("/api/synaplan/from-synaplan", h.CopyFromSynaplan)
 				r.Delete("/api/synaplan/knowledge", h.RemoveFromKnowledge)
 				r.Post("/api/synaplan/files", h.SaveToSpace)
+				r.Post("/api/synaplan/media", h.GenerateImage)
+				r.Post("/api/synaplan/media/save", h.SaveImage)
 				r.Get("/api/synaplan/delegation", h.DelegationStatus)
 				r.Post("/api/synaplan/delegation", h.DelegationConnect)
 				r.Delete("/api/synaplan/delegation", h.DelegationDisconnect)
 				r.Get("/api/synaplan/connection", h.Connection)
 				r.Get("/api/synaplan/preferences", h.Preferences)
 				r.Put("/api/synaplan/preferences", h.SavePreferences)
+				r.Get("/api/synaplan/watches/options", h.WatchOptions)
+				r.Post("/api/synaplan/watches", h.WatchStart)
+				r.Delete("/api/synaplan/watches", h.WatchStop)
+				r.Post("/api/synaplan/watches/reconcile", h.WatchReconcileNow)
+				r.Get("/api/synaplan/read-scope", h.ReadScope)
+				r.Put("/api/synaplan/read-scope", h.SetReadScope)
 			})
 
 			server := &stdhttp.Server{
@@ -212,6 +254,21 @@ func identityProviderClient(insecure bool) *stdhttp.Client {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // OC_INSECURE, development only
 	}
 	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
+}
+
+// syncedStore keeps the files people keep up to date where the offline
+// tokens are: a bucket of its own on the same NATS connection, or this
+// process's memory.
+func syncedStore(cfg *config.Config, tokens delegation.Store) (synced.Store, error) {
+	nats, ok := tokens.(*delegation.NATSStore)
+	if !ok {
+		return synced.NewMemoryStore(), nil
+	}
+	store, err := synced.NewNATS(nats.JetStream(), cfg.Store.SyncedDatabase, cfg.Store.Replicas)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the store of kept files: %w", err)
+	}
+	return store, nil
 }
 
 // delegationStore is the store the configuration names. There is no
@@ -259,6 +316,25 @@ func preferencesStore(cfg *config.Config) (preferences.Store, error) {
 		return nil, fmt.Errorf("could not open the preferences store: %w", err)
 	}
 	return store, nil
+}
+
+// adminSettingsStore keeps the administrator's settings in the store the
+// configuration names, in both auth modes. Like the token store it has no
+// fallback.
+func adminSettingsStore(cfg *config.Config, logger log.Logger) (settings.Store, error) {
+	switch cfg.Store.Store {
+	case "memory":
+		logger.Warn().Msg("synaplan-opencloud: the administrator's settings are kept in memory; a restart forgets them and other replicas never see them")
+		return settings.NewMemoryStore(), nil
+	case "nats-js-kv":
+		store, err := settings.NewNATS(natsConfig(cfg), cfg.Store.SettingsDatabase, cfg.Store.Replicas)
+		if err != nil {
+			return nil, fmt.Errorf("could not open the settings store: %w", err)
+		}
+		return store, nil
+	default:
+		return nil, fmt.Errorf("synaplan-opencloud: store %q is not supported; set SYNAPLAN_STORE to nats-js-kv or memory (it may be inherited from OC_PERSISTENT_STORE)", cfg.Store.Store)
+	}
 }
 
 // natsConfig is how both stores reach OpenCloud's NATS.

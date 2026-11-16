@@ -28,7 +28,10 @@ const ocStub = (tag: string) =>
 const globalStubs = {
   'oc-button': ocStub('oc-button'),
   AccountCard: true,
-  DelegationSection: true
+  AdminSettings: true,
+  AskPanel: true,
+  DelegationSection: true,
+  ImagePanel: true
 }
 
 import Synaplan from '../../src/views/Synaplan.vue'

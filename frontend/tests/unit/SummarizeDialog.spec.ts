@@ -19,7 +19,7 @@ vi.mock('@vueuse/core', () => ({
 }))
 
 vi.mock('vue3-gettext', () => ({
-  useGettext: () => ({ $gettext: (s: string) => s })
+  useGettext: () => ({ $gettext: (s: string) => s, current: 'de_DE' })
 }))
 
 vi.mock('../../src/composables/useSynaplanBird', () => ({
@@ -94,7 +94,8 @@ describe('SummarizeDialog', () => {
     expect(body).toEqual({
       resourceId: 'res-1',
       summaryType: 'abstractive',
-      length: 'medium'
+      length: 'medium',
+      language: 'de_DE'
     })
 
     expect(wrapper.get('[data-testid="synaplan-summarize-result"]').text()).toBe('short summary')
@@ -117,7 +118,8 @@ describe('SummarizeDialog', () => {
     expect(post.mock.calls[0][1]).toEqual({
       resourceId: 'res-1',
       summaryType: 'bullet-points',
-      length: 'long'
+      length: 'long',
+      language: 'de_DE'
     })
   })
 

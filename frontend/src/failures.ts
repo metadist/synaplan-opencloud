@@ -25,6 +25,14 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       )
     case 'translation_unavailable':
       return $gettext('This Synaplan cannot translate a file. Ask your administrator.')
+    case 'image_unavailable':
+      return $gettext('This Synaplan has no model that makes images. Ask your administrator.')
+    case 'image_rate_limited':
+      return $gettext('You have made as many images as Synaplan allows right now. Try again later.')
+    case 'image_shared_key':
+      return $gettext(
+        'Making and saving images needs each person signed in to Synaplan. This installation uses one shared key.'
+      )
     case 'file_too_large':
       return $gettext('This file is too large to copy here.')
     case 'copy_failed':
@@ -41,6 +49,8 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext(
         'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
       )
+    case 'rate_limited':
+      return $gettext('Synaplan is busy or your limit is reached. Try again later.')
     case 'identity_check_failed':
       return $gettext('Synaplan could not check who you are. Try again.')
     case 'idp_unreachable':
@@ -73,12 +83,32 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext('The setting could not be read. Reload the page and try again.')
     case 'not_confirmed':
       return $gettext('Synaplan did not confirm this setting. Save again to be sure it applies.')
-    case 'cloud_not_linked':
-      return $gettext(
-        'Synaplan does not accept settings from this OpenCloud yet. Ask your administrator.'
-      )
     case 'cloud_ambiguous':
       return $gettext('Synaplan knows this OpenCloud more than once. Ask your administrator.')
+    case 'admin_only':
+      return $gettext('Only an administrator can change this.')
+    case 'unsupported_language':
+      return $gettext('Choose one of the listed languages.')
+    case 'watch_cap':
+      return $gettext('You are watching as many folders and files as you can. Stop a watch first.')
+    case 'cloud_not_linked':
+      return $gettext('Synaplan does not know this OpenCloud yet. Ask your administrator.')
+    case 'watches_off':
+      return $gettext('Watching folders is turned off in Synaplan. Ask your administrator.')
+    case 'reads_unavailable':
+      return $gettext('Synaplan cannot read folders in this OpenCloud. Ask your administrator.')
+    case 'reads_personal_only':
+      return $gettext('Synaplan can only read folders in your personal space.')
+    case 'reads_changed':
+      return $gettext('The setting was changed at the same time. Close this and try again.')
+    case 'folder_not_found':
+      return $gettext('This folder is no longer there. Reload the folder and try again.')
+    case 'reads_everything':
+      return $gettext('Synaplan may read all your folders, so one cannot be left out.')
+    case 'watch_shared_key':
+      return $gettext(
+        'Watching needs each person signed in to Synaplan. This installation uses one shared key.'
+      )
     default:
       return fallback
   }

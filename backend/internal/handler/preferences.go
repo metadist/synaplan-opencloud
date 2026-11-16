@@ -99,7 +99,7 @@ func (h *Handler) SavePreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := preferences.ReadScope{Mode: req.Mode, Folders: folders}
-	if err := h.reportReadScope(held, sub, scope); err != nil {
+	if err := h.reportPreferenceReadScope(held, sub, scope); err != nil {
 		log.Printf("save preferences: %v", err)
 		answer := notConfirmed
 		var refused *readScopeRefused
@@ -159,11 +159,11 @@ func (e *readScopeRefused) Error() string {
 	return fmt.Sprintf("report read scope: synaplan answered %d", e.status)
 }
 
-// reportReadScope hands the setting to Synaplan as the signed-in person;
+// reportPreferenceReadScope hands the person's own setting to Synaplan.
 // Synaplan finds this cloud from the token's client and refuses anyone
 // else's external id. A refusal is a *readScopeRefused; any other error
 // leaves open whether Synaplan applied the setting (a lost answer).
-func (h *Handler) reportReadScope(ctx context.Context, sub string, scope preferences.ReadScope) error {
+func (h *Handler) reportPreferenceReadScope(ctx context.Context, sub string, scope preferences.ReadScope) error {
 	body := synaplanapi.ReportCloudReadScopeJSONRequestBody{
 		ExternalId: sub,
 		Mode:       synaplanapi.ReportCloudReadScopeJSONBodyMode(scope.Mode),

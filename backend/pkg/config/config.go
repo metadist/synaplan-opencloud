@@ -42,9 +42,19 @@ type Config struct {
 	OIDCExchangeSecret        string `yaml:"oidc_exchange_client_secret" env:"SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET" desc:"Client secret for the token exchange confidential client."`
 	OIDCTargetAudience        string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
+	// Answer language until an administrator saves another on the Synaplan page.
+	DefaultAnswerLanguage string `yaml:"default_answer_language" env:"SYNAPLAN_DEFAULT_ANSWER_LANGUAGE" desc:"Language Synaplan answers in (ISO 639-1: en, de, fr, es, it, pt, nl, pl, tr, ru, ja, zh, ko or ar) until an administrator saves another one on the Synaplan page. Another value stops the service at start."`
+	UseUserLanguage       bool   `yaml:"use_user_language" env:"SYNAPLAN_USE_USER_LANGUAGE" desc:"Answer in each person's OpenCloud interface language when it is supported, with the default answer language as the fallback, until an administrator saves another choice on the Synaplan page."`
+
+	// Watches and folder reads use OpenCloud's machine auth to read the
+	// files of a person who is away, as that person.
+	MachineAuthAPIKey string `yaml:"machine_auth_api_key" env:"OC_MACHINE_AUTH_API_KEY;SYNAPLAN_MACHINE_AUTH_API_KEY" desc:"OpenCloud's machine auth API key. Watches and folder reads use it to read a person's files while that person is away, and only for people who allowed Synaplan to work while they are away. Empty turns that off: watched files are then only sent when the person checks a watch themselves."`
+	UserOIDCClaim     string `yaml:"user_oidc_claim" env:"SYNAPLAN_USER_OIDC_CLAIM" desc:"Claim of the person's token that names their OpenCloud user. Set it to OpenCloud's PROXY_USER_OIDC_CLAIM."`
+	UserCS3Claim      string `yaml:"user_cs3_claim" env:"SYNAPLAN_USER_CS3_CLAIM" desc:"OpenCloud user attribute that claim is matched against: 'username', 'mail' or 'userid'. Set it to OpenCloud's PROXY_USER_CS3_CLAIM."`
+
 	// Store keeps the offline tokens of people who allowed work while they
-	// are away, and each person's own settings, in the key-value store
-	// OpenCloud already runs.
+	// are away, each person's own settings, and the administrator's
+	// settings, in the key-value store OpenCloud already runs.
 	Store PersistentStore `yaml:"store"`
 
 	Context context.Context `yaml:"-"`
@@ -85,16 +95,18 @@ type TokenManager struct {
 	JWTSecret string `yaml:"jwt_secret" env:"OC_JWT_SECRET;SYNAPLAN_JWT_SECRET" desc:"The secret to mint and validate jwt tokens."`
 }
 
-// PersistentStore is OpenCloud's shared store for the offline tokens and
-// each person's own settings.
+// PersistentStore is OpenCloud's shared store for the offline tokens,
+// each person's own settings, and the administrator's settings.
 // The variable names are the ones OpenCloud services use for their own
 // persistent store, plus a SYNAPLAN_ alias.
 type PersistentStore struct {
-	Store                     string   `yaml:"store" env:"OC_PERSISTENT_STORE;SYNAPLAN_STORE" desc:"Where the offline tokens of people who allowed work while away, and each person's own settings, are kept. 'nats-js-kv' is OpenCloud's JetStream key-value store, shared by every replica of this service. 'memory' keeps them in this process: a restart forgets them and other replicas never see them. Other values OpenCloud knows, such as redis-sentinel, are not supported here."`
+	Store                     string   `yaml:"store" env:"OC_PERSISTENT_STORE;SYNAPLAN_STORE" desc:"Where the offline tokens of people who allowed work while away, each person's own settings, and the administrator's settings are kept. 'nats-js-kv' is OpenCloud's JetStream key-value store, shared by every replica of this service. 'memory' keeps them in this process: a restart forgets them and other replicas never see them. Other values OpenCloud knows, such as redis-sentinel, are not supported here."`
 	Nodes                     []string `yaml:"nodes" env:"OC_PERSISTENT_STORE_NODES;SYNAPLAN_STORE_NODES" desc:"Addresses of OpenCloud's NATS, as host:port. A comma-separated list when there is more than one. Only applies when the store is nats-js-kv. NATS must be 2.11 or later."`
 	Database                  string   `yaml:"database" env:"SYNAPLAN_STORE_DATABASE" desc:"JetStream key-value bucket for the offline tokens."`
 	PreferencesDatabase       string   `yaml:"preferences_database" env:"SYNAPLAN_STORE_PREFERENCES_DATABASE" desc:"JetStream key-value bucket for each person's own Synaplan settings, such as what Synaplan may read. Kept in the same store as the offline tokens."`
-	Replicas                  int      `yaml:"replicas" env:"SYNAPLAN_STORE_REPLICAS" desc:"How many NATS servers keep a copy of the bucket, in a NATS cluster. The bucket's settings are applied at every start, so they replace changes made to the bucket by hand."`
+	SettingsDatabase          string   `yaml:"settings_database" env:"SYNAPLAN_STORE_SETTINGS_DATABASE" desc:"JetStream key-value bucket for the administrator's settings from the Synaplan page."`
+	SyncedDatabase            string   `yaml:"synced_database" env:"SYNAPLAN_STORE_SYNCED_DATABASE" desc:"JetStream key-value bucket for the searchable files people keep up to date: which file, in which knowledge folder, and the version Synaplan last took. The memory store keeps them in this process instead."`
+	Replicas                  int      `yaml:"replicas" env:"SYNAPLAN_STORE_REPLICAS" desc:"How many NATS servers keep a copy of each bucket, in a NATS cluster. The buckets' settings are applied at every start, so they replace changes made to them by hand."`
 	AuthUsername              string   `yaml:"username" env:"OC_PERSISTENT_STORE_AUTH_USERNAME;SYNAPLAN_STORE_AUTH_USERNAME" desc:"Username for OpenCloud's NATS. Only applies when the store is nats-js-kv."`
 	AuthPassword              string   `yaml:"password" env:"OC_PERSISTENT_STORE_AUTH_PASSWORD;SYNAPLAN_STORE_AUTH_PASSWORD" desc:"Password for OpenCloud's NATS. Only applies when the store is nats-js-kv."`
 	EnableTLS                 bool     `yaml:"enable_tls" env:"OC_PERSISTENT_STORE_ENABLE_TLS;SYNAPLAN_STORE_ENABLE_TLS" desc:"Use TLS to reach OpenCloud's NATS. Only applies when the store is nats-js-kv."`

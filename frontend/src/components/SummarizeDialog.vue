@@ -118,7 +118,8 @@ const props = defineProps<{
   }
 }>()
 
-const { $gettext } = useGettext()
+const gettext = useGettext()
+const { $gettext } = gettext
 const birdSrc = useSynaplanBird()
 
 // Matches supportedSummaryTypes in internal/handler/summary.go.
@@ -180,7 +181,8 @@ function onSubmit() {
   submit({
     resourceId: props.resource.id,
     summaryType: selectedType.value.id,
-    length: selectedLength.value.id
+    length: selectedLength.value.id,
+    language: gettext.current
   })
 }
 

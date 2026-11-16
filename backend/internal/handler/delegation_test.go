@@ -10,7 +10,7 @@ import (
 
 func newDelegationHandler(t *testing.T, d *Delegated) *Handler {
 	t.Helper()
-	h, err := New(nil, "http://synaplan.invalid", nil, d)
+	h, err := New(nil, "http://synaplan.invalid", nil, d, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}

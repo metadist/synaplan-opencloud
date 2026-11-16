@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,7 +24,8 @@ func (s failingStore) Delete(context.Context, string, uint64) (bool, error) { re
 func (s failingStore) Lease(context.Context, string) (context.Context, func(), error) {
 	return nil, nil, s.err
 }
-func (s failingStore) Close() error { return nil }
+func (s failingStore) Subjects(context.Context) ([]string, error) { return nil, s.err }
+func (s failingStore) Close() error                               { return nil }
 
 // rotateOnDelete is another replica replacing the token in the moment this
 // one tries to forget a refused refresh.
@@ -397,5 +399,60 @@ func TestNATSKeyIsASingleToken(t *testing.T) {
 	}
 	if natsKey("ada") == natsKey("bob") {
 		t.Fatal("different people share a key")
+	}
+}
+
+func TestSubjectOfReversesTheKey(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		want string
+		ok   bool
+	}{
+		{"a person", natsKey("ada.bob@example"), "ada.bob@example", true},
+		{"a lease", "lease." + natsKey("ada"), "", false},
+		{"not base32", "not-base32!", "", false},
+		{"empty", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := subjectOf(tc.key)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("subjectOf(%q) = %q, %v, want %q, %v", tc.key, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+func TestSubjectsListsEveryKeptToken(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name    string
+		store   func() Store
+		want    []string
+		wantErr error
+	}{
+		{"nobody", func() Store { return NewMemoryStore() }, []string{}, nil},
+		{"two people", func() Store {
+			s := NewMemoryStore()
+			_, _, _ = s.Write(ctx, "ada", "t1", 0)
+			_, _, _ = s.Write(ctx, "bob", "t2", 0)
+			return s
+		}, []string{"ada", "bob"}, nil},
+		{"a store that is down", func() Store { return failingStore{err: errors.New("nats down")} }, nil, ErrUnavailable},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var failed failures
+			d := withStore(newIdP(t, "ada", false), tc.store(), &failed)
+			got, err := d.Subjects(ctx)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err %v, want %v", err, tc.wantErr)
+			}
+			slices.Sort(got)
+			if tc.wantErr == nil && !slices.Equal(got, tc.want) {
+				t.Fatalf("subjects %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

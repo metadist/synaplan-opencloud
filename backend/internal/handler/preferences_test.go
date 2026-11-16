@@ -75,7 +75,7 @@ func preferencesHandler(t *testing.T, store preferences.Store, status int) (*Han
 	t.Cleanup(synaplan.Close)
 	d := delegated(t, fakeIdentityProvider(t, "ada"), "")
 	d.Preferences = store
-	h, err := New(nil, synaplan.URL, nil, d)
+	h, err := New(nil, synaplan.URL, nil, d, Admin{})
 	if err != nil {
 		t.Fatal(err)
 	}
