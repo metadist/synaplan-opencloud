@@ -36,6 +36,13 @@ describe('sentenceFor', () => {
     [
       'revoke_unconfirmed',
       'Synaplan no longer works for you, but the sign-in service could not confirm it. Try again.'
+    ],
+    ['watch_cap', 'You are watching as many folders and files as you can. Stop a watch first.'],
+    ['cloud_not_linked', 'Synaplan does not know this OpenCloud yet. Ask your administrator.'],
+    ['watches_off', 'Watching folders is turned off in Synaplan. Ask your administrator.'],
+    [
+      'watch_shared_key',
+      'Watching needs each person signed in to Synaplan. This installation uses one shared key.'
     ]
   ])('maps %s to its sentence', (code, sentence) => {
     const error = { response: { data: { code, error: 'ignored' } } }

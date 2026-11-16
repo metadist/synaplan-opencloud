@@ -156,6 +156,32 @@ export async function ensureFolder(
   }
 }
 
+/**
+ * The resource id (`oc:fileid`, the "storageId$spaceId!opaqueId" form the
+ * web client uses) of a file or folder, via WebDAV PROPFIND.
+ */
+export async function getResourceId(
+  request: APIRequestContext,
+  webDavUrl: string,
+  accessToken: string,
+  filePath: string
+): Promise<string> {
+  const url = buildFileUrl(webDavUrl, filePath)
+  const resp = await request.fetch(url, {
+    method: 'PROPFIND',
+    headers: { Authorization: `Bearer ${accessToken}`, Depth: '0' },
+    data: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><oc:fileid/></d:prop></d:propfind>'
+  })
+  if (resp.status() !== 207) {
+    throw new Error(`PROPFIND ${url} failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const id = /<oc:fileid>([^<]+)<\/oc:fileid>/.exec(await resp.text())?.[1]
+  if (!id) {
+    throw new Error(`PROPFIND ${url} returned no oc:fileid`)
+  }
+  return id
+}
+
 function buildFileUrl(webDavUrl: string, filePath: string): string {
   // Encode each path segment individually so `/` stays a separator
   // while the names themselves get properly percent-encoded.

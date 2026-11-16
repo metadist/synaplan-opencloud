@@ -57,6 +57,8 @@ type Store interface {
 	// another holder has it. Work under the lease uses held, which ends
 	// before the lease could lapse; release gives the lease back.
 	Lease(ctx context.Context, subject string) (held context.Context, release func(), err error)
+	// Subjects lists every person a token is kept for, readable or not.
+	Subjects(ctx context.Context) ([]string, error)
 	// Close ends the connection to the store, if there is one. It takes no
 	// context: it is called once, when the service stops.
 	Close() error
@@ -255,6 +257,29 @@ func (s *NATSStore) Delete(ctx context.Context, subject string, match uint64) (b
 	return true, nil
 }
 
+// Subjects lists the people with a kept token. Lease keys and the
+// markers a purge leaves behind are not people.
+func (s *NATSStore) Subjects(ctx context.Context) ([]string, error) {
+	kv, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := kv.Keys(ctx)
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("delegation: listing the offline tokens: %w", err)
+	}
+	subjects := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if subject, ok := subjectOf(key); ok {
+			subjects = append(subjects, subject)
+		}
+	}
+	return subjects, nil
+}
+
 // Lease creates the person's lease key with a TTL of its own. NATS removes
 // a lease that was never given back, so no replica compares clocks, and a
 // released lease purges its marker with a TTL so lease keys do not pile up.
@@ -311,4 +336,16 @@ func (s *NATSStore) Close() error {
 // characters NATS rejects in a key, such as a dot or an at-sign.
 func natsKey(subject string) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString([]byte(subject))
+}
+
+// subjectOf reverses natsKey. A key with a dot is a lease, not a person.
+func subjectOf(key string) (string, bool) {
+	if strings.Contains(key, ".") {
+		return "", false
+	}
+	subject, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(key)
+	if err != nil || len(subject) == 0 {
+		return "", false
+	}
+	return string(subject), true
 }

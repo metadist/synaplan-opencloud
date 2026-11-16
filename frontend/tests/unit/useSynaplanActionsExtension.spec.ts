@@ -47,14 +47,15 @@ describe('useSynaplanActionsExtension', () => {
     })
   })
 
-  it('groups the translate, summarize, chat, knowledge and from-Synaplan actions', () => {
+  it('groups the translate, summarize, chat, knowledge, from-Synaplan and watch actions', () => {
     const { action } = useSynaplanActionsExtension()
     expect(action.children.map((child) => child.name)).toEqual([
       'translate',
       'summarize',
       'chat-about-file',
       'add-to-knowledge',
-      'from-synaplan'
+      'from-synaplan',
+      'watch'
     ])
   })
 
@@ -64,17 +65,25 @@ describe('useSynaplanActionsExtension', () => {
       expect(action.isVisible(options())).toBe(true)
     })
 
-    it('shows the group for one folder, for From Synaplan', () => {
+    it.each([
+      ['a folder', options({ isFolder: true }), ['from-synaplan', 'watch']],
+      ['an unsupported mime type', options({ mimeType: 'image/png' }), ['watch']],
+      [
+        'a supported file',
+        options(),
+        ['translate', 'summarize', 'chat-about-file', 'add-to-knowledge', 'watch']
+      ]
+    ])('offers only what fits %s', (_, opts, visible) => {
       const { action } = useSynaplanActionsExtension()
-      expect(action.isVisible(options({ isFolder: true }))).toBe(true)
+      expect(action.isVisible(opts)).toBe(true)
+      expect(
+        action.children.filter((child) => child.isVisible(opts)).map((child) => child.name)
+      ).toEqual(visible)
     })
 
-    it.each([
-      ['an unsupported mime type', options({ mimeType: 'image/png' })],
-      ['multiple resources', { resources: [{}, {}] } as unknown as FileActionOptions]
-    ])('hides the group for %s', (_, opts) => {
+    it('hides the group for multiple resources', () => {
       const { action } = useSynaplanActionsExtension()
-      expect(action.isVisible(opts)).toBe(false)
+      expect(action.isVisible({ resources: [{}, {}] } as unknown as FileActionOptions)).toBe(false)
     })
 
     it('hides the group when the user is not signed in', () => {

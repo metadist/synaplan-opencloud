@@ -27,7 +27,9 @@ func DefaultConfig() *config.Config {
 		Service: config.Service{
 			Name: "synaplan",
 		},
-		RevaGateway: shared.DefaultRevaConfig().Address,
+		RevaGateway:   shared.DefaultRevaConfig().Address,
+		UserOIDCClaim: "preferred_username",
+		UserCS3Claim:  "username",
 		Store: config.PersistentStore{
 			Store:    "nats-js-kv",
 			Nodes:    []string{"127.0.0.1:9233"},
@@ -67,6 +69,14 @@ func Sanitize(cfg *config.Config) {
 	cfg.Store.Database = strings.TrimSpace(cfg.Store.Database)
 	cfg.Store.Nodes = cleanList(cfg.Store.Nodes)
 	cfg.Store.EncryptionPreviousSecrets = cleanList(cfg.Store.EncryptionPreviousSecrets)
+	cfg.UserOIDCClaim = strings.TrimSpace(cfg.UserOIDCClaim)
+	if cfg.UserOIDCClaim == "" {
+		cfg.UserOIDCClaim = "preferred_username"
+	}
+	cfg.UserCS3Claim = strings.TrimSpace(cfg.UserCS3Claim)
+	if cfg.UserCS3Claim == "" {
+		cfg.UserCS3Claim = "username"
+	}
 	// 100 MiB: Cloudflare's body limit. Keep this in step with
 	// handler.defaultMaxCopyBytes.
 	if cfg.MaxCopyBytes <= 0 {

@@ -221,6 +221,20 @@ func (d *Delegation) Connected(ctx context.Context, subject string) (bool, error
 	return found.state == readable, nil
 }
 
+// Subjects lists everyone an offline token is kept for. A person whose
+// token no longer works is still listed; Token answers ErrNotConnected
+// for them.
+func (d *Delegation) Subjects(ctx context.Context) ([]string, error) {
+	if d == nil || d.cfg.Store == nil {
+		return nil, nil
+	}
+	subjects, err := d.cfg.Store.Subjects(ctx)
+	if err != nil {
+		return nil, d.unavailable(ctx, err)
+	}
+	return subjects, nil
+}
+
 // Disconnect forgets the offline token of subject and revokes it at the
 // identity provider. A failed revocation is returned; the token is
 // forgotten either way, so this service can no longer act for the person.
@@ -593,6 +607,13 @@ func expiry(seconds int) time.Time {
 // Subject reads the `sub` claim of a JWT without checking the signature. Use
 // it only on tokens the identity provider just issued to this service.
 func Subject(token string) string {
+	return Claim(token, "sub")
+}
+
+// Claim reads a string claim of a JWT without checking the signature, or
+// "" when there is none. Use it only on tokens the identity provider just
+// issued to this service.
+func Claim(token, name string) string {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return ""
@@ -601,11 +622,10 @@ func Subject(token string) string {
 	if err != nil {
 		return ""
 	}
-	var claims struct {
-		Sub string `json:"sub"`
-	}
+	var claims map[string]any
 	if json.Unmarshal(payload, &claims) != nil {
 		return ""
 	}
-	return claims.Sub
+	value, _ := claims[name].(string)
+	return value
 }
