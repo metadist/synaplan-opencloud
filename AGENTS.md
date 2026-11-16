@@ -22,14 +22,14 @@ database of its own and no state beyond what Synaplan and OpenCloud hold.
 | Path | What lives there |
 | ---- | ---------------- |
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
-| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `media.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications and `delivery.go` the copies they deliver, `watch.go` the watch routes and `reconcile.go` the background check) sharing the `Handler` struct in `handler.go`. |
+| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `chat.go`, `models.go`, `memory.go`, `knowledge*.go`, `files.go`, `media.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications and `delivery.go` the copies they deliver, `watch.go` the watch routes and `reconcile.go` the background check) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
 | `backend/internal/delegation/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
-| `frontend/tests/e2e/`, `frontend/support/` | Playwright journeys, helpers (`authHelper`, `filesHelper`, `contextMenuHelper`, `synaplanApiHelper`), page objects and fixtures. |
+| `frontend/tests/e2e/`, `frontend/support/` | Playwright journeys, helpers (`authHelper`, `filesHelper`, `filesPageHelper`, `contextMenuHelper`, `synaplanApiHelper`), page objects and fixtures. |
 | `dev/docker/` | OpenCloud proxy, CSP, web and apps config for the dev stack; Traefik TLS. |
 | `docker-compose.yml`, `docker-compose.ci.yml` | The dev stack; the CI overlay switches it to the pre-built image and the Synaplan test-stack ports. |
 | `.github/workflows/ci.yml` | The gate (below). `docs.yml` builds the service reference site. `renovate.json5` keeps every pin current. |

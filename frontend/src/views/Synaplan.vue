@@ -70,6 +70,7 @@
         {{ error }}
       </p>
 
+      <AskPanel />
       <ImagePanel />
 
       <DelegationSection />
@@ -82,6 +83,7 @@ import { computed, ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { z } from 'zod'
+import AskPanel from '../components/AskPanel.vue'
 import DelegationSection from '../components/DelegationSection.vue'
 import ImagePanel from '../components/ImagePanel.vue'
 import { useSynaplanBird } from '../composables/useSynaplanBird'

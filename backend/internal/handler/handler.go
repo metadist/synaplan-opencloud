@@ -80,6 +80,8 @@ type Handler struct {
 	// Listing files then lists the key owner's files, for every
 	// signed-in OpenCloud user, so From Synaplan, images, and watches stay closed.
 	sharedKey bool
+	// memory keeps the last answer of Synaplan's memory-service check.
+	memory memoryCache
 
 	// reconcileMu guards the cursors a pass uses so the next pass starts
 	// where this one stopped. One process only; each replica keeps its own.
