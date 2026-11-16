@@ -11,6 +11,7 @@ services:
       OC_EXCLUDE_RUN_SERVICES: idp
       OC_LOG_LEVEL: error
       OC_JWT_SECRET: "synaplan-dev-secret"
+      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"
       GATEWAY_GRPC_ADDR: 0.0.0.0:9142
       STORAGE_USERS_HTTP_ADDR: 0.0.0.0:9158
       STORAGE_USERS_DATA_SERVER_URL: http://opencloud:9158/data
@@ -28,7 +29,6 @@ services:
       WEB_OIDC_CLIENT_ID: opencloud
       PROXY_OIDC_INSECURE: "true"
       PROXY_AUTOPROVISION_ACCOUNTS: "true"
-      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"
     labels:
       traefik.enable: true
       traefik.http.routers.opencloud.tls: true
@@ -86,6 +86,7 @@ services:
       SYNAPLAN_HTTP_ADDR: ":9106"
       OC_REVA_GATEWAY: "opencloud:9142"
       OC_JWT_SECRET: "synaplan-dev-secret"
+      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"
       OC_INSECURE: "true"
       SYNAPLAN_URL: "http://host.docker.internal:8000"
       OC_OIDC_ISSUER: "https://host.docker.internal:8443/realms/synaplan"
@@ -93,7 +94,6 @@ services:
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_ID: "synaplan-opencloud"
       SYNAPLAN_OIDC_EXCHANGE_CLIENT_SECRET: "synaplan-opencloud-secret"
       SYNAPLAN_OIDC_TARGET_AUDIENCE: "synaplan-app"
-      OC_MACHINE_AUTH_API_KEY: "synaplan-dev-machine-auth"
       SYNAPLAN_STORE_NODES: opencloud:9233
       GOPATH: /tmp/go-cache/gopath
       GOCACHE: /tmp/go-cache/build

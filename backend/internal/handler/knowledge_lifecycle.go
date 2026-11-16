@@ -130,5 +130,6 @@ func (h *Handler) RemoveFromKnowledge(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	h.forgetKept(r.Context(), resourceID)
 	writeJSON(w, http.StatusOK, map[string]bool{"removed": true})
 }

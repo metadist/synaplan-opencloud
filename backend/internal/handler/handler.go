@@ -21,6 +21,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/notify"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
+	"github.com/metadist/synaplan-opencloud/internal/synced"
 )
 
 // Delegated is what acting for a person while they are away needs: their
@@ -37,6 +38,9 @@ type Delegated struct {
 	// it while that person is away.
 	UserClaim     string
 	UserAttribute string
+	// Synced lists the searchable files people keep up to date, which the
+	// background pass checks for changes.
+	Synced synced.Store
 }
 
 // Handler holds the state shared by all endpoints:
@@ -52,7 +56,9 @@ type Delegated struct {
 //   - delegation holds the offline tokens of people who allowed this
 //     service to act for them while they are away.
 //   - notifications verifies what Synaplan sends to /inbound.
-//   - RunReconciler keeps the watches of people who are away moving.
+//   - synced lists the searchable files people keep up to date.
+//   - RunReconciler keeps the watches and the kept files of people who
+//     are away moving.
 //
 // The Synaplan API client has no global HTTP timeout — per-call
 // timeouts are set on the request context instead. /me uses the
@@ -71,6 +77,7 @@ type Handler struct {
 	audience    string
 	userClaim   string
 	userAttr    string
+	synced      synced.Store
 
 	notifications notifications
 
@@ -131,6 +138,7 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		h.audience = delegated.Audience
 		h.userClaim = delegated.UserClaim
 		h.userAttr = delegated.UserAttribute
+		h.synced = delegated.Synced
 	}
 	h.synaplanAPI, err = synaplanapi.NewClientWithResponses(
 		synaplanURL,

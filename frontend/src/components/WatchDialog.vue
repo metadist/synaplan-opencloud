@@ -228,7 +228,12 @@ const startSchema = z.object({
   uploadsEnabled: z.boolean(),
   uploadsBlocked: z.string().optional()
 })
-const checkSchema = z.object({ watches: z.number(), sent: z.number(), failed: z.number() })
+const checkSchema = z.object({
+  watches: z.number(),
+  sent: z.number(),
+  skipped: z.number().optional(),
+  failed: z.number()
+})
 
 type Phase = 'loading' | 'unavailable' | 'setup' | 'watching' | 'stopped'
 type BusyAction = 'start' | 'check' | 'stop'
@@ -271,7 +276,20 @@ const checkedSentence = computed(() => {
       'Nothing was checked. This watch is not running, so Synaplan has not confirmed it has every file.'
     )
   }
-  if (result.sent === 0) return $gettext('Checked. Synaplan has every file already.')
+  if ((result.skipped ?? 0) > 0 && result.sent === 0) {
+    return $gettext('Checked. Synaplan skipped files of an unsupported type.')
+  }
+  if ((result.skipped ?? 0) > 0) {
+    return $ngettext(
+      'Checked. %{n} file was sent to Synaplan; unsupported files were skipped.',
+      'Checked. %{n} files were sent to Synaplan; unsupported files were skipped.',
+      result.sent,
+      { n: String(result.sent) }
+    )
+  }
+  if (result.sent === 0) {
+    return $gettext('Checked. No new or changed files needed to be sent.')
+  }
   return $ngettext(
     'Checked. %{n} file was sent to Synaplan.',
     'Checked. %{n} files were sent to Synaplan.',

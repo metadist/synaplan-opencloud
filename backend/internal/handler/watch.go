@@ -344,27 +344,35 @@ func (h *Handler) refuseWatchSharedKey(w http.ResponseWriter) bool {
 	return true
 }
 
+// awayAllowance returns the signed-in person's subject when this service
+// works for them while they are away, or "" and the reason ("machine_auth"
+// or "consent") when it cannot.
+func (h *Handler) awayAllowance(ctx context.Context) (subject, blocked string) {
+	if h == nil || h.cs3 == nil || !h.cs3.CanImpersonate() || !h.delegation.Configured() {
+		return "", blockedMachineAuth
+	}
+	sub, err := h.signedInSubject(ctx)
+	if err != nil {
+		log.Printf("away: who is signed in: %v", err)
+		return "", blockedConsent
+	}
+	connected, err := h.delegation.Connected(ctx, sub)
+	if err != nil {
+		log.Printf("away: allowed while away: %v", err)
+		return "", blockedConsent
+	}
+	if !connected {
+		return "", blockedConsent
+	}
+	return sub, ""
+}
+
 // uploadsBlocked says why files are not sent while the person is away.
 // machine_auth means the service cannot read files without a browser
 // session, so asking the person to allow it again would not help.
 // consent means they have not allowed Synaplan to work for them.
 // An empty string means uploads while they are away are on.
 func (h *Handler) uploadsBlocked(ctx context.Context) string {
-	if h == nil || h.cs3 == nil || !h.cs3.CanImpersonate() || !h.delegation.Configured() {
-		return blockedMachineAuth
-	}
-	sub, err := h.signedInSubject(ctx)
-	if err != nil {
-		log.Printf("watch: who is signed in: %v", err)
-		return blockedConsent
-	}
-	connected, err := h.delegation.Connected(ctx, sub)
-	if err != nil {
-		log.Printf("watch: allowed while away: %v", err)
-		return blockedConsent
-	}
-	if !connected {
-		return blockedConsent
-	}
-	return ""
+	_, blocked := h.awayAllowance(ctx)
+	return blocked
 }
