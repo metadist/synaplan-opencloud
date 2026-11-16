@@ -42,6 +42,8 @@ var (
 	errFileEmpty       = fmt.Errorf("file is empty: %w", errClientInput)
 	errUnsupportedType = fmt.Errorf("unsupported mime type: %w", errClientInput)
 	errNoText          = fmt.Errorf("no text could be indexed from this file: %w", errClientInput)
+	// errRateLimited is Synaplan saying the person asked too much (HTTP 429).
+	errRateLimited = errors.New("synaplan rate limit")
 )
 
 // errorResponse is the JSON envelope the summary-backed handlers
@@ -63,6 +65,8 @@ func publicFailure(err error) errorResponse {
 		return errorResponse{Error: "Synaplan cannot read this kind of file.", Code: "unsupported_type"}
 	case errors.Is(err, errNoText):
 		return errorResponse{Error: "Synaplan found no text in this file. It may be a scan or protected by a password.", Code: "no_text"}
+	case errors.Is(err, errRateLimited):
+		return errorResponse{Error: "Synaplan is busy or your limit is reached. Try again later.", Code: "rate_limited"}
 	default:
 		return errorResponse{Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.", Code: "synaplan_error"}
 	}
@@ -119,15 +123,24 @@ func (h *Handler) runSummaryPipeline(
 
 	result, err := fn(ctx, file)
 	if err != nil {
-		log.Printf("%s: %v", op, err)
-		status := http.StatusBadGateway
-		if errors.Is(err, errClientInput) {
-			status = http.StatusUnprocessableEntity
-		}
-		writeJSON(w, status, publicFailure(err))
+		writeFailure(w, op, err)
 		return "", false
 	}
 	return result, true
+}
+
+// writeFailure logs err under op and answers with its public sentence:
+// 429 for errRateLimited, 422 for errClientInput, 502 otherwise.
+func writeFailure(w http.ResponseWriter, op string, err error) {
+	log.Printf("%s: %v", op, err)
+	status := http.StatusBadGateway
+	switch {
+	case errors.Is(err, errRateLimited):
+		status = http.StatusTooManyRequests
+	case errors.Is(err, errClientInput):
+		status = http.StatusUnprocessableEntity
+	}
+	writeJSON(w, status, publicFailure(err))
 }
 
 // isTextMime returns true for mime types we can pass straight into
@@ -225,6 +238,9 @@ type uploadProvenance struct {
 	SourceID     string
 	SourceEtag   string
 	Overwrite    bool
+	// KeepSynced, when set, tells Synaplan whether this copy follows later
+	// edits of the file. Unset leaves what Synaplan has.
+	KeepSynced *bool
 }
 
 func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadProvenance) error {
@@ -260,6 +276,15 @@ func writeProvenance(mw *multipart.Writer, file *cs3reader.File, prov *uploadPro
 	if prov.Overwrite {
 		if err := mw.WriteField("overwrite", "1"); err != nil {
 			return fmt.Errorf("write overwrite: %w", err)
+		}
+	}
+	if prov.KeepSynced != nil {
+		value := "0"
+		if *prov.KeepSynced {
+			value = "1"
+		}
+		if err := mw.WriteField("keep_synced", value); err != nil {
+			return fmt.Errorf("write keep_synced: %w", err)
 		}
 	}
 	return nil
@@ -377,10 +402,13 @@ func truncate(s string, n int) string {
 }
 
 // wrapUpstreamStatus turns a non-200 Synaplan response into an error.
-// 4xx upstream → wraps errClientInput so the top-level handler
-// returns 422; 5xx → plain error → 502.
+// 429 upstream → wraps errRateLimited (429); other 4xx → wraps
+// errClientInput (422); 5xx → plain error (502).
 func wrapUpstreamStatus(op string, status int, body []byte) error {
 	msg := fmt.Sprintf("%s status %d: %s", op, status, truncate(string(body), 300))
+	if status == http.StatusTooManyRequests {
+		return fmt.Errorf("%s: %w", msg, errRateLimited)
+	}
 	if status >= 400 && status < 500 {
 		return fmt.Errorf("%s: %w", msg, errClientInput)
 	}

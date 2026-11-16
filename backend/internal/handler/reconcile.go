@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	// reconcileInterval spaces the passes over everyone's watches.
-	// OpenCloud does not tell an extension about file changes, so a pass
-	// is how a new or changed file in a watched folder is noticed.
+	// reconcileInterval spaces the passes over everyone's watches and kept
+	// files. OpenCloud does not tell an extension about file changes, so a
+	// pass is how a new or changed file is noticed.
 	reconcileInterval = 10 * time.Minute
 	// passTimeout bounds one pass, and one "check now".
 	passTimeout = 8 * time.Minute
@@ -59,11 +59,11 @@ var (
 
 var multipartQuoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"", "\r", "", "\n", "")
 
-// RunReconciler checks the watches of everyone who allowed Synaplan to
-// work for them while they are away, now and every reconcileInterval,
-// until ctx ends. It needs organisation login and OpenCloud's machine-auth
-// key; without them it returns at once and watched files are only sent
-// when a person checks a watch themselves.
+// RunReconciler checks the watches and the files kept up to date of
+// everyone who allowed Synaplan to work for them while they are away, now
+// and every reconcileInterval, until ctx ends. It needs organisation login
+// and OpenCloud's machine-auth key; without them it returns at once and
+// files are only sent when a person checks themselves.
 func (h *Handler) RunReconciler(ctx context.Context) {
 	if !h.delegation.Configured() || !h.cs3.CanImpersonate() {
 		return
@@ -113,6 +113,11 @@ func (h *Handler) reconcileEveryone(ctx context.Context) {
 		if _, err := h.reconcileWatches(away, h.cs3, "", sub); err != nil {
 			log.Printf("reconcile: %v", err)
 		}
+		if h.synced != nil {
+			if _, err := h.keepFilesCurrent(away, h.cs3, sub); err != nil {
+				log.Printf("reconcile: kept files: %v", err)
+			}
+		}
 	}
 }
 
@@ -161,6 +166,7 @@ func (h *Handler) WatchReconcileNow(w http.ResponseWriter, r *http.Request) {
 type reconcileResult struct {
 	Watches int `json:"watches"`
 	Sent    int `json:"sent"`
+	Skipped int `json:"skipped"`
 	Failed  int `json:"failed"`
 }
 
@@ -196,12 +202,13 @@ func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, target
 		}
 		processed++
 		result.Watches++
-		sent, failed, err := h.reconcileWatch(ctx, files, each)
+		sent, skipped, failed, err := h.reconcileWatch(ctx, files, each)
 		if err != nil {
 			log.Printf("watch %d: %v", each.ID, err)
 			failed++
 		}
 		result.Sent += sent
+		result.Skipped += skipped
 		result.Failed += failed
 	}
 	return result, nil
@@ -211,33 +218,33 @@ func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, target
 // version, and uploads the ones it asks for. Synaplan deduplicates each
 // version on upload, so a pass that dies half way is finished by the next
 // one and concurrent replicas never index a version twice.
-func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch) (sent, failed int, err error) {
+func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch) (sent, skipped, failed int, err error) {
 	listCtx, cancelList := context.WithTimeout(ctx, watchListTimeout)
 	covered, err := watchedFiles(listCtx, files, w)
 	cancelList()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	for start := 0; start < len(covered); start += reconcileBatch {
 		if ctx.Err() != nil {
-			return sent, failed, ctx.Err()
+			return sent, skipped, failed, ctx.Err()
 		}
 		batch := covered[start:min(start+reconcileBatch, len(covered))]
 		askCtx, cancelAsk := context.WithTimeout(ctx, watchListTimeout)
 		wanted, err := h.askReconcile(askCtx, w.ID, batch)
 		cancelAsk()
 		if err != nil {
-			return sent, failed, err
+			return sent, skipped, failed, err
 		}
 		for _, file := range batch {
 			if !wanted[file.ID] {
 				continue
 			}
 			if ctx.Err() != nil {
-				return sent, failed, ctx.Err()
+				return sent, skipped, failed, ctx.Err()
 			}
 			uploadCtx, cancelUpload := context.WithTimeout(ctx, watchUploadTimeout)
-			accepted, err := h.uploadWatchFile(uploadCtx, files, w.ID, file)
+			state, err := h.uploadWatchFile(uploadCtx, files, w.ID, file)
 			cancelUpload()
 			if err != nil {
 				if errors.Is(err, errFileChanged) {
@@ -248,12 +255,16 @@ func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch)
 				failed++
 				continue
 			}
-			if accepted {
+			switch state {
+			case "skipped":
+				skipped++
+			case "already_handled":
+			default:
 				sent++
 			}
 		}
 	}
-	return sent, failed, nil
+	return sent, skipped, failed, nil
 }
 
 // watchedFiles is the watched file, or the files directly in the watched
@@ -314,10 +325,9 @@ func (h *Handler) askReconcile(ctx context.Context, watchID int, batch []cs3read
 	return wanted, nil
 }
 
-// uploadWatchFile streams one file version to the watch and reports whether
-// Synaplan accepted it (as opposed to skipping an unsupported file type or
-// reporting it already handled).
-func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID int, file cs3reader.Resource) (bool, error) {
+// uploadWatchFile streams one file version to the watch and returns the
+// state Synaplan reported ("accepted", "skipped", or "already_handled").
+func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID int, file cs3reader.Resource) (string, error) {
 	return uploadFile(ctx, files, file, func(contentType string, body io.Reader) (int, []byte, error) {
 		resp, err := h.synaplanAPI.CloudWatchFileWithResponse(ctx, strconv.Itoa(watchID), withBody(contentType, body))
 		if err != nil {
@@ -331,25 +341,25 @@ func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID
 // cloud uploads read; send makes the call. The bytes are pinned to the etag
 // the listing named, so a file that changed in between is not filed under
 // the old version. Synaplan decides whether it can read a file by the
-// extension of its name, so the name is always sent. It reports whether
-// Synaplan accepted the file rather than skipping it.
-func uploadFile(ctx context.Context, files watchFiles, file cs3reader.Resource, send func(contentType string, body io.Reader) (int, []byte, error)) (bool, error) {
+// extension of its name, so the name is always sent. The result is the
+// state Synaplan reported ("accepted", "skipped", or "already_handled").
+func uploadFile(ctx context.Context, files watchFiles, file cs3reader.Resource, send func(contentType string, body io.Reader) (int, []byte, error)) (string, error) {
 	if file.Size > maxWatchFileBytes {
-		return false, fmt.Errorf("upload %s: %w", file.Name, errWatchFileTooLarge)
+		return "", fmt.Errorf("upload %s: %w", file.Name, errWatchFileTooLarge)
 	}
 	opened, err := files.OpenVersion(ctx, file.ID, file.Etag)
 	if err != nil {
 		if errors.Is(err, cs3reader.ErrChanged) {
-			return false, errFileChanged
+			return "", errFileChanged
 		}
-		return false, fmt.Errorf("open %s: %w", file.Name, err)
+		return "", fmt.Errorf("open %s: %w", file.Name, err)
 	}
 	defer func() { _ = opened.Body.Close() }()
 	if opened.Etag != file.Etag {
-		return false, errFileChanged
+		return "", errFileChanged
 	}
 	if opened.Size > maxWatchFileBytes {
-		return false, fmt.Errorf("upload %s: %w", file.Name, errWatchFileTooLarge)
+		return "", fmt.Errorf("upload %s: %w", file.Name, errWatchFileTooLarge)
 	}
 
 	pr, pw := io.Pipe()
@@ -364,20 +374,18 @@ func uploadFile(ctx context.Context, files watchFiles, file cs3reader.Resource, 
 	status, body, err := send(mw.FormDataContentType(), pr)
 	_ = pr.Close()
 	if err != nil {
-		return false, fmt.Errorf("upload %s: %w", file.Name, err)
+		return "", fmt.Errorf("upload %s: %w", file.Name, err)
 	}
 	if status != http.StatusOK {
-		return false, fmt.Errorf("upload %s: %w", file.Name, upstream(status, body))
+		return "", fmt.Errorf("upload %s: %w", file.Name, upstream(status, body))
 	}
 	var outcome struct {
 		State string `json:"state"`
 	}
-	if json.Unmarshal(body, &outcome) == nil {
-		if outcome.State == "skipped" || outcome.State == "already_handled" {
-			return false, nil
-		}
+	if json.Unmarshal(body, &outcome) == nil && outcome.State != "" {
+		return outcome.State, nil
 	}
-	return true, nil
+	return "accepted", nil
 }
 
 // writeUploadForm writes the fields Synaplan's cloud uploads read, and the

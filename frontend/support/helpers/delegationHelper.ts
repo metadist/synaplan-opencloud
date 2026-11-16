@@ -1,9 +1,8 @@
 import { Locator, Page, expect } from '@playwright/test'
 
 /**
- * The "work while you are away" section on the Synaplan page. Allowing it
- * gets an authorization code from the identity provider silently (the
- * person is signed in there) and hands it to the Go service.
+ * Allow and stop Synaplan's work while the person is away, from the
+ * Synaplan page, the way the person does it.
  */
 export async function openDelegationSection(
   page: Page

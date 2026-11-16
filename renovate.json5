@@ -1,116 +1,146 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:best-practices",
-    "docker:enableMajor",
-    ":separateMultipleMajorReleases"
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:best-practices',
+    'docker:enableMajor',
+    ':separateMultipleMajorReleases',
   ],
-  "enabled": true,
-  "timezone": "Europe/Berlin",
-  "prConcurrentLimit": 6,
-  "prHourlyLimit": 2,
-  "prCreation": "immediate",
-  "dependencyDashboard": true,
-  "labels": ["dependencies"],
-  "customManagers": [
-    {
-      // Bump SYNAPLAN_IMAGE_DIGEST in .github/workflows/ci.yml whenever
-      // the `latest` tag of ghcr.io/metadist/synaplan gets a new digest.
-      // Matches both the bare digest form (`sha256:...`) and an
-      // optional tag-with-digest form (`<tag>@sha256:...`) so the
-      // storage format can evolve without re-touching this regex.
-      // Renovate's github-actions manager ignores `env:` blocks so a
-      // custom regex manager is required here.
-      "customType": "regex",
-      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
-      "matchStrings": [
-        "SYNAPLAN_IMAGE_DIGEST:\\s*(?:(?<currentValue>[^@\\s]+)@)?(?<currentDigest>sha256:[a-f0-9]+)"
-      ],
-      "depNameTemplate": "ghcr.io/metadist/synaplan",
-      "datasourceTemplate": "docker",
-      "currentValueTemplate": "{{#if currentValue}}{{currentValue}}{{else}}latest{{/if}}"
-    },
-    {
-      // Bump SYNAPLAN_REF in .github/workflows/ci.yml whenever the
-      // synaplan main branch moves. SYNAPLAN_REF is the git SHA that
-      // pairs with SYNAPLAN_IMAGE_DIGEST (the e2e job clones that
-      // exact commit so the test-stack compose files match the
-      // image). Uses the git-refs datasource so the digest field
-      // here is a git commit SHA, not a docker digest.
-      "customType": "regex",
-      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
-      "matchStrings": [
-        "SYNAPLAN_REF:\\s*(?<currentDigest>[a-f0-9]{40})"
-      ],
-      "depNameTemplate": "https://github.com/metadist/synaplan",
-      "datasourceTemplate": "git-refs",
-      "currentValueTemplate": "main"
-    }
+  enabled: true,
+  timezone: 'Europe/Berlin',
+  prConcurrentLimit: 6,
+  prHourlyLimit: 2,
+  prCreation: 'immediate',
+  dependencyDashboard: {
+    enabled: true,
+  },
+  labels: [
+    'dependencies',
   ],
-  "packageRules": [
+  customManagers: [
     {
-      "groupName": "Frontend Core",
-      "matchManagers": ["npm"],
-      "matchPackageNames": [
-        "vue", "@vue/**",
-        "vite", "@vitejs/**",
-        "typescript", "@typescript-eslint/**", "vue-tsc",
-        "tailwindcss", "@tailwindcss/**"
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^\\.github/workflows/ci\\.yml$/',
       ],
-      "matchUpdateTypes": ["minor", "patch"]
-    },
-    {
-      "groupName": "OpenCloud SDK",
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["@opencloud-eu/**"],
-      "matchUpdateTypes": ["minor", "patch"]
-    },
-    {
-      "groupName": "QA & Dev Tools",
-      "matchPackageNames": [
-        "@playwright/test", "vitest", "@vitest/**", "happy-dom",
-        "eslint", "prettier"
+      matchStrings: [
+        'SYNAPLAN_IMAGE_DIGEST:\\s*(?:(?<currentValue>[^@\\s]+)@)?(?<currentDigest>sha256:[a-f0-9]+)',
       ],
-      "matchUpdateTypes": ["minor", "patch"]
+      depNameTemplate: 'ghcr.io/metadist/synaplan',
+      datasourceTemplate: 'docker',
+      currentValueTemplate: '{{#if currentValue}}{{currentValue}}{{else}}latest{{/if}}',
     },
     {
-      "groupName": "Go Dependencies",
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["minor", "patch"]
-    },
-    {
-      // reva v2.52.2 and current reva main still require
-      // v0.0.0-20260424072047-8d9ef7076ae9. The 2026-11-11 digest
-      // removes ViewMode and adds SetImmutable, so this module does
-      // not compile against that reva. Move it only with a reva
-      // release that requires the new revision.
-      "matchPackageNames": ["github.com/cs3org/go-cs3apis"],
-      "enabled": false
-    },
-    {
-      "groupName": "Docker Images",
-      "matchManagers": ["dockerfile", "docker-compose"],
-      "matchUpdateTypes": ["minor", "patch"]
-    },
-    {
-      // Bundle SYNAPLAN_IMAGE_DIGEST (docker datasource) and
-      // SYNAPLAN_REF (git-refs datasource) into a single PR so they
-      // stay paired when the upstream synaplan main moves. Both
-      // customManagers above produce digest-only updates (pin-digest
-      // for the docker image, git-refs for the main-branch SHA), so
-      // match the full set of update types that can actually arrive
-      // here rather than relying on the default to do the right thing.
-      "groupName": "Synaplan",
-      "matchPackageNames": [
-        "ghcr.io/metadist/synaplan",
-        "https://github.com/metadist/synaplan"
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^\\.github/workflows/ci\\.yml$/',
       ],
-      "matchUpdateTypes": ["digest", "pinDigest", "minor", "patch"]
+      matchStrings: [
+        'SYNAPLAN_REF:\\s*(?<currentDigest>[a-f0-9]{40})',
+      ],
+      depNameTemplate: 'https://github.com/metadist/synaplan',
+      datasourceTemplate: 'git-refs',
+      currentValueTemplate: 'main',
+    },
+  ],
+  packageRules: [
+    {
+      groupName: 'Frontend Core',
+      matchManagers: [
+        'npm',
+      ],
+      matchPackageNames: [
+        'vue',
+        '@vue/**',
+        'vite',
+        '@vitejs/**',
+        'typescript',
+        '@typescript-eslint/**',
+        'vue-tsc',
+        'tailwindcss',
+        '@tailwindcss/**',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
     },
     {
-      "matchUpdateTypes": ["major"],
-      "automerge": false,
-      "labels": ["dependencies", "breaking"]
-    }
-  ]
+      groupName: 'OpenCloud SDK',
+      matchManagers: [
+        'npm',
+      ],
+      matchPackageNames: [
+        '@opencloud-eu/**',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+    },
+    {
+      groupName: 'QA & Dev Tools',
+      matchPackageNames: [
+        '@playwright/test',
+        'vitest',
+        '@vitest/**',
+        'happy-dom',
+        'eslint',
+        'prettier',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+    },
+    {
+      groupName: 'Go Dependencies',
+      matchManagers: [
+        'gomod',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+    },
+    {
+      matchPackageNames: [
+        'github.com/cs3org/go-cs3apis',
+      ],
+      enabled: false,
+    },
+    {
+      groupName: 'Docker Images',
+      matchManagers: [
+        'dockerfile',
+        'docker-compose',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+    },
+    {
+      groupName: 'Synaplan',
+      matchPackageNames: [
+        'ghcr.io/metadist/synaplan',
+        'https://github.com/metadist/synaplan',
+      ],
+      matchUpdateTypes: [
+        'digest',
+        'pinDigest',
+        'minor',
+        'patch',
+      ],
+    },
+    {
+      matchUpdateTypes: [
+        'major',
+      ],
+      automerge: false,
+      labels: [
+        'dependencies',
+        'breaking',
+      ],
+    },
+  ],
 }
