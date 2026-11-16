@@ -11,27 +11,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
+	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/metadist/synaplan-opencloud/internal/delegation"
+	"github.com/metadist/synaplan-opencloud/internal/natskv"
 )
+
+// Mode is how much of a person's files Synaplan may read.
+type Mode string
 
 // The read modes Synaplan knows.
 const (
 	// ReadWatched lets Synaplan read only what the person watches.
-	ReadWatched = "watched"
+	ReadWatched Mode = "watched"
 	// ReadAllowed adds the folders the person allowed.
-	ReadAllowed = "allowed"
+	ReadAllowed Mode = "allowed"
 	// ReadAll lets Synaplan read all of the person's files.
-	ReadAll = "all"
+	ReadAll Mode = "all"
 )
 
 // ValidMode reports whether mode is one Synaplan accepts.
-func ValidMode(mode string) bool {
+func ValidMode(mode Mode) bool {
 	return mode == ReadWatched || mode == ReadAllowed || mode == ReadAll
 }
 
@@ -44,7 +46,7 @@ type Folder struct {
 
 // ReadScope is what a person lets Synaplan read.
 type ReadScope struct {
-	Mode    string   `json:"mode"`
+	Mode    Mode     `json:"mode"`
 	Folders []Folder `json:"folders"`
 }
 
@@ -75,6 +77,12 @@ func normalized(p Preferences) Preferences {
 type Store interface {
 	Get(ctx context.Context, subject string) (Preferences, error)
 	Put(ctx context.Context, subject string, p Preferences) error
+	// Lease holds subject exclusively across every replica, waiting while
+	// another holder has it. A save reports the setting to Synaplan and
+	// then keeps it here under one lease, so two saves at once cannot
+	// leave this copy different from what Synaplan follows. Work under the
+	// lease uses held; release gives the lease back.
+	Lease(ctx context.Context, subject string) (held context.Context, release func(), err error)
 	// Close ends the connection to the store, if there is one.
 	Close() error
 }
@@ -84,11 +92,12 @@ type Store interface {
 type MemoryStore struct {
 	mu      sync.Mutex
 	entries map[string]Preferences
+	leases  map[string]chan struct{}
 }
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{entries: map[string]Preferences{}}
+	return &MemoryStore{entries: map[string]Preferences{}, leases: map[string]chan struct{}{}}
 }
 
 // Get returns the person's record, or Default.
@@ -113,64 +122,72 @@ func (s *MemoryStore) Put(_ context.Context, subject string, p Preferences) erro
 	return nil
 }
 
+// Lease holds subject until release is called, waiting while another
+// caller in this process has it.
+func (s *MemoryStore) Lease(ctx context.Context, subject string) (context.Context, func(), error) {
+	s.mu.Lock()
+	lease, ok := s.leases[subject]
+	if !ok {
+		lease = make(chan struct{}, 1)
+		s.leases[subject] = lease
+	}
+	s.mu.Unlock()
+	select {
+	case lease <- struct{}{}:
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("preferences: waiting for a lease: %w", ctx.Err())
+	}
+	held, cancel := context.WithTimeout(ctx, leaseHold)
+	return held, func() {
+		cancel()
+		<-lease
+	}, nil
+}
+
 // Close does nothing.
 func (s *MemoryStore) Close() error { return nil }
 
 var errNoSubject = errors.New("preferences: a record needs a subject")
 
-// NATSStore is a JetStream key-value bucket in OpenCloud's NATS. A person's
-// record is replaced as a whole; the last save wins, as it does for any
-// settings page.
-type NATSStore struct {
-	conn   *nats.Conn
-	js     jetstream.JetStream
-	bucket jetstream.KeyValueConfig
+// leaseTTL is how long NATS keeps a lease whose holder never gave it back,
+// because its replica died.
+const leaseTTL = 2 * time.Minute
 
-	mu sync.Mutex
-	kv jetstream.KeyValue
+// leaseHold is how long a save under a lease may take: resolving the
+// folders, reporting to Synaplan and keeping the copy. It ends well before
+// leaseTTL, so the lease cannot lapse while a save is still running.
+const leaseHold = leaseTTL / 2
+
+// NATSStore is a JetStream key-value bucket in OpenCloud's NATS. A person's
+// record is replaced as a whole, under the person's lease.
+type NATSStore struct {
+	bucket *natskv.Bucket
 }
 
-// NewNATS prepares the bucket in OpenCloud's NATS, reached with the same
-// settings as the offline tokens. The bucket is opened, or created, on
-// first use, so this service starts while NATS is still starting.
-func NewNATS(cfg delegation.NATSConfig) (*NATSStore, error) {
-	bucket := strings.TrimSpace(cfg.Bucket)
-	if bucket == "" {
-		return nil, errors.New("preferences: nats-js-kv needs a bucket")
-	}
-	if cfg.Replicas < 0 {
-		return nil, errors.New("preferences: nats-js-kv replicas must not be negative")
-	}
-	conn, js, err := delegation.DialNATS(cfg)
+// NewNATS prepares the bucket in OpenCloud's NATS (see natskv.New). Leases
+// expire on their own, which needs NATS 2.11 or later, as the offline
+// tokens already do.
+func NewNATS(cfg natskv.Config, bucket string, replicas int) (*NATSStore, error) {
+	b, err := natskv.New(cfg, jetstream.KeyValueConfig{
+		Bucket:         bucket,
+		Description:    "Each person's own Synaplan settings",
+		History:        1,
+		Storage:        jetstream.FileStorage,
+		Replicas:       replicas,
+		LimitMarkerTTL: leaseTTL,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("preferences: %w", err)
 	}
-	return &NATSStore{conn: conn, js: js, bucket: jetstream.KeyValueConfig{
-		Bucket:      bucket,
-		Description: "Each person's own Synaplan settings",
-		History:     1,
-		Storage:     jetstream.FileStorage,
-		Replicas:    cfg.Replicas,
-	}}, nil
+	return &NATSStore{bucket: b}, nil
 }
 
 func (s *NATSStore) open(ctx context.Context) (jetstream.KeyValue, error) {
-	s.mu.Lock()
-	kv := s.kv
-	s.mu.Unlock()
-	if kv != nil {
-		return kv, nil
-	}
-	kv, err := s.js.CreateOrUpdateKeyValue(ctx, s.bucket)
+	kv, err := s.bucket.Open(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("preferences: opening the %s bucket: %w", s.bucket.Bucket, err)
+		return nil, fmt.Errorf("preferences: %w", err)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.kv == nil {
-		s.kv = kv
-	}
-	return s.kv, nil
+	return kv, nil
 }
 
 // Get returns the person's record, or Default.
@@ -212,13 +229,28 @@ func (s *NATSStore) Put(ctx context.Context, subject string, p Preferences) erro
 	return nil
 }
 
+// Lease holds the person's lease key in this bucket (see natskv.Lease).
+func (s *NATSStore) Lease(ctx context.Context, subject string) (context.Context, func(), error) {
+	if subject == "" {
+		return nil, nil, errNoSubject
+	}
+	kv, err := s.open(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	held, release, err := natskv.Lease(ctx, kv, "lease."+key(subject), leaseTTL, leaseHold)
+	if err != nil {
+		return nil, nil, fmt.Errorf("preferences: %w", err)
+	}
+	return held, release, nil
+}
+
 // Close disconnects from NATS.
 func (s *NATSStore) Close() error {
-	if s == nil || s.conn == nil {
+	if s == nil {
 		return nil
 	}
-	s.conn.Close()
-	return nil
+	return s.bucket.Close()
 }
 
 // key encodes subject so it is one NATS key: a subject may contain

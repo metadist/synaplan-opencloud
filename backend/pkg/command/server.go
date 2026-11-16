@@ -23,6 +23,7 @@ import (
 	"github.com/metadist/synaplan-opencloud/internal/delegation"
 	"github.com/metadist/synaplan-opencloud/internal/handler"
 	"github.com/metadist/synaplan-opencloud/internal/idp"
+	"github.com/metadist/synaplan-opencloud/internal/natskv"
 	"github.com/metadist/synaplan-opencloud/internal/preferences"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanauth"
@@ -221,7 +222,17 @@ func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, e
 		logger.Warn().Msg("synaplan-opencloud: offline tokens are kept in memory; a restart forgets them and other replicas never see them")
 		return delegation.NewMemoryStore(), nil
 	case "nats-js-kv":
-		store, err := delegation.NewNATS(natsConfig(cfg, cfg.Store.Database))
+		nats := natsConfig(cfg)
+		store, err := delegation.NewNATS(delegation.NATSConfig{
+			Nodes:     nats.Nodes,
+			Bucket:    cfg.Store.Database,
+			Replicas:  cfg.Store.Replicas,
+			Username:  nats.Username,
+			Password:  nats.Password,
+			EnableTLS: nats.EnableTLS,
+			Insecure:  nats.Insecure,
+			RootCAs:   nats.RootCAs,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("could not open the delegation store: %w", err)
 		}
@@ -233,24 +244,27 @@ func delegationStore(cfg *config.Config, logger log.Logger) (delegation.Store, e
 
 // preferencesStore keeps each person's own settings in the same store as
 // the offline tokens, in a bucket of its own. delegationStore already
-// refused a store that is not supported.
+// refused a store that is not supported. The two buckets must differ: both
+// key a person by the same encoded subject, so a shared bucket would let a
+// saved setting overwrite that person's offline token.
 func preferencesStore(cfg *config.Config) (preferences.Store, error) {
 	if cfg.Store.Store == "memory" {
 		return preferences.NewMemoryStore(), nil
 	}
-	store, err := preferences.NewNATS(natsConfig(cfg, cfg.Store.PreferencesDatabase))
+	if cfg.Store.PreferencesDatabase == cfg.Store.Database {
+		return nil, fmt.Errorf("synaplan-opencloud: SYNAPLAN_STORE_PREFERENCES_DATABASE and SYNAPLAN_STORE_DATABASE both name the bucket %q; give each its own", cfg.Store.Database)
+	}
+	store, err := preferences.NewNATS(natsConfig(cfg), cfg.Store.PreferencesDatabase, cfg.Store.Replicas)
 	if err != nil {
 		return nil, fmt.Errorf("could not open the preferences store: %w", err)
 	}
 	return store, nil
 }
 
-// natsConfig is how this service reaches OpenCloud's NATS, for bucket.
-func natsConfig(cfg *config.Config, bucket string) delegation.NATSConfig {
-	return delegation.NATSConfig{
+// natsConfig is how both stores reach OpenCloud's NATS.
+func natsConfig(cfg *config.Config) natskv.Config {
+	return natskv.Config{
 		Nodes:     cfg.Store.Nodes,
-		Bucket:    bucket,
-		Replicas:  cfg.Store.Replicas,
 		Username:  cfg.Store.AuthUsername,
 		Password:  cfg.Store.AuthPassword,
 		EnableTLS: cfg.Store.EnableTLS,

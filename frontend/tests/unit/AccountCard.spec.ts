@@ -9,7 +9,10 @@ vi.mock('../../src/composables/useReadScope', () => ({
 }))
 
 vi.mock('vue3-gettext', () => ({
-  useGettext: () => ({ $gettext: (s: string) => s })
+  useGettext: () => ({
+    $gettext: (s: string, params?: Record<string, string>) =>
+      params ? Object.entries(params).reduce((t, [k, v]) => t.replace(`%{${k}}`, v), s) : s
+  })
 }))
 
 import AccountCard from '../../src/components/AccountCard.vue'
@@ -71,6 +74,24 @@ describe('AccountCard', () => {
     await flushPromises()
     expect(settings.save).toHaveBeenCalledWith({ mode: 'all', folders: allowed.folders })
     expect(wrapper.find('[data-testid="synaplan-settings-saved"]').exists()).toBe(true)
+  })
+
+  it('drops the confirmation once another mode is chosen', async () => {
+    const wrapper = await mountCard()
+    await wrapper.get('[data-testid="synaplan-settings-save"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-settings-saved"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="synaplan-settings-read-watched"]').setValue(true)
+    expect(wrapper.find('[data-testid="synaplan-settings-saved"]').exists()).toBe(false)
+  })
+
+  it('names the folder each remove button removes', async () => {
+    const wrapper = await mountCard()
+    expect(
+      wrapper
+        .findAll('[data-testid="synaplan-settings-folder-remove"]')
+        .map((button) => button.attributes('aria-label'))
+    ).toEqual(['Remove Specs', 'Remove Invoices/2026'])
   })
 
   it('removes a folder and saves the rest', async () => {

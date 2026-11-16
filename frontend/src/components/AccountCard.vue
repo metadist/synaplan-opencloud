@@ -37,7 +37,7 @@
             <span>{{ folder.path || folder.id }}</span>
             <oc-button
               appearance="raw"
-              :aria-label="$gettext('Remove')"
+              :aria-label="$gettext('Remove %{folder}', { folder: folder.path || folder.id })"
               data-testid="synaplan-settings-folder-remove"
               @click="remove(folder.id)"
             >
@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import {
   type Login,
@@ -109,6 +109,12 @@ function remove(id: string) {
   saved.value = false
 }
 
+// The confirmation speaks for the setting Synaplan took; a choice not
+// saved yet is not that setting.
+watch(mode, () => {
+  saved.value = false
+})
+
 onMounted(async () => {
   try {
     const [who, answer] = await Promise.all([loadLogin(), load()])
@@ -136,7 +142,7 @@ async function saveScope() {
     error.value = sentenceFor(
       $gettext,
       e,
-      $gettext('Synaplan did not receive this setting, so nothing changed. Try again in a minute.')
+      $gettext('Synaplan did not confirm this setting. Save again to be sure it applies.')
     )
   } finally {
     busy.value = false

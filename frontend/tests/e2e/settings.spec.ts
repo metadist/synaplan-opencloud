@@ -48,14 +48,24 @@ test.afterEach(async ({ request }) => {
   }
 })
 
-async function resetSetting(request: APIRequestContext) {
+async function putSetting(
+  request: APIRequestContext,
+  data: { mode: string; folders: { id: string; path?: string }[] }
+) {
   const resp = await request.put(`${OC_API_URL}/api/synaplan/preferences`, {
     headers: { Authorization: `Bearer ${accessToken}` },
-    data: { mode: 'watched', folders: [] }
+    data
   })
   expect(resp.ok(), await resp.text()).toBe(true)
+  return (await resp.json()).readScope.folders as { id: string; path: string }[]
 }
 
+async function resetSetting(request: APIRequestContext) {
+  await putSetting(request, { mode: 'watched', folders: [] })
+}
+
+// 15 s: the page asks the Go service, which runs the token exchange with
+// Keycloak before it answers; a save also waits for Synaplan.
 async function openSettings(page: Page) {
   await page.goto('/synaplan')
   await expect(page.locator('[data-testid="synaplan-settings-save"]')).toBeVisible({
@@ -80,12 +90,7 @@ async function seedFolder(request: APIRequestContext, prefix: string) {
 }
 
 async function allowFolder(request: APIRequestContext, id: string) {
-  const resp = await request.put(`${OC_API_URL}/api/synaplan/preferences`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    data: { mode: 'allowed', folders: [{ id, path: 'Everything' }] }
-  })
-  expect(resp.ok(), await resp.text()).toBe(true)
-  return (await resp.json()).readScope.folders as { id: string; path: string }[]
+  return putSetting(request, { mode: 'allowed', folders: [{ id, path: 'Everything' }] })
 }
 
 test('a person chooses what Synaplan may read, and the choice is kept', async () => {
@@ -141,4 +146,27 @@ test('a folder deleted after it was allowed leaves the setting on the next save'
   await expect(folder).toHaveCount(1)
   await saveSettings(userPage)
   await expect(folder).toHaveCount(0)
+})
+
+test('a save Synaplan did not confirm shows one sentence and no confirmation', async () => {
+  // The service answers this when Synaplan's answer was lost; it cannot
+  // be provoked against a healthy stack, so the answer is the service's.
+  await userPage.route('**/api/synaplan/preferences', (route) =>
+    route.request().method() === 'PUT'
+      ? route.fulfill({
+          status: 502,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'ignored', code: 'not_confirmed' })
+        })
+      : route.continue()
+  )
+  await openSettings(userPage)
+  await userPage.locator('[data-testid="synaplan-settings-read-all"]').check()
+  await userPage.locator('[data-testid="synaplan-settings-save"]').click()
+
+  await expect(userPage.locator('[data-testid="synaplan-settings-error"]')).toHaveText(
+    'Synaplan did not confirm this setting. Save again to be sure it applies.'
+  )
+  await expect(userPage.locator('[data-testid="synaplan-settings-saved"]')).toHaveCount(0)
+  await expect(userPage.locator('[data-testid="synaplan-settings-save"]')).toBeEnabled()
 })

@@ -18,8 +18,15 @@ import (
 // gone, it is a file, or it was never theirs.
 var ErrNoFolder = errors.New("cs3reader: no such folder")
 
-// FolderPath returns the space-relative path of the folder resourceID, as
-// the requesting person's session sees it.
+// ErrNotPersonal means the folder lives outside the person's personal
+// space: in a share, or in a project space.
+var ErrNotPersonal = errors.New("cs3reader: folder is not in the personal space")
+
+// FolderPath returns the path of the folder resourceID inside the
+// requesting person's personal space. Synaplan matches an allowed folder
+// by that path in the personal space, so a folder of a share or a project
+// space is refused with ErrNotPersonal: its space-relative path, say
+// "Docs", would otherwise also allow the personal "Docs".
 func (r *Reader) FolderPath(ctx context.Context, resourceID string) (string, error) {
 	if r == nil || r.gws == nil {
 		return "", errors.New("cs3reader: not configured")
@@ -51,7 +58,21 @@ func (r *Reader) FolderPath(ctx context.Context, resourceID string) (string, err
 	if res.GetInfo().GetType() != provider.ResourceType_RESOURCE_TYPE_CONTAINER {
 		return "", ErrNoFolder
 	}
+	root, err := personalRoot(gwCtx, gwc)
+	if err != nil {
+		return "", err
+	}
+	if !sameSpace(res.GetInfo().GetId(), root) {
+		return "", ErrNotPersonal
+	}
 	return spaceRelative(res.GetInfo().GetPath()), nil
+}
+
+// sameSpace reports whether id lives in the space whose root is root.
+func sameSpace(id, root *provider.ResourceId) bool {
+	return id != nil && root != nil &&
+		id.GetStorageId() == root.GetStorageId() &&
+		id.GetSpaceId() == root.GetSpaceId()
 }
 
 // spaceRelative is a path inside its space as people read it: no leading

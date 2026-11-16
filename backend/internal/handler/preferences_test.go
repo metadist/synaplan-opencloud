@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
@@ -20,8 +21,11 @@ import (
 type fakeFolders map[string]string
 
 func (f fakeFolders) FolderPath(_ context.Context, id string) (string, error) {
-	if id == "broken" {
+	switch id {
+	case "broken":
 		return "", errors.New("gateway down")
+	case "s$project!docs":
+		return "", cs3reader.ErrNotPersonal
 	}
 	path, ok := f[id]
 	if !ok {
@@ -30,7 +34,7 @@ func (f fakeFolders) FolderPath(_ context.Context, id string) (string, error) {
 	return path, nil
 }
 
-type failingPreferences struct{ getErr, putErr error }
+type failingPreferences struct{ getErr, putErr, leaseErr error }
 
 func (s failingPreferences) Get(context.Context, string) (preferences.Preferences, error) {
 	return preferences.Default(), s.getErr
@@ -38,13 +42,22 @@ func (s failingPreferences) Get(context.Context, string) (preferences.Preference
 func (s failingPreferences) Put(context.Context, string, preferences.Preferences) error {
 	return s.putErr
 }
+func (s failingPreferences) Lease(ctx context.Context, _ string) (context.Context, func(), error) {
+	if s.leaseErr != nil {
+		return nil, nil, s.leaseErr
+	}
+	return ctx, func() {}, nil
+}
 func (s failingPreferences) Close() error { return nil }
 
 // preferencesHandler is a handler for ada and eve whose Synaplan answers
 // the read scope with status and records what it was sent.
 func preferencesHandler(t *testing.T, store preferences.Store, status int) (*Handler, *[]map[string]any) {
 	t.Helper()
-	var reported []map[string]any
+	var (
+		mu       sync.Mutex
+		reported []map[string]any
+	)
 	synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut || r.URL.Path != "/api/v1/platform-links/read-scope" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
@@ -52,7 +65,9 @@ func preferencesHandler(t *testing.T, store preferences.Store, status int) (*Han
 		raw, _ := io.ReadAll(r.Body)
 		var body map[string]any
 		_ = json.Unmarshal(raw, &body)
+		mu.Lock()
 		reported = append(reported, body)
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(`{"success":true}`))
@@ -126,15 +141,17 @@ func TestSavePreferencesRefuses(t *testing.T) {
 		code     string
 		kept     bool
 	}{
-		{name: "not json", body: `{`, status: http.StatusBadRequest},
-		{name: "an unknown mode", body: `{"mode":"everything"}`, status: http.StatusBadRequest},
-		{name: "too many folders", body: tooMany, status: http.StatusBadRequest},
+		{name: "not json", body: `{`, status: http.StatusBadRequest, code: "invalid_setting"},
+		{name: "an unknown mode", body: `{"mode":"everything"}`, status: http.StatusBadRequest, code: "invalid_setting"},
+		{name: "too many folders", body: tooMany, status: http.StatusBadRequest, code: "too_many_folders"},
+		{name: "a folder outside the personal space", body: `{"mode":"allowed","folders":[{"id":"s$p!specs"},{"id":"s$project!docs","path":"Specs"}]}`, status: http.StatusBadRequest, code: "folder_not_personal"},
+		{name: "a lease that cannot be taken", store: failingPreferences{leaseErr: errors.New("nats down")}, body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "settings_unavailable"},
 		{name: "a forged bearer", userID: "u-mallory", body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "identity_check_failed"},
 		{name: "a gateway that does not answer", body: `{"mode":"allowed","folders":[{"id":"broken"}]}`, status: http.StatusBadGateway, code: "folder_check_failed"},
 		{name: "a cloud Synaplan does not know", synaplan: http.StatusForbidden, body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "cloud_not_linked"},
 		{name: "links turned off in Synaplan", synaplan: http.StatusNotFound, body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "cloud_not_linked"},
 		{name: "a cloud known twice", synaplan: http.StatusConflict, body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "cloud_ambiguous"},
-		{name: "a failing Synaplan", synaplan: http.StatusInternalServerError, body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "not_reported"},
+		{name: "a failing Synaplan", synaplan: http.StatusInternalServerError, body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "not_confirmed"},
 		{name: "a store that is down", store: failingPreferences{putErr: errors.New("nats down")}, body: `{"mode":"all"}`, status: http.StatusBadGateway, code: "settings_not_kept"},
 	}
 	for _, tc := range cases {
@@ -178,6 +195,31 @@ func TestPreferencesWithoutAPerson(t *testing.T) {
 	h.SavePreferences(rec, httptest.NewRequest(http.MethodPut, "/api/synaplan/preferences", strings.NewReader(`{"mode":"all"}`)))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("save: %d %s", rec.Code, rec.Body)
+	}
+	rec = httptest.NewRecorder()
+	h.SavePreferences(rec, httptest.NewRequest(http.MethodPut, "/api/synaplan/preferences", strings.NewReader(`{"mode":"everything"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("validation did not run before the person check: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestConcurrentSavesKeepWhatSynaplanHolds: the last save Synaplan took is
+// the one this copy keeps, however two saves for one person interleave.
+func TestConcurrentSavesKeepWhatSynaplanHolds(t *testing.T) {
+	store := preferences.NewMemoryStore()
+	h, reported := preferencesHandler(t, store, http.StatusOK)
+	done := make(chan struct{})
+	for _, mode := range []string{"all", "watched"} {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			save(h, "u-ada", `{"mode":"`+mode+`"}`)
+		}()
+	}
+	<-done
+	<-done
+	last := (*reported)[len(*reported)-1]["mode"]
+	if p, _ := store.Get(context.Background(), "ada"); string(p.ReadScope.Mode) != last {
+		t.Fatalf("kept %q, Synaplan holds %q", p.ReadScope.Mode, last)
 	}
 }
 

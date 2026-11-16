@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/metadist/synaplan-opencloud/internal/delegation"
+	"github.com/metadist/synaplan-opencloud/internal/natskv"
 )
 
 func TestMemoryStore(t *testing.T) {
@@ -51,7 +51,7 @@ func TestMemoryStoreNeedsASubject(t *testing.T) {
 }
 
 func TestValidMode(t *testing.T) {
-	for mode, want := range map[string]bool{"watched": true, "allowed": true, "all": true, "": false, "All": false} {
+	for mode, want := range map[Mode]bool{"watched": true, "allowed": true, "all": true, "": false, "All": false} {
 		if got := ValidMode(mode); got != want {
 			t.Errorf("ValidMode(%q) = %v", mode, got)
 		}
@@ -59,14 +59,46 @@ func TestValidMode(t *testing.T) {
 }
 
 func TestNewNATSNeedsAnAddressAndABucket(t *testing.T) {
-	for _, cfg := range []delegation.NATSConfig{
-		{Bucket: "synaplan-preferences"},
-		{Nodes: []string{"nats:9233"}},
-		{Nodes: []string{"nats:9233"}, Bucket: "synaplan-preferences", Replicas: -1},
-	} {
-		if _, err := NewNATS(cfg); err == nil {
-			t.Fatalf("NewNATS accepted %+v", cfg)
-		}
+	cases := []struct {
+		name     string
+		cfg      natskv.Config
+		bucket   string
+		replicas int
+	}{
+		{"no address", natskv.Config{}, "synaplan-preferences", 1},
+		{"no bucket", natskv.Config{Nodes: []string{"nats:9233"}}, "", 1},
+		{"negative replicas", natskv.Config{Nodes: []string{"nats:9233"}}, "synaplan-preferences", -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := NewNATS(tc.cfg, tc.bucket, tc.replicas); err == nil {
+				t.Fatalf("NewNATS accepted %+v %q %d", tc.cfg, tc.bucket, tc.replicas)
+			}
+		})
+	}
+}
+
+func TestMemoryStoreLease(t *testing.T) {
+	s := NewMemoryStore()
+	_, release, err := s.Lease(context.Background(), "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := s.Lease(waiting, "ada"); err == nil {
+		t.Fatal("a second holder got the lease")
+	}
+	if _, other, err := s.Lease(context.Background(), "eve"); err != nil {
+		t.Fatal("another person's lease waited:", err)
+	} else {
+		other()
+	}
+	release()
+	if _, again, err := s.Lease(context.Background(), "ada"); err != nil {
+		t.Fatal("a released lease was not free:", err)
+	} else {
+		again()
 	}
 }
 

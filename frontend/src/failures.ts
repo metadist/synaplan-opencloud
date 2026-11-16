@@ -58,17 +58,21 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
     case 'settings_need_person':
       return $gettext('Your own Synaplan settings need your own login. Ask your administrator.')
     case 'settings_unavailable':
-      return $gettext('Your Synaplan settings cannot be read right now. Try again later.')
+      return $gettext('Your Synaplan settings are not available right now. Try again later.')
     case 'settings_not_kept':
       return $gettext(
         'Synaplan follows the new setting, but this page could not keep it. Save again.'
       )
     case 'folder_check_failed':
       return $gettext('OpenCloud could not check this folder. Try again.')
-    case 'not_reported':
-      return $gettext(
-        'Synaplan did not receive this setting, so nothing changed. Try again in a minute.'
-      )
+    case 'folder_not_personal':
+      return $gettext('Only folders in your personal space can be allowed.')
+    case 'too_many_folders':
+      return $gettext('Allow at most 100 folders.')
+    case 'invalid_setting':
+      return $gettext('The setting could not be read. Reload the page and try again.')
+    case 'not_confirmed':
+      return $gettext('Synaplan did not confirm this setting. Save again to be sure it applies.')
     case 'cloud_not_linked':
       return $gettext(
         'Synaplan does not accept settings from this OpenCloud yet. Ask your administrator.'

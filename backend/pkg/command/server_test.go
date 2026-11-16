@@ -45,9 +45,10 @@ func TestPreferencesStore(t *testing.T) {
 		wantErr string
 	}{
 		{name: "memory", store: config.PersistentStore{Store: "memory"}},
-		{name: "nats-js-kv", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, PreferencesDatabase: "synaplan-preferences"}},
+		{name: "nats-js-kv", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, Database: "synaplan-delegation", PreferencesDatabase: "synaplan-preferences"}},
 		{name: "nats-js-kv without a bucket", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, Database: "synaplan-delegation"}, wantErr: "bucket"},
-		{name: "nats-js-kv without nodes", store: config.PersistentStore{Store: "nats-js-kv", PreferencesDatabase: "synaplan-preferences"}, wantErr: "address"},
+		{name: "nats-js-kv sharing the token bucket", store: config.PersistentStore{Store: "nats-js-kv", Nodes: []string{"127.0.0.1:1"}, Database: "synaplan-delegation", PreferencesDatabase: "synaplan-delegation"}, wantErr: "own"},
+		{name: "nats-js-kv without nodes", store: config.PersistentStore{Store: "nats-js-kv", Database: "synaplan-delegation", PreferencesDatabase: "synaplan-preferences"}, wantErr: "address"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

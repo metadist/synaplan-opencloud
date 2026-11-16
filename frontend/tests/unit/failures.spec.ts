@@ -40,16 +40,19 @@ describe('sentenceFor', () => {
       'settings_need_person',
       'Your own Synaplan settings need your own login. Ask your administrator.'
     ],
-    ['settings_unavailable', 'Your Synaplan settings cannot be read right now. Try again later.'],
+    [
+      'settings_unavailable',
+      'Your Synaplan settings are not available right now. Try again later.'
+    ],
     [
       'settings_not_kept',
       'Synaplan follows the new setting, but this page could not keep it. Save again.'
     ],
     ['folder_check_failed', 'OpenCloud could not check this folder. Try again.'],
-    [
-      'not_reported',
-      'Synaplan did not receive this setting, so nothing changed. Try again in a minute.'
-    ],
+    ['folder_not_personal', 'Only folders in your personal space can be allowed.'],
+    ['too_many_folders', 'Allow at most 100 folders.'],
+    ['invalid_setting', 'The setting could not be read. Reload the page and try again.'],
+    ['not_confirmed', 'Synaplan did not confirm this setting. Save again to be sure it applies.'],
     [
       'cloud_not_linked',
       'Synaplan does not accept settings from this OpenCloud yet. Ask your administrator.'
