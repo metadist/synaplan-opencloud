@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,12 +26,38 @@ const (
 	reconcileInterval = 10 * time.Minute
 	// passTimeout bounds one pass, and one "check now".
 	passTimeout = 8 * time.Minute
-	// watchTimeout bounds the work for one watch, so one Synaplan or
-	// gateway that hangs costs that watch, not the whole pass.
-	watchTimeout = 2 * time.Minute
+	// watchListTimeout bounds listing a watched target and asking Synaplan
+	// what to upload, so a hung gateway or Synaplan fails fast.
+	watchListTimeout = 30 * time.Second
+	// watchUploadTimeout bounds each individual file upload, so a folder
+	// with many files can keep progressing while one hung transfer fails.
+	watchUploadTimeout = 2 * time.Minute
 	// reconcileBatch is the most files Synaplan compares in one request.
 	reconcileBatch = 500
+	// maxWatchFileBytes matches Synaplan's WatchLimits::MAX_BYTES (100 MiB).
+	maxWatchFileBytes = 100 << 20
 )
+
+// watchFiles is how a watch reaches the files it follows. The reva token
+// on the context decides as whom: the signed-in person's own session, or
+// machine auth for a person who is away.
+type watchFiles interface {
+	StatResource(ctx context.Context, resourceID string) (cs3reader.Resource, error)
+	List(ctx context.Context, folderID string) ([]cs3reader.Resource, error)
+	OpenVersion(ctx context.Context, resourceID, etag string) (*cs3reader.File, error)
+}
+
+var (
+	// errFileChanged means the bytes are a different version from the one
+	// Synaplan was asked about. The upload is skipped so the next check
+	// sends the current version under its own etag.
+	errFileChanged = errors.New("file changed since it was listed")
+	// errWatchFileTooLarge means the file exceeds Synaplan's 100 MiB watch
+	// upload cap, so it is not streamed over the wire.
+	errWatchFileTooLarge = errors.New("file exceeds the 100 MiB watch limit")
+)
+
+var multipartQuoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"", "\r", "", "\n", "")
 
 // RunReconciler checks the watches of everyone who allowed Synaplan to
 // work for them while they are away, now and every reconcileInterval,
@@ -56,25 +83,34 @@ func (h *Handler) RunReconciler(ctx context.Context) {
 }
 
 // reconcileEveryone runs one pass over every person with a kept token.
+// It starts where the previous pass stopped, so slow watches at the front
+// of the list cannot starve everyone after them.
 func (h *Handler) reconcileEveryone(ctx context.Context) {
 	subjects, err := h.delegation.Subjects(ctx)
 	if err != nil {
 		log.Printf("reconcile: listing people: %v", err)
 		return
 	}
-	for _, sub := range subjects {
+	slices.Sort(subjects)
+	start := h.cursorStart(&h.subjectCursor, len(subjects))
+	ordered := rotate(subjects, start)
+	processed := 0
+	defer func() { h.cursorAdvance(&h.subjectCursor, start, processed, len(subjects)) }()
+	for _, sub := range ordered {
 		if ctx.Err() != nil {
 			return
 		}
+		processed++
 		away, err := h.actAs(ctx, sub)
 		if errors.Is(err, delegation.ErrNotConnected) {
+			h.dropWatchCursor(sub)
 			continue
 		}
 		if err != nil {
 			log.Printf("reconcile: acting for a person: %v", err)
 			continue
 		}
-		if _, err := h.reconcileWatches(away, h.cs3, ""); err != nil {
+		if _, err := h.reconcileWatches(away, h.cs3, "", sub); err != nil {
 			log.Printf("reconcile: %v", err)
 		}
 	}
@@ -88,7 +124,7 @@ func (h *Handler) reconcileEveryone(ctx context.Context) {
 func (h *Handler) actAs(ctx context.Context, sub string) (context.Context, error) {
 	token, err := h.delegatedBearer(ctx, sub)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("minting a token for the person: %w", err)
 	}
 	value := delegation.Claim(token, h.userClaim)
 	if value == "" {
@@ -96,7 +132,7 @@ func (h *Handler) actAs(ctx context.Context, sub string) (context.Context, error
 	}
 	files, err := h.cs3.Impersonate(ctx, h.userAttr, value)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading files as the person: %w", err)
 	}
 	return onBehalfOf(files, sub), nil
 }
@@ -104,14 +140,16 @@ func (h *Handler) actAs(ctx context.Context, sub string) (context.Context, error
 // WatchReconcileNow checks the signed-in person's watches on one folder or
 // file now, with their own session, and sends Synaplan what it asks for.
 func (h *Handler) WatchReconcileNow(w http.ResponseWriter, r *http.Request) {
-	targetID := strings.TrimSpace(r.URL.Query().Get("targetId"))
-	if targetID == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetId is required"})
+	if h.refuseWatchSharedKey(w) {
+		return
+	}
+	targetID, ok := requireTargetID(w, r)
+	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), passTimeout)
 	defer cancel()
-	result, err := h.reconcileWatches(ctx, h.cs3, targetID)
+	result, err := h.reconcileWatches(ctx, h.cs3, targetID, "")
 	if err != nil {
 		writeWatchFailure(w, "watch check", err)
 		return
@@ -129,19 +167,34 @@ type reconcileResult struct {
 // reconcileWatches checks the active watches ctx's credential can see, or
 // only those on targetID when it is set. A watch that fails is logged and
 // counted; the others still run.
-func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, targetID string) (reconcileResult, error) {
+func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, targetID, subject string) (reconcileResult, error) {
 	var result reconcileResult
 	all, err := h.watches(ctx)
 	if err != nil {
 		return result, err
 	}
+	active := make([]watch, 0, len(all))
 	for _, each := range all {
-		if each.State != "active" || (targetID != "" && each.TargetID != targetID) {
+		if each.State != watchStateActive || (targetID != "" && each.TargetID != targetID) {
 			continue
 		}
+		active = append(active, each)
+	}
+	slices.SortFunc(active, func(a, b watch) int { return a.ID - b.ID })
+	start := 0
+	if targetID == "" {
+		start = h.watchStart(subject, len(active))
+		active = rotate(active, start)
+	}
+	processed := 0
+	if targetID == "" {
+		defer func() { h.watchAdvance(subject, start, processed, len(active)) }()
+	}
+	for _, each := range active {
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
+		processed++
 		result.Watches++
 		sent, failed, err := h.reconcileWatch(ctx, files, each)
 		if err != nil {
@@ -155,19 +208,24 @@ func (h *Handler) reconcileWatches(ctx context.Context, files watchFiles, target
 }
 
 // reconcileWatch tells Synaplan which files the watch covers, at which
-// version, and uploads the ones it asks for. Synaplan remembers each
-// version it got, so asking again is safe: a pass that dies half way is
-// finished by the next one, and two replicas never send a version twice.
+// version, and uploads the ones it asks for. Synaplan deduplicates each
+// version on upload, so a pass that dies half way is finished by the next
+// one and concurrent replicas never index a version twice.
 func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch) (sent, failed int, err error) {
-	ctx, cancel := context.WithTimeout(ctx, watchTimeout)
-	defer cancel()
-	covered, err := watchedFiles(ctx, files, w)
+	listCtx, cancelList := context.WithTimeout(ctx, watchListTimeout)
+	covered, err := watchedFiles(listCtx, files, w)
+	cancelList()
 	if err != nil {
 		return 0, 0, err
 	}
 	for start := 0; start < len(covered); start += reconcileBatch {
+		if ctx.Err() != nil {
+			return sent, failed, ctx.Err()
+		}
 		batch := covered[start:min(start+reconcileBatch, len(covered))]
-		wanted, err := h.askReconcile(ctx, w.ID, batch)
+		askCtx, cancelAsk := context.WithTimeout(ctx, watchListTimeout)
+		wanted, err := h.askReconcile(askCtx, w.ID, batch)
+		cancelAsk()
 		if err != nil {
 			return sent, failed, err
 		}
@@ -175,12 +233,24 @@ func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch)
 			if !wanted[file.ID] {
 				continue
 			}
-			if err := h.uploadWatchFile(ctx, files, w.ID, file); err != nil {
-				log.Printf("watch %d: upload: %v", w.ID, err)
+			if ctx.Err() != nil {
+				return sent, failed, ctx.Err()
+			}
+			uploadCtx, cancelUpload := context.WithTimeout(ctx, watchUploadTimeout)
+			accepted, err := h.uploadWatchFile(uploadCtx, files, w.ID, file)
+			cancelUpload()
+			if err != nil {
+				if errors.Is(err, errFileChanged) {
+					log.Printf("watch %d: %s changed; the next check sends the new version", w.ID, file.Name)
+				} else {
+					log.Printf("watch %d: upload: %v", w.ID, err)
+				}
 				failed++
 				continue
 			}
-			sent++
+			if accepted {
+				sent++
+			}
 		}
 	}
 	return sent, failed, nil
@@ -189,7 +259,7 @@ func (h *Handler) reconcileWatch(ctx context.Context, files watchFiles, w watch)
 // watchedFiles is the watched file, or the files directly in the watched
 // folder.
 func watchedFiles(ctx context.Context, files watchFiles, w watch) ([]cs3reader.Resource, error) {
-	if w.TargetKind == "file" {
+	if w.TargetKind == targetFile {
 		file, err := files.StatResource(ctx, w.TargetID)
 		if err != nil {
 			return nil, fmt.Errorf("stat: %w", err)
@@ -244,15 +314,28 @@ func (h *Handler) askReconcile(ctx context.Context, watchID int, batch []cs3read
 	return wanted, nil
 }
 
-// uploadWatchFile streams one file version to the watch. Synaplan decides
-// whether it can read a file by the extension of its name, so the name is
-// always sent.
-func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID int, file cs3reader.Resource) error {
-	opened, err := files.Open(ctx, file.ID)
+// uploadWatchFile streams one file version to the watch and reports whether
+// Synaplan accepted it (as opposed to skipping an unsupported file type or
+// reporting it already handled). Synaplan decides whether it can read a
+// file by the extension of its name, so the name is always sent.
+func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID int, file cs3reader.Resource) (bool, error) {
+	if file.Size > maxWatchFileBytes {
+		return false, fmt.Errorf("upload %s: %w", file.Name, errWatchFileTooLarge)
+	}
+	opened, err := files.OpenVersion(ctx, file.ID, file.Etag)
 	if err != nil {
-		return err
+		if errors.Is(err, cs3reader.ErrChanged) {
+			return false, errFileChanged
+		}
+		return false, fmt.Errorf("open %s: %w", file.Name, err)
 	}
 	defer func() { _ = opened.Body.Close() }()
+	if opened.Etag != file.Etag {
+		return false, errFileChanged
+	}
+	if opened.Size > maxWatchFileBytes {
+		return false, fmt.Errorf("upload %s: %w", file.Name, errWatchFileTooLarge)
+	}
 
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
@@ -266,12 +349,20 @@ func (h *Handler) uploadWatchFile(ctx context.Context, files watchFiles, watchID
 	resp, err := h.synaplanAPI.CloudWatchFileWithResponse(ctx, strconv.Itoa(watchID), withBody(mw.FormDataContentType(), pr))
 	_ = pr.Close()
 	if err != nil {
-		return fmt.Errorf("upload %s: %w", file.Name, err)
+		return false, fmt.Errorf("upload %s: %w", file.Name, err)
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("upload %s: %w", file.Name, upstream(resp.StatusCode(), resp.Body))
+		return false, fmt.Errorf("upload %s: %w", file.Name, upstream(resp.StatusCode(), resp.Body))
 	}
-	return nil
+	var outcome struct {
+		State string `json:"state"`
+	}
+	if json.Unmarshal(resp.Body, &outcome) == nil {
+		if outcome.State == "skipped" || outcome.State == "already_handled" {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // writeWatchFile writes the fields Synaplan's watch upload reads, and the
@@ -290,12 +381,107 @@ func writeWatchFile(mw *multipart.Writer, file cs3reader.Resource, opened *cs3re
 		mimeType = "application/octet-stream"
 	}
 	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, file.Name))
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, multipartQuoteEscaper.Replace(file.Name)))
 	header.Set("Content-Type", mimeType)
 	part, err := mw.CreatePart(header)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(part, opened.Body)
-	return err
+	n, err := io.Copy(part, io.LimitReader(opened.Body, maxWatchFileBytes+1))
+	if err != nil {
+		return err
+	}
+	if n > maxWatchFileBytes {
+		return errWatchFileTooLarge
+	}
+	return nil
+}
+
+// watchStart is where subject's watch list continues. An empty subject
+// is a check now, which does not move anyone's cursor.
+func (h *Handler) watchStart(subject string, n int) int {
+	if n == 0 || subject == "" {
+		return 0
+	}
+	h.reconcileMu.Lock()
+	defer h.reconcileMu.Unlock()
+	if h.watchCursors == nil {
+		h.watchCursors = map[string]int{}
+	}
+	cursor := h.watchCursors[subject]
+	if cursor < 0 {
+		cursor = 0
+	}
+	return cursor % n
+}
+
+// watchAdvance records how far subject's list got. Another person's list
+// has its own entry, so finishing their one watch cannot send this person
+// back to the start.
+func (h *Handler) watchAdvance(subject string, start, processed, n int) {
+	if n == 0 || processed <= 0 || subject == "" {
+		return
+	}
+	if processed > n {
+		processed = n
+	}
+	h.reconcileMu.Lock()
+	if h.watchCursors == nil {
+		h.watchCursors = map[string]int{}
+	}
+	h.watchCursors[subject] = (start + processed) % n
+	h.reconcileMu.Unlock()
+}
+
+func (h *Handler) dropWatchCursor(subject string) {
+	if subject == "" {
+		return
+	}
+	h.reconcileMu.Lock()
+	delete(h.watchCursors, subject)
+	h.reconcileMu.Unlock()
+}
+
+// cursorStart is the index this pass begins at. n is how many items there
+// are now; the stored cursor may be from a longer list.
+func (h *Handler) cursorStart(cursor *int, n int) int {
+	if n == 0 {
+		return 0
+	}
+	h.reconcileMu.Lock()
+	defer h.reconcileMu.Unlock()
+	if *cursor < 0 {
+		*cursor = 0
+	}
+	return *cursor % n
+}
+
+// cursorAdvance moves the cursor past the items this pass started. A pass
+// that started none leaves the cursor where it is, so a deadline that
+// expires before any work does not skip someone.
+func (h *Handler) cursorAdvance(cursor *int, start, processed, n int) {
+	if n == 0 || processed <= 0 {
+		return
+	}
+	if processed > n {
+		processed = n
+	}
+	h.reconcileMu.Lock()
+	*cursor = (start + processed) % n
+	h.reconcileMu.Unlock()
+}
+
+// rotate returns items beginning at start, then the ones before it.
+func rotate[T any](items []T, start int) []T {
+	if len(items) == 0 {
+		return items
+	}
+	start %= len(items)
+	if start == 0 {
+		return items
+	}
+	out := make([]T, 0, len(items))
+	out = append(out, items[start:]...)
+	out = append(out, items[:start]...)
+	return out
 }

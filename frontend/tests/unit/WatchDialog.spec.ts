@@ -21,7 +21,7 @@ vi.mock('vue3-gettext', () => ({
 const ocStub = (tag: string) =>
   defineComponent({
     name: tag,
-    props: ['modelValue', 'options', 'disabled', 'taggable', 'createOption'],
+    props: ['modelValue', 'options', 'disabled', 'showSpinner', 'taggable', 'createOption'],
     emits: ['click', 'update:model-value', 'update:modelValue', 'option:created'],
     setup(props, { slots, emit }) {
       return () =>
@@ -32,6 +32,7 @@ const ocStub = (tag: string) =>
               if (!props.disabled) emit('click', e)
             },
             disabled: props.disabled,
+            'data-spinner': props.showSpinner ? 'true' : undefined,
             'data-stub': tag
           },
           slots.default?.()
@@ -51,6 +52,7 @@ const options = (overrides: Record<string, unknown> = {}) => ({
     tasks: [{ id: 3, name: 'Contract check' }],
     folders: ['INVOICES'],
     watching: false,
+    watchState: '',
     uploadsEnabled: true,
     ...overrides
   }
@@ -143,15 +145,43 @@ describe('WatchDialog', () => {
     expect(wrapper.text()).toContain('You have no tasks you start yourself.')
   })
 
-  it('says when files are only sent on a check', async () => {
-    get.mockResolvedValueOnce(options({ uploadsEnabled: false }))
+  it('says when files are only sent on a check because consent is missing', async () => {
+    get.mockResolvedValueOnce(options({ uploadsEnabled: false, uploadsBlocked: 'consent' }))
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.find(testid('no-uploads')).exists()).toBe(true)
+    expect(wrapper.find(testid('no-machine')).exists()).toBe(false)
+    expect(wrapper.text()).toContain('allow Synaplan to work for you on the Synaplan page')
   })
 
+  it('says when machine authentication is missing instead of asking for consent again', async () => {
+    get.mockResolvedValueOnce(options({ uploadsEnabled: false, uploadsBlocked: 'machine_auth' }))
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.find(testid('no-machine')).exists()).toBe(true)
+    expect(wrapper.find(testid('no-uploads')).exists()).toBe(false)
+    expect(wrapper.text()).toContain('configure machine authentication')
+  })
+
+  it.each([
+    ['paused', 'paused', 'This watch is paused in Synaplan.'],
+    ['attention', 'attention', 'This watch stopped working in Synaplan.']
+  ])(
+    'explains a %s watch and lets the person stop it without Check now',
+    async (_, state, text) => {
+      get.mockResolvedValueOnce(options({ watching: true, watchState: state }))
+      const wrapper = mountDialog()
+      await flushPromises()
+      expect(wrapper.find(testid(state)).exists()).toBe(true)
+      expect(wrapper.text()).toContain(text)
+      expect(wrapper.find(testid('watching')).exists()).toBe(false)
+      expect(wrapper.find(testid('check')).exists()).toBe(false)
+      expect(wrapper.find(testid('stop')).exists()).toBe(true)
+    }
+  )
+
   it('checks a watched item now and says what was sent', async () => {
-    get.mockResolvedValueOnce(options({ watching: true }))
+    get.mockResolvedValueOnce(options({ watching: true, watchState: 'active' }))
     post.mockResolvedValueOnce({ data: { watches: 1, sent: 2, failed: 0 } })
     const wrapper = mountDialog()
     await flushPromises()
@@ -170,13 +200,17 @@ describe('WatchDialog', () => {
 
   it.each([
     [{ watches: 1, sent: 0, failed: 0 }, 'Checked. Synaplan has every file already.'],
+    [
+      { watches: 0, sent: 0, failed: 0 },
+      'Nothing was checked. This watch is not running, so Synaplan has not confirmed it has every file.'
+    ],
     [{ watches: 1, sent: 1, failed: 0 }, 'Checked. 1 file was sent to Synaplan.'],
     [
       { watches: 1, sent: 1, failed: 1 },
       'Checked. Some files could not be sent; Synaplan asks for them again later.'
     ]
   ])('reports the check %o', async (result, sentence) => {
-    get.mockResolvedValueOnce(options({ watching: true }))
+    get.mockResolvedValueOnce(options({ watching: true, watchState: 'active' }))
     post.mockResolvedValueOnce({ data: result })
     const wrapper = mountDialog()
     await flushPromises()
@@ -185,18 +219,34 @@ describe('WatchDialog', () => {
     expect(wrapper.get(testid('checked')).text()).toBe(sentence)
   })
 
-  it('stops watching', async () => {
-    get.mockResolvedValueOnce(options({ watching: true }))
-    del.mockResolvedValueOnce({ data: { stopped: 1 } })
+  it('stops watching with the spinner on Stop watching and offers starting a new watch', async () => {
+    get.mockResolvedValueOnce(options({ watching: true, watchState: 'active' }))
+    let resolveDelete: () => void = () => {}
+    del.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDelete = () => resolve({ data: { stopped: 1 } })
+        })
+    )
     const wrapper = mountDialog()
     await flushPromises()
 
     await wrapper.get(testid('stop')).trigger('click')
+    expect(wrapper.get(testid('stop')).attributes('data-spinner')).toBe('true')
+    expect(wrapper.get(testid('check')).attributes('data-spinner')).toBeUndefined()
+
+    resolveDelete()
     await flushPromises()
 
-    expect(del).toHaveBeenCalledWith('/api/synaplan/watches?targetId=s%24sp!inbox')
+    expect(del).toHaveBeenCalledWith(
+      '/api/synaplan/watches?targetId=s%24sp!inbox',
+      expect.anything()
+    )
     expect(wrapper.find(testid('stopped')).exists()).toBe(true)
     expect(wrapper.find(testid('check')).exists()).toBe(false)
+
+    await wrapper.get(testid('again')).trigger('click')
+    expect(wrapper.find(testid('submit')).exists()).toBe(true)
   })
 
   it('shows one readable sentence when the options cannot be loaded', async () => {

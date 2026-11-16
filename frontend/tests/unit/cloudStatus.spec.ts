@@ -4,6 +4,7 @@ import {
   SETTLED_TTL_MS,
   cloudFilesEnabled,
   cloudMarks,
+  invalidateAllCloudStatus,
   invalidateCloudStatus,
   loadCloudStatus,
   markFor,
@@ -52,6 +53,15 @@ describe('cloudStatus cache', () => {
     await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
     invalidateCloudStatus('f1')
     expect(markFor('f1')).toBeUndefined()
+    queueCloudStatus({ post }, { id: 'f1', version: 'v1' }, 1_001)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(post).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-checks freshness on invalidateAllCloudStatus', async () => {
+    const post = vi.fn().mockResolvedValue(answer('searchable'))
+    await loadCloudStatus({ post }, [{ id: 'f1', version: 'v1' }], 1_000)
+    invalidateAllCloudStatus()
     queueCloudStatus({ post }, { id: 'f1', version: 'v1' }, 1_001)
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(post).toHaveBeenCalledTimes(2)
