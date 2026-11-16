@@ -3,11 +3,9 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,10 +18,10 @@ import (
 const (
 	maxImagePromptRunes = 4000
 	maxMediaBodyBytes   = 64 << 10
-	imageTimeout        = 5 * time.Minute
 )
 
-var errImageTooLarge = errors.New("generated file is too large")
+// imageTimeout bounds one image generation and the copy of its file.
+var imageTimeout = 5 * time.Minute
 
 type generateImageRequest struct {
 	Prompt string `json:"prompt"`
@@ -37,6 +35,20 @@ type generateImageResponse struct {
 type saveImageRequest struct {
 	URL  string `json:"url"`
 	Name string `json:"name"`
+}
+
+// refuseMediaSharedKey closes the image routes when every OpenCloud user
+// shares one Synaplan key. With one key SaveImage could fetch any file
+// belonging to the key owner's Synaplan account.
+func (h *Handler) refuseMediaSharedKey(w http.ResponseWriter) bool {
+	if h == nil || !h.sharedKey {
+		return false
+	}
+	writeJSON(w, http.StatusForbidden, errorResponse{
+		Error: "Making and saving images needs each person signed in to Synaplan. This installation uses one shared key.",
+		Code:  "image_shared_key",
+	})
+	return true
 }
 
 // GenerateImage asks Synaplan for an image from a prompt, with the
@@ -58,7 +70,7 @@ func (h *Handler) GenerateImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.refuseSharedKey(w) {
+	if h.refuseMediaSharedKey(w) {
 		return
 	}
 
@@ -70,11 +82,21 @@ func (h *Handler) GenerateImage(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("media/generate: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "Synaplan cannot be reached. Try again in a minute, or ask your administrator.", Code: "synaplan_unreachable"})
+		writeJSON(w, http.StatusBadGateway, unreachableFailure())
 		return
 	}
-	if resp.StatusCode() == http.StatusUnprocessableEntity {
-		writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "This Synaplan has no model that makes images. Ask your administrator.", Code: "image_unavailable"})
+	switch resp.StatusCode() {
+	case http.StatusUnprocessableEntity:
+		writeJSON(w, http.StatusUnprocessableEntity, errorResponse{
+			Error: "This Synaplan has no model that makes images. Ask your administrator.",
+			Code:  "image_unavailable",
+		})
+		return
+	case http.StatusTooManyRequests:
+		writeJSON(w, http.StatusTooManyRequests, errorResponse{
+			Error: "You have made as many images as Synaplan allows right now. Try again later.",
+			Code:  "image_rate_limited",
+		})
 		return
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil || resp.JSON200.File.Url == "" {
@@ -87,8 +109,8 @@ func (h *Handler) GenerateImage(w http.ResponseWriter, r *http.Request) {
 }
 
 // SaveImage copies an image Synaplan made into the person's personal
-// space, under Synaplan/Images, through the same write path as a saved
-// summary. The image stays in Synaplan as well.
+// space, always under Synaplan/Images. The image stays in Synaplan as
+// well. Fetching it and writing it share one bounded deadline.
 func (h *Handler) SaveImage(w http.ResponseWriter, r *http.Request) {
 	var req saveImageRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMediaBodyBytes)).Decode(&req); err != nil {
@@ -105,28 +127,26 @@ func (h *Handler) SaveImage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: errMsg})
 		return
 	}
-	if h.refuseSharedKey(w) {
+	if h.refuseMediaSharedKey(w) {
 		return
 	}
 	if h.cs3 == nil {
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not save file: storage is not configured"})
+		log.Printf("media/save: storage is not configured")
+		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
 
-	content, err := h.fetchGenerated(r.Context(), ref)
-	if errors.Is(err, errImageTooLarge) {
-		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "This file is too large to copy here.", Code: "file_too_large"})
+	ctx, cancel := context.WithTimeout(r.Context(), imageTimeout)
+	defer cancel()
+	content, err := h.fetchGenerated(ctx, ref)
+	if err != nil {
+		writeCopyFetchFailure(w, "media/save", err)
 		return
 	}
+	saved, err := h.cs3.SaveInKind(ctx, "Images", name, content)
 	if err != nil {
 		log.Printf("media/save: %v", err)
-		writeJSON(w, http.StatusBadGateway, publicFailure(err))
-		return
-	}
-	saved, err := h.cs3.Save(r.Context(), name, content)
-	if err != nil {
-		log.Printf("media/save: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "The file was not copied. It is still in Synaplan.", Code: "copy_failed"})
+		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
 	writeJSON(w, http.StatusOK, saveFileResponse{Path: saved})
@@ -148,16 +168,29 @@ var uploadsSegment = regexp.MustCompile(`^[A-Za-z0-9._-]{1,200}$`)
 // file. The host is dropped: the file is always fetched from
 // SYNAPLAN_URL with the person's own credential.
 func parseGeneratedFile(raw string) (generatedFile, bool) {
-	raw = strings.TrimSpace(raw)
-	i := strings.Index(raw, "/api/v1/files/")
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return generatedFile{}, false
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return generatedFile{}, false
+	}
+	if parsed.Scheme != "" && parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return generatedFile{}, false
+	}
+	// RawPath is non-empty when any path character was percent-encoded
+	// (such as %2F); reject encoded paths rather than re-interpreting them.
+	if parsed.RawPath != "" && parsed.RawPath != parsed.Path {
+		return generatedFile{}, false
+	}
+	const marker = "/api/v1/files/"
+	i := strings.Index(parsed.Path, marker)
 	if i < 0 {
 		return generatedFile{}, false
 	}
-	raw = raw[i+len("/api/v1/files/"):]
-	if cut := strings.IndexAny(raw, "?#"); cut >= 0 {
-		raw = raw[:cut]
-	}
-	parts := strings.Split(raw, "/")
+	rest := parsed.Path[i+len(marker):]
+	parts := strings.Split(rest, "/")
 	switch {
 	case len(parts) == 2 && parts[1] == "download":
 		id, err := strconv.Atoi(parts[0])
@@ -189,28 +222,5 @@ func (h *Handler) fetchGenerated(ctx context.Context, ref generatedFile) ([]byte
 	} else {
 		resp, err = h.synaplanAPI.GetServeStaticUpload(ctx, ref.uploadPath, keepSlashes)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("fetching generated file: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	limit := h.copyLimit()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil {
-		return nil, fmt.Errorf("reading generated file: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, wrapUpstreamStatus("fetching generated file", resp.StatusCode, body)
-	}
-	if int64(len(body)) > limit {
-		return nil, errImageTooLarge
-	}
-	return body, nil
-}
-
-// keepSlashes sends a multi-segment path parameter with its slashes:
-// the generated client escapes them to %2F, which Synaplan's
-// uploads/{path} route does not match behind every web server.
-func keepSlashes(_ context.Context, req *http.Request) error {
-	req.URL.RawPath = ""
-	return nil
+	return h.readCappedSynaplanResponse("fetching generated file", resp, err)
 }

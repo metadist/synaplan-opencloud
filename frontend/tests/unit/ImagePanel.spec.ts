@@ -34,6 +34,14 @@ function mountPanel() {
   return mount(ImagePanel, { global: { stubs: { 'oc-button': ocButton } } })
 }
 
+function statusRegion(wrapper: ReturnType<typeof mountPanel>) {
+  const region = wrapper.get('[data-testid="synaplan-image-status"]')
+  expect(region.attributes('role')).toBe('status')
+  expect(region.attributes('aria-live')).toBe('polite')
+  expect(region.attributes('aria-atomic')).toBe('true')
+  return region
+}
+
 const generated = {
   data: { url: '/api/v1/files/uploads/04/000/00004/2026/11/m.png', mimeType: 'image/png' }
 }
@@ -45,6 +53,9 @@ describe('ImagePanel', () => {
 
   it('cannot make an image without a description', async () => {
     const wrapper = mountPanel()
+    const region = statusRegion(wrapper)
+    expect(region.find('[data-testid="synaplan-image-saved"]').exists()).toBe(false)
+    expect(region.find('[data-testid="synaplan-image-error"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="synaplan-image-make"]').attributes()).toHaveProperty(
       'disabled'
     )
@@ -75,10 +86,11 @@ describe('ImagePanel', () => {
       { url: generated.data.url, name: 'a red square.png' },
       expect.objectContaining({ timeout: 0 })
     )
-    expect(wrapper.get('[data-testid="synaplan-image-saved"]').text()).toBe(
+    const region = statusRegion(wrapper)
+    expect(region.get('[data-testid="synaplan-image-saved"]').text()).toBe(
       'Saved to Synaplan/Images/a red square.png. The image is still in Synaplan.'
     )
-    expect(wrapper.find('[data-testid="synaplan-image-error"]').exists()).toBe(false)
+    expect(region.find('[data-testid="synaplan-image-error"]').exists()).toBe(false)
   })
 
   it('says in one sentence why no image was made, and saves nothing', async () => {
@@ -89,10 +101,11 @@ describe('ImagePanel', () => {
     await flushPromises()
 
     expect(post).toHaveBeenCalledTimes(1)
-    expect(wrapper.get('[data-testid="synaplan-image-error"]').text()).toBe(
+    const region = statusRegion(wrapper)
+    expect(region.get('[data-testid="synaplan-image-error"]').text()).toBe(
       'This Synaplan has no model that makes images. Ask your administrator.'
     )
-    expect(wrapper.find('[data-testid="synaplan-image-saved"]').exists()).toBe(false)
+    expect(region.find('[data-testid="synaplan-image-saved"]').exists()).toBe(false)
   })
 
   it('falls back to one sentence when saving fails without a code', async () => {
@@ -104,7 +117,7 @@ describe('ImagePanel', () => {
     await wrapper.get('[data-testid="synaplan-image-make"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="synaplan-image-error"]').text()).toBe(
+    expect(statusRegion(wrapper).get('[data-testid="synaplan-image-error"]').text()).toBe(
       'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
     )
     expect(

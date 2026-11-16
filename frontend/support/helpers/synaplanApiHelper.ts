@@ -123,3 +123,80 @@ export async function storeSynaplanFile(
   if (!id) throw new Error('synaplan upload returned no file id')
   return id
 }
+
+interface SynaplanListedFile {
+  id: number
+  path?: string
+}
+
+/**
+ * Resolve a generated file URL (/api/v1/files/{id}/download or
+ * /api/v1/files/uploads/...) to its Synaplan file ID so E2E journeys
+ * can clean it up regardless of whether saving to OpenCloud succeeded.
+ * Returns 0 when fileUrl does not name a stored Synaplan file (e.g. an
+ * external placeholder URL in test stacks).
+ */
+export async function synaplanFileIdForUrl(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  fileUrl: string
+): Promise<number> {
+  const downloadId = synaplanDownloadId(fileUrl)
+  if (downloadId) return downloadId
+
+  const relative = synaplanUploadPath(fileUrl)
+  if (!relative) return 0
+
+  const name = relative.split('/').pop() ?? relative
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { search: name, limit: 50, sort: 'date_desc' }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan files list failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as { files?: SynaplanListedFile[] }
+  const match = (body.files ?? []).find((file) => synaplanListedPath(file.path ?? '') === relative)
+  if (!match?.id) throw new Error(`synaplan file not found for ${fileUrl}`)
+  return match.id
+}
+
+function synaplanDownloadId(fileUrl: string): number | undefined {
+  const path = cleanUrlPath(fileUrl)
+  if (!path) return undefined
+  const match = /\/api\/v1\/files\/(\d+)\/download$/.exec(path)
+  if (!match) return undefined
+  const id = Number(match[1])
+  return id > 0 ? id : undefined
+}
+
+function synaplanUploadPath(fileUrl: string): string | undefined {
+  const path = cleanUrlPath(fileUrl)
+  if (!path) return undefined
+  const marker = '/api/v1/files/uploads/'
+  const at = path.indexOf(marker)
+  if (at < 0) return undefined
+  const raw = path.slice(at + marker.length)
+  if (!raw || raw.includes('..')) return undefined
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+function synaplanListedPath(storedPath: string): string {
+  const fromUrl = synaplanUploadPath(storedPath)
+  if (fromUrl) return fromUrl
+  return storedPath.replace(/^\/+/, '')
+}
+
+function cleanUrlPath(raw: string): string | undefined {
+  try {
+    const parsed = new URL(raw, 'https://synaplan.local')
+    return parsed.pathname
+  } catch {
+    return undefined
+  }
+}

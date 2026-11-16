@@ -36,7 +36,7 @@ func kindFolder(filename string) string {
 		return "Audio"
 	case ".ics":
 		return "Calendar"
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp", ".tif", ".tiff":
 		return "Images"
 	case ".mp4", ".webm", ".mov", ".mkv":
 		return "Video"
@@ -51,6 +51,13 @@ func kindFolder(filename string) string {
 // taken it appends " (2)", " (3)", … and returns the space-relative
 // path that was written.
 func (r *Reader) Save(ctx context.Context, filename string, content []byte) (string, error) {
+	return r.SaveInKind(ctx, kindFolder(filename), filename, content)
+}
+
+// SaveInKind writes content into the signed-in user's personal space under
+// Synaplan/<kind>/ (or Synaplan/ when kind is empty), regardless of the
+// file's extension.
+func (r *Reader) SaveInKind(ctx context.Context, kind, filename string, content []byte) (string, error) {
 	if r == nil || r.gws == nil {
 		return "", errors.New("cs3reader: not configured")
 	}
@@ -75,8 +82,8 @@ func (r *Reader) Save(ctx context.Context, filename string, content []byte) (str
 	}
 
 	folder := synaplanRoot
-	if kind := kindFolder(name); kind != "" {
-		folder = synaplanRoot + "/" + kind
+	if cleaned := strings.Trim(strings.TrimSpace(kind), "/"); cleaned != "" {
+		folder = synaplanRoot + "/" + cleaned
 	}
 	if err := ensureFolder(gwCtx, gwc, root, synaplanRoot); err != nil {
 		return "", err
@@ -207,7 +214,10 @@ func freeName(ctx context.Context, gwc gateway.GatewayAPIClient, root *provider.
 		if n > 0 {
 			candidate = fmt.Sprintf("%s (%d)%s", base, n+1, ext)
 		}
-		rel := folder + "/" + candidate
+		rel := candidate
+		if folder != "" {
+			rel = folder + "/" + candidate
+		}
 		taken, err := pathTaken(ctx, gwc, root, rel)
 		if err != nil {
 			return "", err

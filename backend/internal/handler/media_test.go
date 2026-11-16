@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 )
 
 func TestParseGeneratedFile(t *testing.T) {
@@ -19,6 +22,7 @@ func TestParseGeneratedFile(t *testing.T) {
 	}{
 		{"/api/v1/files/uploads/04/000/00004/2026/11/media_4_test_1.png", generatedFile{uploadPath: "04/000/00004/2026/11/media_4_test_1.png"}, true},
 		{"https://synaplan.example/api/v1/files/uploads/7/cat.png?x=1#y", generatedFile{uploadPath: "7/cat.png"}, true},
+		{"https://synaplan.example/subpath/api/v1/files/uploads/7/cat.png", generatedFile{uploadPath: "7/cat.png"}, true},
 		{"/api/v1/files/uploads/generated_abc.png", generatedFile{uploadPath: "generated_abc.png"}, true},
 		{"/api/v1/files/42/download", generatedFile{id: 42}, true},
 		{"/api/v1/files/0/download", generatedFile{}, false},
@@ -30,6 +34,9 @@ func TestParseGeneratedFile(t *testing.T) {
 		{"/api/v1/files/uploads/a b/cat.png", generatedFile{}, false},
 		{"/api/v1/files/uploads/a%2Fb/cat.png", generatedFile{}, false},
 		{"/api/v1/files/uploads/1/2/3/4/5/6/7/8.png", generatedFile{}, false},
+		{"https://evil.example/x?next=/api/v1/files/42/download", generatedFile{}, false},
+		{"https://evil.example/x#/api/v1/files/42/download", generatedFile{}, false},
+		{"javascript:/api/v1/files/42/download", generatedFile{}, false},
 		{"/api/v1/admin/users", generatedFile{}, false},
 		{"http://evil.example/", generatedFile{}, false},
 		{"", generatedFile{}, false},
@@ -74,6 +81,7 @@ func TestGenerateImageAsksSynaplanForAnImage(t *testing.T) {
 	}{
 		{"made", http.StatusOK, `{"success":true,"file":{"url":"/api/v1/files/uploads/7/cat.png","type":"image","mimeType":"image/png"},"provider":"test","model":"m"}`, http.StatusOK, "/api/v1/files/uploads/7/cat.png", ""},
 		{"no image model", http.StatusUnprocessableEntity, `{"error":"No model available for image generation"}`, http.StatusUnprocessableEntity, "", "image_unavailable"},
+		{"rate limited", http.StatusTooManyRequests, `{"error":"Rate limit exceeded for IMAGES"}`, http.StatusTooManyRequests, "", "image_rate_limited"},
 		{"provider failed", http.StatusInternalServerError, `{"error":"boom"}`, http.StatusBadGateway, "", "synaplan_error"},
 		{"no file", http.StatusOK, `{"success":true,"file":{"url":""}}`, http.StatusBadGateway, "", "synaplan_error"},
 	}
@@ -127,7 +135,7 @@ func TestSaveImageRejectsBadInput(t *testing.T) {
 		{"bad json", "{", "invalid JSON body", http.StatusBadRequest},
 		{"foreign url", `{"url":"/api/v1/admin/users","name":"a.png"}`, "does not name a file", http.StatusBadRequest},
 		{"no name", `{"url":"/api/v1/files/uploads/7/cat.png"}`, "filename is required", http.StatusBadRequest},
-		{"no storage", `{"url":"/api/v1/files/uploads/7/cat.png","name":"cat.png"}`, "storage is not configured", http.StatusBadGateway},
+		{"no storage", `{"url":"/api/v1/files/uploads/7/cat.png","name":"cat.png"}`, `"code":"copy_failed"`, http.StatusBadGateway},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -154,7 +162,7 @@ func TestFetchGeneratedReadsTheFileFromSynaplan(t *testing.T) {
 	}{
 		{"sharded upload", generatedFile{uploadPath: "04/000/00004/2026/11/m.png"}, "/api/v1/files/uploads/04/000/00004/2026/11/m.png", http.StatusOK, png, png, nil},
 		{"by id", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusOK, png, png, nil},
-		{"too large", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusOK, bytes.Repeat([]byte("a"), 65), nil, errImageTooLarge},
+		{"too large", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusOK, bytes.Repeat([]byte("a"), 65), nil, errCopyTooLarge},
 		{"not theirs", generatedFile{id: 42}, "/api/v1/files/42/download", http.StatusForbidden, []byte(`{"error":"denied"}`), nil, errClientInput},
 	}
 	for _, tc := range cases {
@@ -187,6 +195,128 @@ func TestFetchGeneratedReadsTheFileFromSynaplan(t *testing.T) {
 	}
 }
 
+func TestFetchGeneratedDistinguishesTransportFailures(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+	h, err := New(nil, upstream.URL, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.fetchGenerated(context.Background(), generatedFile{id: 7})
+	if err == nil || errors.Is(err, errSynaplanUnreachable) || !strings.Contains(err.Error(), "status 500") {
+		t.Fatalf("upstream = %v, want the HTTP status and not a transport failure", err)
+	}
+
+	refused := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	refusedURL := refused.URL
+	refused.Close()
+	h, err = New(nil, refusedURL, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.fetchGenerated(context.Background(), generatedFile{id: 7})
+	if !errors.Is(err, errSynaplanUnreachable) {
+		t.Fatalf("transport = %v, want errSynaplanUnreachable", err)
+	}
+
+	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("no"))
+	}))
+	defer truncated.Close()
+	h, err = New(nil, truncated.URL, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.fetchGenerated(context.Background(), generatedFile{id: 7})
+	if err == nil || errors.Is(err, errSynaplanUnreachable) || !strings.Contains(err.Error(), "status 503") {
+		t.Fatalf("truncated 503 = %v, want the HTTP status", err)
+	}
+}
+
+func TestSaveImageMapsFetchFailures(t *testing.T) {
+	t.Run("upstream status stays synaplan_error", func(t *testing.T) {
+		synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+		}))
+		defer synaplan.Close()
+
+		rr := saveImageAgainst(t, synaplan.URL)
+		assertErrorCode(t, rr, http.StatusBadGateway, "synaplan_error")
+	})
+
+	t.Run("the fetch is bounded", func(t *testing.T) {
+		original := imageTimeout
+		imageTimeout = 200 * time.Millisecond
+		t.Cleanup(func() { imageTimeout = original })
+
+		synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(3 * time.Second):
+				http.Error(w, "still open", http.StatusGatewayTimeout)
+			}
+		}))
+		defer synaplan.Close()
+		h, err := New(nil, synaplan.URL, &cs3reader.Reader{}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		req := httptest.NewRequest(http.MethodPost, "/api/synaplan/media/save", strings.NewReader(`{"url":"/api/v1/files/42/download","name":"cat.png"}`))
+		req = req.WithContext(ctx)
+
+		started := time.Now()
+		rr := httptest.NewRecorder()
+		h.SaveImage(rr, req)
+		if time.Since(started) > time.Second {
+			t.Fatalf("elapsed %s, want the image timeout", time.Since(started))
+		}
+		assertErrorCode(t, rr, http.StatusBadGateway, "synaplan_unreachable")
+	})
+
+	t.Run("connection failure is synaplan_unreachable", func(t *testing.T) {
+		synaplan := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		synaplanURL := synaplan.URL
+		synaplan.Close()
+
+		rr := saveImageAgainst(t, synaplanURL)
+		assertErrorCode(t, rr, http.StatusBadGateway, "synaplan_unreachable")
+	})
+}
+
+func saveImageAgainst(t *testing.T, synaplanURL string) *httptest.ResponseRecorder {
+	t.Helper()
+	h, err := New(nil, synaplanURL, &cs3reader.Reader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/synaplan/media/save", strings.NewReader(`{"url":"/api/v1/files/42/download","name":"cat.png"}`))
+	h.SaveImage(rr, req)
+	return rr
+}
+
+func assertErrorCode(t *testing.T, rr *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+	if rr.Code != status {
+		t.Fatalf("status = %d, body %s", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Code != code {
+		t.Fatalf("code = %q, body %s", got.Code, rr.Body.String())
+	}
+}
+
 func TestImagesStayClosedWithTheSharedKey(t *testing.T) {
 	cases := []struct {
 		name, path, body string
@@ -201,7 +331,7 @@ func TestImagesStayClosedWithTheSharedKey(t *testing.T) {
 			h.UseSharedKey()
 			rr := httptest.NewRecorder()
 			tc.serve(h, rr, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
-			if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"code":"shared_key"`) {
+			if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"code":"image_shared_key"`) {
 				t.Fatalf("status = %d, body %s", rr.Code, rr.Body.String())
 			}
 		})

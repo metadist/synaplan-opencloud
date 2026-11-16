@@ -23,3 +23,23 @@ func TestSpaceRelative(t *testing.T) {
 		})
 	}
 }
+
+func TestKindFolder(t *testing.T) {
+	tests := []struct {
+		filename string
+		want     string
+	}{
+		{"cat.png", "Images"},
+		{"cat.AVIF", "Images"},
+		{"cat.bmp", "Images"},
+		{"cat.tiff", "Images"},
+		{"report.pdf", "Documents"},
+		{"clip.mp4", "Video"},
+		{"archive.zip", ""},
+	}
+	for _, tt := range tests {
+		if got := kindFolder(tt.filename); got != tt.want {
+			t.Errorf("kindFolder(%q) = %q, want %q", tt.filename, got, tt.want)
+		}
+	}
+}
