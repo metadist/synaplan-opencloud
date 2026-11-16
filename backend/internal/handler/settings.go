@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/metadist/synaplan-opencloud/internal/settings"
 )
@@ -29,14 +30,19 @@ var answerLanguages = map[string]string{
 // configuration names a supported language.
 const fallbackAnswerLanguage = "en"
 
-// normalizeLanguage maps a locale ("pt_BR", "DE") to a supported code, or "".
+// settingsReadTimeout bounds the read of the administrator's settings. It
+// runs before every summary, so a NATS that does not answer must not hold
+// the summary up for long: the configured defaults apply instead.
+const settingsReadTimeout = 2 * time.Second
+
+// normalizeLanguage maps a locale ("pt_BR", "de-DE", "DE") to a supported
+// code, or "". Only the primary language subtag counts, so a three-letter
+// code such as "arn" is not mistaken for "ar".
 func normalizeLanguage(raw string) string {
 	raw = strings.ToLower(strings.TrimSpace(raw))
-	if len(raw) < 2 {
-		return ""
-	}
-	if _, ok := answerLanguages[raw[:2]]; ok {
-		return raw[:2]
+	primary, _, _ := strings.Cut(strings.ReplaceAll(raw, "_", "-"), "-")
+	if _, ok := answerLanguages[primary]; ok {
+		return primary
 	}
 	return ""
 }
@@ -62,6 +68,8 @@ func (h *Handler) isAdmin(ctx context.Context) bool {
 func (h *Handler) adminSettings(ctx context.Context) settings.Values {
 	values := h.settingsDefaults
 	if h.settings != nil {
+		ctx, cancel := context.WithTimeout(ctx, settingsReadTimeout)
+		defer cancel()
 		stored, ok, err := h.settings.Get(ctx)
 		if err != nil {
 			log.Printf("admin settings: %v", err)

@@ -108,7 +108,7 @@ When `SYNAPLAN_API_KEY` is set it takes precedence and the `SYNAPLAN_OIDC_*` var
 |-----|---------|
 | `OC_REVA_GATEWAY` | CS3 gateway used by the backend to read user files and to ask whether a person is an administrator. |
 | `OC_JWT_SECRET` | Shared JWT secret with OpenCloud's reva proxy. |
-| `SYNAPLAN_DEFAULT_ANSWER_LANGUAGE` | Language Synaplan answers in (ISO 639-1). Default `en`. Applies until an administrator saves another on the Synaplan page. |
+| `SYNAPLAN_DEFAULT_ANSWER_LANGUAGE` | Language Synaplan answers in (ISO 639-1): `en`, `de`, `fr`, `es`, `it`, `pt`, `nl`, `pl`, `tr`, `ru`, `ja`, `zh`, `ko` or `ar`. Default `en`. Another value stops the backend at start. Applies until an administrator saves another on the Synaplan page. |
 | `SYNAPLAN_USE_USER_LANGUAGE` | Answer in each person's OpenCloud interface language when it is supported, with the default as the fallback. Default `true`. Applies until an administrator saves another choice. |
 | `SYNAPLAN_MAX_COPY_BYTES` | Largest file, in bytes, copied from Synaplan into a folder. Defaults to 104857600 (100 MB), Cloudflare's body limit. Raise it where a larger body is allowed. A film does not fit in the default, and the service buffers the file, so the process needs the memory. |
 

@@ -105,6 +105,9 @@ func (h *Handler) UseSharedKey() {
 // — the caller picks between per-user OIDC token exchange and a
 // shared API key (see pkg/command/server.go).
 func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated, admin Admin) (*Handler, error) {
+	if lang := admin.Defaults.DefaultAnswerLanguage; lang != "" && normalizeLanguage(lang) == "" {
+		return nil, fmt.Errorf("default answer language %q is not supported", lang)
+	}
 	target, err := url.Parse(synaplanURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing synaplan url: %w", err)

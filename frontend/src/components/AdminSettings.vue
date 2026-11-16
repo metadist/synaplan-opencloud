@@ -17,11 +17,13 @@
           :clearable="false"
           :searchable="false"
           :position-fixed="true"
+          :disabled="saving"
           data-testid="synaplan-admin-language"
           @update:model-value="onLanguageChange"
         />
         <oc-checkbox
           v-model="useUserLanguage"
+          :disabled="saving"
           :label="$gettext('Answer in each person’s OpenCloud language when Synaplan supports it')"
           data-testid="synaplan-admin-user-language"
         />
@@ -29,7 +31,7 @@
           <oc-button
             appearance="filled"
             color-role="primary"
-            :disabled="saving || !selectedLanguage"
+            :disabled="saving || !dirty"
             :show-spinner="saving"
             data-testid="synaplan-admin-save"
             @click="save"
@@ -56,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useClientService } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { z } from 'zod'
@@ -93,9 +95,7 @@ const error = ref('')
 
 const modeSentence = computed(() =>
   settings.value?.mode === 'shared'
-    ? $gettext(
-        'Everyone here uses one shared Synaplan account (SYNAPLAN_API_KEY) and sees its files.'
-      )
+    ? $gettext('Everyone here uses one shared Synaplan account and sees its files.')
     : $gettext('People here use Synaplan with their own organisation login, shared with Synaplan.')
 )
 
@@ -157,30 +157,40 @@ async function loadSettings() {
   }
 }
 
+// dirty is true when the form differs from what is in force, so Save only
+// offers itself when there is something to save.
+const dirty = computed(() => {
+  const current = settings.value
+  if (!current || !selectedLanguage.value) return false
+  return (
+    selectedLanguage.value.code !== current.defaultAnswerLanguage ||
+    useUserLanguage.value !== current.useUserLanguage
+  )
+})
+
+// "Saved" describes what is in force; any change after it is unsaved again.
+watch([selectedLanguage, useUserLanguage], () => {
+  if (!saving.value) saved.value = false
+})
+
 function onLanguageChange(value: LanguageOption | null) {
   if (value) {
     selectedLanguage.value = value
-    saved.value = false
   }
 }
 
 async function save() {
+  const current = settings.value
   const language = selectedLanguage.value
-  if (!language || !settings.value) return
+  if (!language || !current) return
+  // Take the values once: what is stored below is exactly what was sent.
+  const values = { defaultAnswerLanguage: language.code, useUserLanguage: useUserLanguage.value }
   saving.value = true
   saved.value = false
   error.value = ''
   try {
-    await httpAuthenticated.put(
-      '/api/synaplan/settings',
-      { defaultAnswerLanguage: language.code, useUserLanguage: useUserLanguage.value },
-      { schema: savedSchema }
-    )
-    settings.value = {
-      ...settings.value,
-      defaultAnswerLanguage: language.code,
-      useUserLanguage: useUserLanguage.value
-    }
+    await httpAuthenticated.put('/api/synaplan/settings', values, { schema: savedSchema })
+    settings.value = { ...current, ...values }
     saved.value = true
   } catch (e) {
     error.value = sentenceFor(

@@ -21,23 +21,28 @@ import AdminSettings from '../../src/components/AdminSettings.vue'
 const ocButton = defineComponent({
   props: ['disabled'],
   emits: ['click'],
-  setup(_, { slots, emit, attrs }) {
-    return () => h('button', { ...attrs, onClick: () => emit('click') }, slots.default?.())
+  setup(props, { slots, emit, attrs }) {
+    return () =>
+      h(
+        'button',
+        { ...attrs, disabled: props.disabled, onClick: () => !props.disabled && emit('click') },
+        slots.default?.()
+      )
   }
 })
 
 const ocSelect = defineComponent({
   name: 'oc-select',
-  props: ['modelValue', 'options'],
+  props: ['modelValue', 'options', 'disabled'],
   emits: ['update:model-value'],
-  setup(_, { attrs }) {
-    return () => h('div', attrs)
+  setup(props, { attrs }) {
+    return () => h('div', { ...attrs, 'data-disabled': String(!!props.disabled) })
   }
 })
 
 const ocCheckbox = defineComponent({
   name: 'oc-checkbox',
-  props: ['modelValue', 'label'],
+  props: ['modelValue', 'label', 'disabled'],
   emits: ['update:modelValue'],
   setup(props, { attrs, emit }) {
     return () =>
@@ -45,6 +50,7 @@ const ocCheckbox = defineComponent({
         ...attrs,
         type: 'checkbox',
         checked: props.modelValue,
+        disabled: props.disabled,
         onChange: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).checked)
       })
   }
@@ -164,12 +170,52 @@ describe('AdminSettings', () => {
     put.mockRejectedValueOnce({ response: { data: { code: 'admin_only', error: 'x' } } })
     const wrapper = mountIt()
     await flushPromises()
+    await wrapper.get('[data-testid="synaplan-admin-user-language"]').setValue(false)
     await wrapper.get('[data-testid="synaplan-admin-save"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-testid="synaplan-admin-error"]').text()).toBe(
       'Only an administrator can change this.'
     )
+    expect(wrapper.find('[data-testid="synaplan-admin-saved"]').exists()).toBe(false)
+  })
+
+  it('offers Save only when something changed', async () => {
+    answer(settings())
+    const wrapper = mountIt()
+    await flushPromises()
+    const save = () => wrapper.get('[data-testid="synaplan-admin-save"]')
+    const checkbox = () => wrapper.get('[data-testid="synaplan-admin-user-language"]')
+    expect(save().attributes('disabled')).toBeDefined()
+
+    await checkbox().setValue(false)
+    expect(save().attributes('disabled')).toBeUndefined()
+
+    await checkbox().setValue(true)
+    expect(save().attributes('disabled')).toBeDefined()
+  })
+
+  it('locks the form while saving and drops "Saved" once it changes again', async () => {
+    answer(settings())
+    let resolvePut: (value: unknown) => void = () => {}
+    put.mockReturnValueOnce(new Promise((resolve) => (resolvePut = resolve)))
+    const wrapper = mountIt()
+    await flushPromises()
+    const checkbox = () => wrapper.get('[data-testid="synaplan-admin-user-language"]')
+    const select = () => wrapper.get('[data-testid="synaplan-admin-language"]')
+
+    await checkbox().setValue(false)
+    await wrapper.get('[data-testid="synaplan-admin-save"]').trigger('click')
+    expect(checkbox().attributes('disabled')).toBeDefined()
+    expect(select().attributes('data-disabled')).toBe('true')
+
+    resolvePut({ data: { saved: true } })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="synaplan-admin-saved"]').exists()).toBe(true)
+    expect(checkbox().attributes('disabled')).toBeUndefined()
+    expect(select().attributes('data-disabled')).toBe('false')
+
+    await checkbox().setValue(true)
     expect(wrapper.find('[data-testid="synaplan-admin-saved"]').exists()).toBe(false)
   })
 

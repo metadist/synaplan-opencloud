@@ -45,7 +45,8 @@ func storeWith(t *testing.T, values *settings.Values) *settings.MemoryStore {
 
 func TestNormalizeLanguage(t *testing.T) {
 	tests := map[string]string{
-		"de": "de", "DE": "de", "pt_BR": "pt", " fr-CA ": "fr", "xx": "", "": "", "d": "",
+		"de": "de", "DE": "de", "pt_BR": "pt", " fr-CA ": "fr", "zh-Hant-TW": "zh", "xx": "", "": "", "d": "",
+		"arn": "", "deu": "", "en-": "en",
 	}
 	for raw, want := range tests {
 		if got := normalizeLanguage(raw); got != want {
@@ -181,6 +182,28 @@ func TestSaveSettings(t *testing.T) {
 				if err != nil || !ok || stored != *tt.saved {
 					t.Fatalf("stored %+v, %v, %v; want %+v", stored, ok, err, *tt.saved)
 				}
+			}
+		})
+	}
+}
+
+func TestNewDefaultAnswerLanguage(t *testing.T) {
+	tests := []struct {
+		name    string
+		lang    string
+		wantErr bool
+	}{
+		{name: "unset falls back", lang: ""},
+		{name: "supported", lang: "de"},
+		{name: "supported locale", lang: "pt_BR"},
+		{name: "typo stops the start", lang: "germn", wantErr: true},
+		{name: "unsupported", lang: "sv", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := New(nil, "http://synaplan.invalid", nil, nil, Admin{Defaults: settings.Values{DefaultAnswerLanguage: tt.lang}})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("New() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

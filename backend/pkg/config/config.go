@@ -43,7 +43,7 @@ type Config struct {
 	OIDCTargetAudience        string `yaml:"oidc_target_audience" env:"SYNAPLAN_OIDC_TARGET_AUDIENCE" desc:"Target audience (Synaplan client ID) for token exchange."`
 
 	// Answer language until an administrator saves another on the Synaplan page.
-	DefaultAnswerLanguage string `yaml:"default_answer_language" env:"SYNAPLAN_DEFAULT_ANSWER_LANGUAGE" desc:"Language Synaplan answers in (ISO 639-1, for example de) until an administrator saves another one on the Synaplan page."`
+	DefaultAnswerLanguage string `yaml:"default_answer_language" env:"SYNAPLAN_DEFAULT_ANSWER_LANGUAGE" desc:"Language Synaplan answers in (ISO 639-1: en, de, fr, es, it, pt, nl, pl, tr, ru, ja, zh, ko or ar) until an administrator saves another one on the Synaplan page. Another value stops the service at start."`
 	UseUserLanguage       bool   `yaml:"use_user_language" env:"SYNAPLAN_USE_USER_LANGUAGE" desc:"Answer in each person's OpenCloud interface language when it is supported, with the default answer language as the fallback, until an administrator saves another choice on the Synaplan page."`
 
 	// Store keeps the offline tokens of people who allowed work while they
