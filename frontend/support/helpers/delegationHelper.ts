@@ -1,8 +1,8 @@
 import { Page, expect } from '@playwright/test'
 
 /**
- * The "work while you are away" section of the Synaplan page: allowing and
- * stopping it the way a person does.
+ * Allow and stop Synaplan's work while the person is away, from the
+ * Synaplan page, the way the person does it.
  */
 
 export async function openDelegationSection(page: Page) {
@@ -15,7 +15,7 @@ export async function openDelegationSection(page: Page) {
   return { connect, disconnect }
 }
 
-export async function allowWhileAway(page: Page): Promise<void> {
+export async function allowWorkWhileAway(page: Page): Promise<void> {
   const { connect, disconnect } = await openDelegationSection(page)
   if (await connect.isVisible()) {
     await connect.click()
@@ -23,7 +23,7 @@ export async function allowWhileAway(page: Page): Promise<void> {
   await expect(disconnect).toBeVisible({ timeout: 20_000 })
 }
 
-export async function stopWhileAway(page: Page): Promise<void> {
+export async function stopWorkWhileAway(page: Page): Promise<void> {
   const { connect, disconnect } = await openDelegationSection(page)
   if (await disconnect.isVisible()) {
     await disconnect.click()

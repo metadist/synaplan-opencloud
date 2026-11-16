@@ -1,7 +1,7 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test'
 import { getAccessToken, loginAsUser, logout } from '../../support/helpers/authHelper'
 import { openSynaplanMenu } from '../../support/helpers/contextMenuHelper'
-import { allowWhileAway, stopWhileAway } from '../../support/helpers/delegationHelper'
+import { allowWorkWhileAway, stopWorkWhileAway } from '../../support/helpers/delegationHelper'
 import {
   deleteFileQuiet,
   ensureFolder,
@@ -58,7 +58,7 @@ test.beforeEach(async ({ browser, request }) => {
   })
   expect(me.ok(), await me.text()).toBe(true)
   userPage = (await loginAsUser(browser, TEST_USER, TEST_PASSWORD)).page
-  await allowWhileAway(userPage)
+  await allowWorkWhileAway(userPage)
 })
 
 test.afterEach(async ({ request }) => {
@@ -68,7 +68,7 @@ test.afterEach(async ({ request }) => {
   await wipeKnowledgeGroup(request, SYNAPLAN_API_URL, synaplanToken, GROUP).catch(() => {})
   if (userPage) {
     await userPage.keyboard.press('Escape').catch(() => {})
-    await stopWhileAway(userPage).catch(() => {})
+    await stopWorkWhileAway(userPage).catch(() => {})
     await logout(userPage).catch(() => {})
   }
 })
@@ -136,7 +136,7 @@ test('does not follow edits when the person stopped allowing work while away', a
   await uploadTextFile(request, webDavUrl, accessToken, path, 'Without permission while away.')
   filesToCleanup.push(path)
 
-  await stopWhileAway(userPage)
+  await stopWorkWhileAway(userPage)
   await addKept(userPage, name)
   const notKept = userPage.locator('[data-testid="synaplan-knowledge-not-kept"]')
   await expect(notKept).toBeVisible()
