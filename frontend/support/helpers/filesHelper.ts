@@ -95,6 +95,22 @@ export async function downloadTextFile(
   return resp.text()
 }
 
+export async function downloadFile(
+  request: APIRequestContext,
+  webDavUrl: string,
+  accessToken: string,
+  fileName: string
+): Promise<Buffer> {
+  const url = buildFileUrl(webDavUrl, fileName)
+  const resp = await request.get(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  })
+  if (!resp.ok()) {
+    throw new Error(`GET ${url} failed: ${resp.status()} ${await resp.text()}`)
+  }
+  return resp.body()
+}
+
 /**
  * Read a binary fixture from disk (relative to the frontend root) and
  * upload it. Used by tests that need to exercise Synaplan's binary

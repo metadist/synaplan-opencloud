@@ -23,10 +23,20 @@ describe('sentenceFor', () => {
       'no_text',
       'Synaplan found no text in this file. It may be a scan or protected by a password.'
     ],
+    ['image_unavailable', 'This Synaplan has no model that makes images. Ask your administrator.'],
+    [
+      'image_rate_limited',
+      'You have made as many images as Synaplan allows right now. Try again later.'
+    ],
+    [
+      'image_shared_key',
+      'Making and saving images needs each person signed in to Synaplan. This installation uses one shared key.'
+    ],
     [
       'synaplan_error',
       'Synaplan could not finish this. Try again in a minute, or ask your administrator.'
     ],
+    ['rate_limited', 'Synaplan is busy or your limit is reached. Try again later.'],
     ['identity_check_failed', 'Synaplan could not check who you are. Try again.'],
     ['idp_unreachable', 'The sign-in service cannot be reached. Try again later.'],
     ['permission_unavailable', 'Synaplan cannot check this permission right now. Try again later.'],

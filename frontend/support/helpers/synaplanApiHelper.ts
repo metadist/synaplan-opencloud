@@ -215,3 +215,154 @@ export async function deleteSynaplanFileQuiet(
     })
     .catch(() => {})
 }
+
+interface SynaplanModelRow {
+  id: number
+  providerId: string
+  name: string
+  service: string
+}
+
+/**
+ * The chat model Synaplan uses for the person when they pick none, as
+ * the chat dialog labels it ("name (service)") alongside its providerId.
+ * A journey that picks a model picks this one: it works in the dev stack
+ * with real providers and in the CI test stack, where only the stub answers.
+ */
+export async function defaultChatModel(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string
+): Promise<{ providerId: string; label: string }> {
+  const headers = { Authorization: `Bearer ${token}` }
+  const trimmedBase = baseUrl.replace(/\/+$/, '')
+
+  const defaultsResp = await request.get(`${trimmedBase}/api/v1/config/models/defaults`, {
+    headers
+  })
+  if (!defaultsResp.ok()) {
+    throw new Error(`synaplan model defaults failed: ${defaultsResp.status()}`)
+  }
+  const defaults = (await defaultsResp.json()) as { defaults?: { CHAT?: number | string } }
+  const chatId = Number(defaults.defaults?.CHAT)
+
+  const modelsResp = await request.get(`${trimmedBase}/api/v1/config/models`, { headers })
+  if (!modelsResp.ok()) {
+    throw new Error(`synaplan models list failed: ${modelsResp.status()}`)
+  }
+  const models = (await modelsResp.json()) as { models?: { CHAT?: SynaplanModelRow[] } }
+  const row = models.models?.CHAT?.find((m) => m.id === chatId)
+  if (!row) {
+    throw new Error(`synaplan default chat model ${chatId} is not in the model list`)
+  }
+  return {
+    providerId: row.providerId,
+    label: row.service ? `${row.name} (${row.service})` : row.name
+  }
+}
+
+/**
+ * Store a file in Synaplan without processing it and return its id. Used
+ * by journeys that need a file Synaplan holds, such as an image the test
+ * stack's model cannot make.
+ */
+export async function storeSynaplanFile(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  name: string,
+  content: Buffer,
+  mimeType: string
+): Promise<number> {
+  const resp = await request.post(`${baseUrl.replace(/\/+$/, '')}/api/v1/files/upload`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      'files[]': { name, mimeType, buffer: content },
+      process_level: 'store'
+    }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan upload failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as { files?: { id: number }[] }
+  const id = body.files?.[0]?.id
+  if (!id) throw new Error('synaplan upload returned no file id')
+  return id
+}
+
+interface SynaplanListedFile {
+  id: number
+  path?: string
+}
+
+/**
+ * Resolve a generated file URL (/api/v1/files/{id}/download or
+ * /api/v1/files/uploads/...) to its Synaplan file ID so E2E journeys
+ * can clean it up regardless of whether saving to OpenCloud succeeded.
+ * Returns 0 when fileUrl does not name a stored Synaplan file (e.g. an
+ * external placeholder URL in test stacks).
+ */
+export async function synaplanFileIdForUrl(
+  request: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  fileUrl: string
+): Promise<number> {
+  const downloadId = synaplanDownloadId(fileUrl)
+  if (downloadId) return downloadId
+
+  const relative = synaplanUploadPath(fileUrl)
+  if (!relative) return 0
+
+  const name = relative.split('/').pop() ?? relative
+  const resp = await request.get(`${baseUrl.replace(/\/+$/, '')}/api/v1/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { search: name, limit: 50, sort: 'date_desc' }
+  })
+  if (!resp.ok()) {
+    throw new Error(`synaplan files list failed: ${resp.status()} ${await resp.text()}`)
+  }
+  const body = (await resp.json()) as { files?: SynaplanListedFile[] }
+  const match = (body.files ?? []).find((file) => synaplanListedPath(file.path ?? '') === relative)
+  if (!match?.id) throw new Error(`synaplan file not found for ${fileUrl}`)
+  return match.id
+}
+
+function synaplanDownloadId(fileUrl: string): number | undefined {
+  const path = cleanUrlPath(fileUrl)
+  if (!path) return undefined
+  const match = /\/api\/v1\/files\/(\d+)\/download$/.exec(path)
+  if (!match) return undefined
+  const id = Number(match[1])
+  return id > 0 ? id : undefined
+}
+
+function synaplanUploadPath(fileUrl: string): string | undefined {
+  const path = cleanUrlPath(fileUrl)
+  if (!path) return undefined
+  const marker = '/api/v1/files/uploads/'
+  const at = path.indexOf(marker)
+  if (at < 0) return undefined
+  const raw = path.slice(at + marker.length)
+  if (!raw || raw.includes('..')) return undefined
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+function synaplanListedPath(storedPath: string): string {
+  const fromUrl = synaplanUploadPath(storedPath)
+  if (fromUrl) return fromUrl
+  return storedPath.replace(/^\/+/, '')
+}
+
+function cleanUrlPath(raw: string): string | undefined {
+  try {
+    const parsed = new URL(raw, 'https://synaplan.local')
+    return parsed.pathname
+  } catch {
+    return undefined
+  }
+}
