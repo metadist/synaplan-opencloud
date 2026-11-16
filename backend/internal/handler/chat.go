@@ -6,16 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
-// chatMessageMaxLen bounds a question; chatModelMaxLen a model id.
+// chatMessageMaxLen bounds a question in Unicode characters; chatModelMaxLen bounds a model id.
 const (
 	chatMessageMaxLen = 8000
 	chatModelMaxLen   = 200
@@ -36,9 +35,6 @@ var answerLanguages = map[string]string{
 
 const defaultAnswerLanguage = "en"
 
-// errRateLimited is Synaplan saying the person asked too much.
-var errRateLimited = fmt.Errorf("synaplan rate limit: %w", errClientInput)
-
 type chatRequest struct {
 	ResourceID string `json:"resourceId"`
 	Message    string `json:"message"`
@@ -57,7 +53,7 @@ type chatResponse struct {
 // stream: the dialog shows it when Synaplan is done.
 func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body: " + err.Error()})
 		return
 	}
@@ -67,7 +63,7 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "message is required"})
 		return
 	}
-	if len(req.Message) > chatMessageMaxLen {
+	if utf8.RuneCountInString(req.Message) > chatMessageMaxLen {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("message must be %d characters or fewer", chatMessageMaxLen)})
 		return
 	}
@@ -101,16 +97,29 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, chatResponse{Answer: answer})
 }
 
-// fileText is the text of a file, read inline for text files and
-// extracted by Synaplan for documents, cut to chatFileMaxRunes.
+// fileText is the text of a file, cut to chatFileMaxRunes. Text files
+// are read through a bounded UTF-8 prefix reader so a large file is
+// never buffered whole. Documents go through Synaplan's extraction, and
+// the extracted text is then cut on a rune boundary.
 func (h *Handler) fileText(ctx context.Context, file *cs3reader.File) (string, error) {
-	text, fileID, cleanup, err := h.prepareSummaryInput(ctx, file)
+	if isTextMime(file.MimeType) {
+		text, err := readRunePrefix(file.Body, chatFileMaxRunes)
+		if err != nil {
+			return "", fmt.Errorf("read file body: %w", err)
+		}
+		if strings.TrimSpace(text) == "" {
+			return "", errFileEmpty
+		}
+		return text, nil
+	}
+
+	_, fileID, cleanup, err := h.prepareSummaryInput(ctx, file)
 	defer cleanup()
 	if err != nil {
 		return "", err
 	}
-	if text != nil {
-		return clipRunes(*text, chatFileMaxRunes), nil
+	if fileID == nil {
+		return "", errNoText
 	}
 	res, err := h.synaplanAPI.GetApiFilesContentWithResponse(ctx, *fileID)
 	if err != nil {
@@ -139,14 +148,21 @@ func (h *Handler) ask(ctx context.Context, req chatRequest, fileText string) (st
 	if fileText != "" {
 		content = "The file says:\n\n" + fileText + "\n\nQuestion: " + req.Message
 	}
-	var body synaplanapi.PostOpenaiChatCompletionsJSONRequestBody
-	body.Messages = slices.Grow(body.Messages, 2)[:2]
 	system := synaplanapi.PostOpenaiChatCompletionsJSONBodyMessagesRoleSystem
 	user := synaplanapi.PostOpenaiChatCompletionsJSONBodyMessagesRoleUser
-	body.Messages[0].Role, body.Messages[0].Content = &system, h.systemPrompt(ctx, req.Language, req.Message)
-	body.Messages[1].Role, body.Messages[1].Content = &user, content
 	stream := false
-	body.Stream = &stream
+	var sysMsg, userMsg struct {
+		Content    any                                                        `json:"content,omitempty"`
+		Role       *synaplanapi.PostOpenaiChatCompletionsJSONBodyMessagesRole `json:"role,omitempty"`
+		ToolCallId *string                                                    `json:"tool_call_id,omitempty"`
+		ToolCalls  *[]map[string]any                                          `json:"tool_calls,omitempty"`
+	}
+	sysMsg.Role, sysMsg.Content = &system, h.systemPrompt(ctx, req.Language, req.Message)
+	userMsg.Role, userMsg.Content = &user, content
+	body := synaplanapi.PostOpenaiChatCompletionsJSONRequestBody{
+		Messages: append(synaplanapi.PostOpenaiChatCompletionsJSONRequestBody{}.Messages, sysMsg, userMsg),
+		Stream:   &stream,
+	}
 	if req.Model != "" {
 		body.Model = &req.Model
 	}
@@ -197,48 +213,58 @@ func answerLanguage(raw string) string {
 	return defaultAnswerLanguage
 }
 
-type chatModel struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Service string `json:"service"`
-}
-
-type modelsResponse struct {
-	Models []chatModel `json:"models"`
-}
-
-// Models lists the chat models Synaplan offers this person. The id is
-// what Chat passes on as the model.
-func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
-	res, err := h.synaplanAPI.GetApiConfigModelsListWithResponse(r.Context(), nil)
-	if err != nil || res.StatusCode() != http.StatusOK || res.JSON200 == nil {
-		if err == nil {
-			err = fmt.Errorf("config/models status %d: %s", res.StatusCode(), truncate(string(res.Body), 300))
-		}
-		log.Printf("models: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{
-			Error: "Synaplan could not finish this. Try again in a minute, or ask your administrator.",
-			Code:  "synaplan_error",
-		})
-		return
-	}
-	out := modelsResponse{Models: []chatModel{}}
-	if res.JSON200.Models != nil && res.JSON200.Models.CHAT != nil {
-		for _, row := range *res.JSON200.Models.CHAT {
-			if !row.Available || row.ProviderId == "" {
-				continue
-			}
-			out.Models = append(out.Models, chatModel{ID: row.ProviderId, Name: row.Name, Service: row.Service})
-		}
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// clipRunes cuts s to at most n runes without splitting one.
+// clipRunes cuts s to at most n runes without splitting one. It walks
+// the string in place, so the whole text is not copied into a rune slice.
 func clipRunes(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
+	if n <= 0 || s == "" {
+		return ""
 	}
-	return string(runes[:n])
+	i := 0
+	for runes := 0; runes < n && i < len(s); runes++ {
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+	}
+	return s[:i]
+}
+
+// readRunePrefix reads at most maxRunes runes from r in bounded chunks
+// and stops on a rune boundary without buffering the rest of the stream.
+// Any non-EOF read error encountered while reading up to maxRunes is
+// returned immediately so a truncated download is never passed on as
+// complete text.
+func readRunePrefix(r io.Reader, maxRunes int) (string, error) {
+	if maxRunes <= 0 {
+		return "", nil
+	}
+	var out strings.Builder
+	out.Grow(min(maxRunes, 4096))
+	var buf [4096]byte
+	var pending []byte
+	runes := 0
+	for runes < maxRunes {
+		need := min(len(buf), (maxRunes-runes)*utf8.UTFMax)
+		n, err := r.Read(buf[:need])
+		if n > 0 {
+			pending = append(pending, buf[:n]...)
+		}
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		for runes < maxRunes && len(pending) > 0 {
+			if !utf8.FullRune(pending) && err != io.EOF {
+				break
+			}
+			ru, size := utf8.DecodeRune(pending)
+			out.WriteRune(ru)
+			pending = pending[size:]
+			runes++
+		}
+		if err == io.EOF {
+			break
+		}
+		if n == 0 {
+			return "", io.ErrNoProgress
+		}
+	}
+	return out.String(), nil
 }

@@ -97,21 +97,22 @@ export async function deleteSynaplanFileQuiet(
 
 interface SynaplanModelRow {
   id: number
+  providerId: string
   name: string
   service: string
 }
 
 /**
  * The chat model Synaplan uses for the person when they pick none, as
- * the chat dialog labels it ("name (service)"). A journey that picks a
- * model picks this one: it works in the dev stack with real providers
- * and in the CI test stack, where only the stub answers.
+ * the chat dialog labels it ("name (service)") alongside its providerId.
+ * A journey that picks a model picks this one: it works in the dev stack
+ * with real providers and in the CI test stack, where only the stub answers.
  */
-export async function defaultChatModelLabel(
+export async function defaultChatModel(
   request: APIRequestContext,
   baseUrl: string,
   token: string
-): Promise<string> {
+): Promise<{ providerId: string; label: string }> {
   const headers = { Authorization: `Bearer ${token}` }
   const trimmedBase = baseUrl.replace(/\/+$/, '')
 
@@ -133,5 +134,8 @@ export async function defaultChatModelLabel(
   if (!row) {
     throw new Error(`synaplan default chat model ${chatId} is not in the model list`)
   }
-  return row.service ? `${row.name} (${row.service})` : row.name
+  return {
+    providerId: row.providerId,
+    label: row.service ? `${row.name} (${row.service})` : row.name
+  }
 }

@@ -42,6 +42,8 @@ var (
 	errFileEmpty       = fmt.Errorf("file is empty: %w", errClientInput)
 	errUnsupportedType = fmt.Errorf("unsupported mime type: %w", errClientInput)
 	errNoText          = fmt.Errorf("no text could be indexed from this file: %w", errClientInput)
+	// errRateLimited is Synaplan saying the person asked too much (HTTP 429).
+	errRateLimited = errors.New("synaplan rate limit")
 )
 
 // errorResponse is the JSON envelope the summary-backed handlers
@@ -128,11 +130,14 @@ func (h *Handler) runSummaryPipeline(
 }
 
 // writeFailure logs err under op and answers with its public sentence:
-// 422 for errClientInput, 502 otherwise.
+// 429 for errRateLimited, 422 for errClientInput, 502 otherwise.
 func writeFailure(w http.ResponseWriter, op string, err error) {
 	log.Printf("%s: %v", op, err)
 	status := http.StatusBadGateway
-	if errors.Is(err, errClientInput) {
+	switch {
+	case errors.Is(err, errRateLimited):
+		status = http.StatusTooManyRequests
+	case errors.Is(err, errClientInput):
 		status = http.StatusUnprocessableEntity
 	}
 	writeJSON(w, status, publicFailure(err))
@@ -385,10 +390,13 @@ func truncate(s string, n int) string {
 }
 
 // wrapUpstreamStatus turns a non-200 Synaplan response into an error.
-// 4xx upstream → wraps errClientInput so the top-level handler
-// returns 422; 5xx → plain error → 502.
+// 429 upstream → wraps errRateLimited (429); other 4xx → wraps
+// errClientInput (422); 5xx → plain error (502).
 func wrapUpstreamStatus(op string, status int, body []byte) error {
 	msg := fmt.Sprintf("%s status %d: %s", op, status, truncate(string(body), 300))
+	if status == http.StatusTooManyRequests {
+		return fmt.Errorf("%s: %w", msg, errRateLimited)
+	}
 	if status >= 400 && status < 500 {
 		return fmt.Errorf("%s: %w", msg, errClientInput)
 	}

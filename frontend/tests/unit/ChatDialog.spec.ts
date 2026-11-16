@@ -4,9 +4,11 @@ import { defineComponent, h } from 'vue'
 
 const get = vi.fn()
 const post = vi.fn()
+const showErrorMessage = vi.fn()
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
-  useClientService: () => ({ httpAuthenticated: { get, post } })
+  useClientService: () => ({ httpAuthenticated: { get, post } }),
+  useMessages: () => ({ showErrorMessage })
 }))
 
 vi.mock('vue3-gettext', () => ({
@@ -15,7 +17,7 @@ vi.mock('vue3-gettext', () => ({
 
 const ocStub = (tag: string) =>
   defineComponent({
-    props: ['modelValue', 'options', 'disabled'],
+    props: ['modelValue', 'options', 'disabled', 'name'],
     emits: ['click', 'update:model-value'],
     setup(props, { slots, emit }) {
       return () =>
@@ -37,7 +39,13 @@ import ChatDialog from '../../src/components/ChatDialog.vue'
 function mountDialog() {
   return mount(ChatDialog, {
     props: { modal: { id: 'm1' } as never, resource: { id: 'res-1', name: 'invoice.txt' } },
-    global: { stubs: { 'oc-select': ocStub('oc-select'), 'oc-button': ocStub('oc-button') } }
+    global: {
+      stubs: {
+        'oc-select': ocStub('oc-select'),
+        'oc-button': ocStub('oc-button'),
+        'oc-icon': ocStub('oc-icon')
+      }
+    }
   })
 }
 
@@ -45,6 +53,7 @@ describe('ChatDialog', () => {
   beforeEach(() => {
     get.mockReset()
     post.mockReset()
+    showErrorMessage.mockReset()
     get.mockResolvedValue({
       data: { models: [{ id: 'gpt-4o', name: 'GPT-4o', service: 'OpenAI' }] }
     })
@@ -72,19 +81,37 @@ describe('ChatDialog', () => {
     expect(submit.attributes('data-disabled')).toBe('false')
   })
 
-  it('asks about the file and renders the answer', async () => {
-    post.mockResolvedValueOnce({ data: { answer: '**Nordwind** GmbH' } })
+  it('asks about the file, renders the answer and saves it next to the file', async () => {
+    post
+      .mockResolvedValueOnce({ data: { answer: '**Nordwind** GmbH' } })
+      .mockResolvedValueOnce({ data: { path: 'Invoices/Answer about invoice.md' } })
     const wrapper = mountDialog()
+    const status = wrapper.get('[data-testid="synaplan-chat-status"]')
+    expect(status.attributes('role')).toBe('status')
+    expect(status.attributes('aria-live')).toBe('polite')
+
     await wrapper.get('[data-testid="synaplan-chat-question"]').setValue('Who sent it?')
     await wrapper.get('[data-testid="synaplan-chat-submit"]').trigger('click')
     await flushPromises()
 
     expect(post.mock.calls[0][0]).toBe('/api/synaplan/chat')
     expect(post.mock.calls[0][1]).toMatchObject({ resourceId: 'res-1', message: 'Who sent it?' })
-    const result = wrapper.get('[data-testid="synaplan-chat-result"]')
+    const result = status.get('[data-testid="synaplan-chat-result"]')
     expect(result.html()).toContain('<strong>Nordwind</strong>')
-    expect(wrapper.find('[data-testid="synaplan-chat-error"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="synaplan-chat-loading"]').exists()).toBe(false)
+    expect(status.find('[data-testid="synaplan-chat-error"]').exists()).toBe(false)
+    expect(status.find('[data-testid="synaplan-chat-loading"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="synaplan-chat-save"]').trigger('click')
+    await flushPromises()
+    expect(post.mock.calls[1][0]).toBe('/api/synaplan/files')
+    expect(post.mock.calls[1][1]).toEqual({
+      filename: 'Answer about invoice.md',
+      text: '**Nordwind** GmbH',
+      resourceId: 'res-1'
+    })
+    expect(wrapper.get('[data-testid="synaplan-chat-saved"]').text()).toContain(
+      'Invoices/Answer about invoice.md'
+    )
   })
 
   it('shows one sentence when asking fails', async () => {

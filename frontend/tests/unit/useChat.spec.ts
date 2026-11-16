@@ -4,9 +4,11 @@ import { defineComponent } from 'vue'
 
 const get = vi.fn()
 const post = vi.fn()
+const showErrorMessage = vi.fn()
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
-  useClientService: () => ({ httpAuthenticated: { get, post } })
+  useClientService: () => ({ httpAuthenticated: { get, post } }),
+  useMessages: () => ({ showErrorMessage })
 }))
 
 vi.mock('vue3-gettext', () => ({

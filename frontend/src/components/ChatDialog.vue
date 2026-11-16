@@ -17,44 +17,67 @@
     <textarea
       v-model="question"
       rows="3"
-      class="ext:w-full ext:rounded ext:border ext:bg-role-surface ext:p-2 ext:text-sm"
+      :maxlength="MAX_CHAT_QUESTION"
+      class="ext:w-full ext:rounded ext:border ext:bg-role-surface ext:p-2 ext:text-sm disabled:ext:opacity-60"
       :aria-label="$gettext('Ask about this file')"
       :placeholder="$gettext('Ask about this file')"
       :disabled="phase === 'loading'"
       data-testid="synaplan-chat-question"
     />
 
-    <p
-      v-if="phase === 'loading'"
-      class="ext:text-sm ext:text-role-on-surface-variant"
-      data-testid="synaplan-chat-loading"
-    >
-      {{ $gettext('Synaplan is writing the answer.') }}
-    </p>
+    <div role="status" aria-live="polite" aria-atomic="true" data-testid="synaplan-chat-status">
+      <p
+        v-if="phase === 'loading'"
+        class="ext:text-sm ext:text-role-on-surface-variant"
+        data-testid="synaplan-chat-loading"
+      >
+        {{ $gettext('Synaplan is writing the answer.') }}
+      </p>
 
-    <!-- markdown-it escapes HTML in the answer -->
-    <!-- eslint-disable vue/no-v-html -->
-    <div
-      v-if="phase === 'done'"
-      class="synaplan-md ext:rounded ext:border ext:bg-role-surface-container ext:p-3 ext:text-sm ext:max-h-96 ext:overflow-auto"
-      data-testid="synaplan-chat-result"
-      v-html="rendered"
-    />
-    <!-- eslint-enable vue/no-v-html -->
+      <!-- markdown-it escapes HTML in the answer -->
+      <!-- eslint-disable vue/no-v-html -->
+      <div
+        v-if="phase === 'done'"
+        class="synaplan-md ext:rounded ext:border ext:bg-role-surface-container ext:p-3 ext:text-sm ext:max-h-96 ext:overflow-auto"
+        data-testid="synaplan-chat-result"
+        v-html="rendered"
+      />
+      <!-- eslint-enable vue/no-v-html -->
 
-    <div
-      v-if="phase === 'error'"
-      class="ext:rounded ext:border ext:border-role-error ext:bg-role-error-container ext:p-3 ext:text-sm ext:text-role-on-error-container"
-      data-testid="synaplan-chat-error"
-    >
-      {{ error }}
+      <div
+        v-if="phase === 'error'"
+        class="ext:rounded ext:border ext:border-role-error ext:bg-role-error-container ext:p-3 ext:text-sm ext:text-role-on-error-container"
+        data-testid="synaplan-chat-error"
+      >
+        {{ error }}
+      </div>
     </div>
 
     <div class="ext:flex ext:justify-end ext:gap-2">
       <oc-button
+        v-if="phase === 'done'"
+        appearance="outline"
+        :disabled="saving || !!savedPath"
+        data-testid="synaplan-chat-save"
+        @click="onSave"
+      >
+        {{ savedPath ? $gettext('Saved') : $gettext('Save next to this file') }}
+      </oc-button>
+
+      <oc-button
+        v-if="phase === 'done'"
+        appearance="outline"
+        data-testid="synaplan-chat-copy"
+        @click="copyAnswer"
+      >
+        <oc-icon :name="justCopied ? 'check' : 'file-copy-2'" size="small" fill-type="line" />
+        {{ justCopied ? $gettext('Copied') : $gettext('Copy') }}
+      </oc-button>
+
+      <oc-button
         appearance="filled"
         color-role="primary"
-        :disabled="!question.trim() || phase === 'loading'"
+        :disabled="!question.trim() || questionTooLong || phase === 'loading'"
         :show-spinner="phase === 'loading'"
         data-testid="synaplan-chat-submit"
         @click="ask"
@@ -62,13 +85,21 @@
         {{ $gettext('Ask') }}
       </oc-button>
     </div>
+
+    <p
+      v-if="savedPath"
+      class="ext:text-sm ext:text-role-on-surface-variant"
+      data-testid="synaplan-chat-saved"
+    >
+      {{ $gettext('Saved to') }} {{ savedPath }}. {{ $gettext('Nothing else was changed.') }}
+    </p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { type Modal } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
-import { useChat } from '../composables/useChat'
+import { MAX_CHAT_QUESTION, useChat } from '../composables/useChat'
 import { useRenderedMarkdown } from '../composables/useRenderedMarkdown'
 
 const props = defineProps<{
@@ -77,10 +108,29 @@ const props = defineProps<{
 }>()
 
 const { $gettext } = useGettext()
-const { models, model, question, answer, error, phase, ask, cancel, selectModel } = useChat(
-  props.resource.id
-)
+const {
+  models,
+  model,
+  question,
+  questionTooLong,
+  answer,
+  error,
+  phase,
+  justCopied,
+  saving,
+  savedPath,
+  ask,
+  copyAnswer,
+  saveAnswer,
+  cancel,
+  selectModel
+} = useChat(props.resource.id)
 const rendered = useRenderedMarkdown(answer)
+
+function onSave() {
+  const base = (props.resource.name || 'document').replace(/\.[^.]+$/, '')
+  void saveAnswer(`Answer about ${base}.md`)
+}
 
 defineExpose({ onCancel: cancel })
 </script>

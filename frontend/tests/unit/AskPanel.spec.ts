@@ -4,9 +4,11 @@ import { defineComponent, h } from 'vue'
 
 const get = vi.fn()
 const post = vi.fn()
+const showErrorMessage = vi.fn()
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
-  useClientService: () => ({ httpAuthenticated: { get, post } })
+  useClientService: () => ({ httpAuthenticated: { get, post } }),
+  useMessages: () => ({ showErrorMessage })
 }))
 
 vi.mock('vue3-gettext', () => ({
@@ -43,13 +45,18 @@ describe('AskPanel', () => {
   beforeEach(() => {
     get.mockReset()
     post.mockReset()
+    showErrorMessage.mockReset()
     get.mockResolvedValue({ data: { models: [] } })
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
-  it('asks in general and renders the answer', async () => {
-    post.mockResolvedValueOnce({ data: { answer: 'Bonjour' } })
+  it('asks in general and announces the rendered answer from a polite live region', async () => {
+    post.mockResolvedValueOnce({ data: { answer: '**Bonjour**' } })
     const wrapper = mountPanel()
+    const status = wrapper.get('[data-testid="synaplan-ask-status"]')
+    expect(status.attributes('role')).toBe('status')
+    expect(status.attributes('aria-live')).toBe('polite')
+
     const submit = wrapper.get('[data-testid="synaplan-ask-submit"]')
     expect(submit.attributes('data-disabled')).toBe('true')
     await wrapper.get('[data-testid="synaplan-ask-question"]').setValue('Hello')
@@ -57,8 +64,10 @@ describe('AskPanel', () => {
     await flushPromises()
 
     expect(post.mock.calls[0][1]).toEqual({ message: 'Hello', model: '', language: 'fr' })
-    expect(wrapper.get('[data-testid="synaplan-ask-result"]').text()).toBe('Bonjour')
-    expect(wrapper.find('[data-testid="synaplan-ask-error"]').exists()).toBe(false)
+    expect(status.get('[data-testid="synaplan-ask-result"]').html()).toContain(
+      '<strong>Bonjour</strong>'
+    )
+    expect(status.find('[data-testid="synaplan-ask-error"]').exists()).toBe(false)
   })
 
   it('shows one sentence when asking fails', async () => {

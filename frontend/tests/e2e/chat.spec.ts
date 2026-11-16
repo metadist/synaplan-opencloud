@@ -9,7 +9,8 @@ import {
   uploadFileFromDisk,
   uploadTextFile
 } from '../../support/helpers/filesHelper'
-import { defaultChatModelLabel } from '../../support/helpers/synaplanApiHelper'
+import { findFileRow, navigateToFolder } from '../../support/helpers/filesPageHelper'
+import { defaultChatModel } from '../../support/helpers/synaplanApiHelper'
 
 /**
  * Ask Synaplan about a file: the context action is visible, the dialog
@@ -57,7 +58,7 @@ test('ask-about-file context action is visible for the signed-in user', async ({
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, 'hello')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToFolder(userPage, TESTS_DIR)
   const row = await findFileRow(userPage, baseName)
   await openSynaplanMenu(row)
 
@@ -68,7 +69,7 @@ test('ask-about-file context action is visible for the signed-in user', async ({
 })
 
 test('ask a question about a text file with a picked model', async ({ request }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(60_000)
 
   const baseName = `chat-${Date.now()}.txt`
   const remotePath = `${TESTS_DIR}/${baseName}`
@@ -85,12 +86,18 @@ test('ask a question about a text file with a picked model', async ({ request })
     clientId: 'synaplan-app',
     clientSecret: 'test-oidc-secret'
   })
-  const modelLabel = await defaultChatModelLabel(request, SYNAPLAN_API_URL, synaplanToken)
+  const picked = await defaultChatModel(request, SYNAPLAN_API_URL, synaplanToken)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToFolder(userPage, TESTS_DIR)
   await openChatDialog(userPage, baseName)
-  await pickModel(userPage, modelLabel)
+  await pickModel(userPage, picked.label)
+
+  const chatRequest = userPage.waitForRequest(
+    (req) => req.method() === 'POST' && new URL(req.url()).pathname.endsWith('/api/synaplan/chat')
+  )
   await askAndExpectAnswer(userPage, 'Who sent this invoice?')
+  const sentBody = (await chatRequest).postDataJSON() as { model?: string }
+  expect(sentBody.model).toBe(picked.providerId)
 })
 
 test('ask a question about a PDF file', async ({ request }) => {
@@ -110,7 +117,7 @@ test('ask a question about a PDF file', async ({ request }) => {
   )
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToFolder(userPage, TESTS_DIR)
   await openChatDialog(userPage, baseName)
   await askAndExpectAnswer(userPage, 'What is this document about?')
 })
@@ -121,7 +128,7 @@ test('asking about a file without text says so in one sentence', async ({ reques
   await uploadTextFile(request, webDavUrl, accessToken, remotePath, '   \n')
   filesToCleanup.push(remotePath)
 
-  await navigateToTestsFolder(userPage)
+  await navigateToFolder(userPage, TESTS_DIR)
   await openChatDialog(userPage, baseName)
   await userPage.locator('[data-testid="synaplan-chat-question"]').fill('What is in it?')
   await userPage.locator('[data-testid="synaplan-chat-submit"]').click()
@@ -165,25 +172,11 @@ async function askAndExpectAnswer(page: Page, question: string) {
   await submit.click()
 
   const result = page.locator('[data-testid="synaplan-chat-result"]')
-  await expect(result).toBeVisible({ timeout: 60_000 })
+  await expect(result).toBeVisible({ timeout: 45_000 })
   await expect(result).not.toBeEmpty()
   await expect(page.locator('[data-testid="synaplan-chat-loading"]')).toBeHidden()
   await expect(page.locator('[data-testid="synaplan-chat-error"]')).toBeHidden()
 
   await page.locator('.oc-modal-title-actions-cancel').click()
   await expect(page.locator('[data-testid="synaplan-chat-dialog"]')).toBeHidden()
-}
-
-async function findFileRow(page: Page, name: string) {
-  const row = page.locator(
-    `#files-space-table [data-test-resource-name="${name}"], #tiles-view [data-test-resource-name="${name}"]`
-  )
-  await row.waitFor({ state: 'visible', timeout: 15_000 })
-  return row
-}
-
-async function navigateToTestsFolder(page: Page) {
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  const folderRow = await findFileRow(page, TESTS_DIR)
-  await folderRow.click()
 }
