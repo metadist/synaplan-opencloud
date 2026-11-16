@@ -11,11 +11,24 @@ import (
 	"strings"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
+	"github.com/metadist/synaplan-opencloud/internal/delegation"
 )
 
 // errReadsEverything is a request to stop reading one folder while the
 // person lets Synaplan read every folder.
 var errReadsEverything = errors.New("synaplan may read every folder")
+
+// readScopeSetting names the person's read scope in the delegation store.
+const readScopeSetting = "read-scope"
+
+// errReadScopeMoved is a change that lost to another one in between. The
+// lease makes this rare; trying again starts from the newer setting.
+var errReadScopeMoved = errors.New("the read setting changed while it was being saved")
+
+// errNotPersonal is a folder outside the person's personal space. A task's
+// folder step names a path in that space, so a path from any other space
+// would name a different folder there.
+var errNotPersonal = errors.New("the folder is not in the personal space")
 
 // readScopeAnswer is what the read-folder dialog shows for one folder.
 type readScopeAnswer struct {
@@ -25,9 +38,10 @@ type readScopeAnswer struct {
 	// Allowed: Synaplan may read the folder, because it is named, lies in
 	// a named folder, or everything may be read.
 	Allowed bool `json:"allowed"`
-	// ReadsWhileAway: Synaplan's reads run while the person is away, so
-	// they need the person's permission for that and machine auth.
-	ReadsWhileAway bool `json:"readsWhileAway"`
+	// Blocked says why reads cannot run while the person is away:
+	// machine_auth (no machine authentication configured), consent (they
+	// have not allowed Synaplan to work for them), or empty when they can.
+	Blocked string `json:"blocked"`
 }
 
 // readScopeChange is a request to allow or stop reading one folder.
@@ -37,14 +51,19 @@ type readScopeChange struct {
 }
 
 // ReadScope tells the signed-in person whether Synaplan may read one of
-// their folders. Synaplan keeps the setting; this service keeps none.
+// their folders. Synaplan only stores what this service reports and a
+// cloud cannot read it back, so the setting this service keeps in the
+// delegation store is the record.
 func (h *Handler) ReadScope(w http.ResponseWriter, r *http.Request) {
 	folderID := strings.TrimSpace(r.URL.Query().Get("folderId"))
 	if folderID == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "folderId is required"})
 		return
 	}
-	folder, ok := h.statFolder(w, r.Context(), folderID)
+	if h.refuseReads(w) {
+		return
+	}
+	folder, ok := h.statPersonalFolder(w, r.Context(), folderID)
 	if !ok {
 		return
 	}
@@ -53,8 +72,9 @@ func (h *Handler) ReadScope(w http.ResponseWriter, r *http.Request) {
 		writeReadScopeFailure(w, "read scope", err)
 		return
 	}
-	scope, ok := h.currentReadScope(w, r.Context(), sub)
-	if !ok {
+	scope, _, err := h.keptReadScope(r.Context(), sub)
+	if err != nil {
+		writeReadScopeFailure(w, "read scope", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, h.readScopeAnswer(r.Context(), scope, folder))
@@ -63,7 +83,9 @@ func (h *Handler) ReadScope(w http.ResponseWriter, r *http.Request) {
 // SetReadScope allows Synaplan to read one folder, or stops it, and reports
 // the person's new setting to Synaplan. The folder's path comes from
 // OpenCloud, never from the browser, so a name cannot widen what Synaplan
-// may read.
+// may read. The change runs under the person's lease on every replica:
+// it is reported first and kept second, so a failed report changes
+// nothing and two changes reach Synaplan in the order they were kept.
 func (h *Handler) SetReadScope(w http.ResponseWriter, r *http.Request) {
 	var req readScopeChange
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
@@ -75,7 +97,10 @@ func (h *Handler) SetReadScope(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Choose a folder."})
 		return
 	}
-	folder, ok := h.statFolder(w, r.Context(), req.FolderID)
+	if h.refuseReads(w) {
+		return
+	}
+	folder, ok := h.statPersonalFolder(w, r.Context(), req.FolderID)
 	if !ok {
 		return
 	}
@@ -84,90 +109,114 @@ func (h *Handler) SetReadScope(w http.ResponseWriter, r *http.Request) {
 		writeReadScopeFailure(w, "read scope", err)
 		return
 	}
-	current, ok := h.currentReadScope(w, r.Context(), sub)
-	if !ok {
-		return
-	}
-	next, err := withFolder(current, folder, req.Allow)
+	var next readScope
+	err = h.delegation.WithSettingLease(r.Context(), readScopeSetting, sub, func(ctx context.Context) error {
+		current, rev, err := h.keptReadScope(ctx, sub)
+		if err != nil {
+			return err
+		}
+		next, err = withFolder(current, folder, req.Allow)
+		if err != nil {
+			return err
+		}
+		if err := h.reportReadScope(ctx, sub, next); err != nil {
+			return err
+		}
+		raw, err := json.Marshal(next)
+		if err != nil {
+			return err
+		}
+		kept, err := h.delegation.PutSetting(ctx, readScopeSetting, sub, raw, rev)
+		if err != nil {
+			return err
+		}
+		if !kept {
+			return errReadScopeMoved
+		}
+		return nil
+	})
 	if err != nil {
-		writeReadScopeFailure(w, "read scope", err)
-		return
-	}
-	if err := h.reportReadScope(r.Context(), sub, next); err != nil {
-		writeReadScopeFailure(w, "read scope", err)
+		writeReadScopeFailure(w, "read scope change", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, h.readScopeAnswer(r.Context(), next, folder))
 }
 
-// statFolder reads the folder as the signed-in person, so only a folder
-// they can open is asked about or allowed, and its path is OpenCloud's.
-func (h *Handler) statFolder(w http.ResponseWriter, ctx context.Context, folderID string) (cs3reader.Resource, bool) {
+// refuseReads answers for an installation where Synaplan cannot read
+// folders: a folder read runs while the person is away, which needs their
+// own offline token, and the shared API key of Mode B has none. It runs
+// before any I/O.
+func (h *Handler) refuseReads(w http.ResponseWriter) bool {
+	if h != nil && !h.sharedKey && h.delegation.Configured() && h.exchanger != nil {
+		return false
+	}
+	status, body := readScopeFailure(errNoDelegation)
+	writeJSON(w, status, body)
+	return true
+}
+
+// statPersonalFolder reads the folder as the signed-in person, so only a
+// folder they can open is asked about or allowed, its path is OpenCloud's,
+// and it lies in their personal space.
+func (h *Handler) statPersonalFolder(w http.ResponseWriter, ctx context.Context, folderID string) (cs3reader.Resource, bool) {
 	folder, err := h.cs3.StatResource(ctx, folderID)
-	if err != nil || !folder.IsFolder {
+	if err == nil && !folder.IsFolder {
+		err = fmt.Errorf("%s is not a folder: %w", folderID, cs3reader.ErrNotFound)
+	}
+	if err != nil {
 		log.Printf("read scope: stat: %v", err)
-		writeJSON(w, http.StatusBadGateway, errorResponse{
-			Error: "This file is no longer there. Reload the folder and try again.",
-			Code:  "file_not_found",
-		})
+		if errors.Is(err, cs3reader.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, errorResponse{
+				Error: "This folder is no longer there. Reload the folder and try again.",
+				Code:  "folder_not_found",
+			})
+			return cs3reader.Resource{}, false
+		}
+		writeReadScopeFailure(w, "read scope", err)
+		return cs3reader.Resource{}, false
+	}
+	space, err := h.cs3.PersonalSpace(ctx)
+	if err != nil {
+		writeReadScopeFailure(w, "read scope", err)
+		return cs3reader.Resource{}, false
+	}
+	if !cs3reader.InSpace(folder.ID, space) {
+		writeReadScopeFailure(w, "read scope", errNotPersonal)
 		return cs3reader.Resource{}, false
 	}
 	return folder, true
 }
 
-// currentReadScope is the signed-in person's setting as Synaplan keeps it,
-// read from their link to this OpenCloud. A person Synaplan has no link
-// for yet has the default: only what they watch.
-func (h *Handler) currentReadScope(w http.ResponseWriter, ctx context.Context, sub string) (readScope, bool) {
-	resp, err := h.synaplanAPI.ListMyPlatformLinksWithResponse(ctx)
+// keptReadScope is the person's setting as this service keeps it, and the
+// revision to change it at. A person who never changed it has the default
+// Synaplan starts a link with: only what they watch. A kept value that
+// cannot be read is logged and treated as that default, so the next change
+// replaces it instead of failing for good.
+func (h *Handler) keptReadScope(ctx context.Context, sub string) (readScope, uint64, error) {
+	fallback := readScope{Mode: scopeWatched, Folders: []scopeFolder{}}
+	raw, rev, err := h.delegation.Setting(ctx, readScopeSetting, sub)
+	if errors.Is(err, delegation.ErrUnreadable) {
+		log.Printf("read scope: the kept setting cannot be read: %v", err)
+		return fallback, rev, nil
+	}
 	if err != nil {
-		writeReadScopeFailure(w, "read scope", err)
-		return readScope{}, false
+		return readScope{}, 0, err
 	}
-	if resp.StatusCode() != http.StatusOK {
-		writeReadScopeFailure(w, "read scope", upstream(resp.StatusCode(), resp.Body))
-		return readScope{}, false
+	if rev == 0 {
+		return fallback, 0, nil
 	}
-	scope, err := linkedReadScope(resp.Body, sub)
-	if err != nil {
-		writeReadScopeFailure(w, "read scope", err)
-		return readScope{}, false
+	var scope readScope
+	if err := json.Unmarshal(raw, &scope); err != nil {
+		log.Printf("read scope: the kept setting is not JSON: %v", err)
+		return fallback, rev, nil
 	}
-	return scope, true
-}
-
-// linkedReadScope picks the read scope of sub's link to an OpenCloud out of
-// Synaplan's list of the person's links. Synaplan lists the named folders
-// by path only.
-func linkedReadScope(body []byte, sub string) (readScope, error) {
-	var page struct {
-		Links []struct {
-			Client     string `json:"client"`
-			ExternalID string `json:"external_id"`
-			Status     string `json:"status"`
-			ReadScope  *struct {
-				Mode    string   `json:"mode"`
-				Folders []string `json:"folders"`
-			} `json:"read_scope"`
-		} `json:"links"`
+	if scope.Folders == nil {
+		scope.Folders = []scopeFolder{}
 	}
-	if err := json.Unmarshal(body, &page); err != nil {
-		return readScope{}, fmt.Errorf("decoding the link list: %w", err)
+	if scope.Mode == "" {
+		scope.Mode = scopeWatched
 	}
-	scope := readScope{Mode: scopeWatched, Folders: []scopeFolder{}}
-	for _, link := range page.Links {
-		if link.Client != "opencloud" || link.ExternalID != sub || link.Status != "active" || link.ReadScope == nil {
-			continue
-		}
-		if link.ReadScope.Mode != "" {
-			scope.Mode = link.ReadScope.Mode
-		}
-		for _, path := range link.ReadScope.Folders {
-			scope.Folders = append(scope.Folders, scopeFolder{Path: strings.Trim(path, "/")})
-		}
-		break
-	}
-	return scope, nil
+	return scope, rev, nil
 }
 
 // withFolder is scope with folder allowed or no longer named. Folders the
@@ -213,13 +262,13 @@ func (h *Handler) reportReadScope(ctx context.Context, sub string, scope readSco
 }
 
 func (h *Handler) readScopeAnswer(ctx context.Context, scope readScope, folder cs3reader.Resource) readScopeAnswer {
-	answer := readScopeAnswer{Mode: scope.Mode, ReadsWhileAway: h.worksWhileAway(ctx)}
+	answer := readScopeAnswer{Mode: scope.Mode, Blocked: h.uploadsBlocked(ctx)}
 	for _, named := range scope.Folders {
 		if named.Path == folder.Path || (named.ID != "" && named.ID == folder.ID) {
 			answer.Named = true
 		}
 	}
-	answer.Allowed = scopeAllows(scope, nil, folder)
+	answer.Allowed = scopeAllows(scope, nil, folder, true)
 	return answer
 }
 
@@ -230,6 +279,10 @@ func readScopeFailure(err error) (int, errorResponse) {
 	switch {
 	case errors.Is(err, errNoDelegation):
 		return http.StatusConflict, errorResponse{Error: "Synaplan cannot read folders in this OpenCloud. Ask your administrator.", Code: "reads_unavailable"}
+	case errors.Is(err, errNotPersonal):
+		return http.StatusConflict, errorResponse{Error: "Synaplan can only read folders in your personal space.", Code: "reads_personal_only"}
+	case errors.Is(err, errReadScopeMoved):
+		return http.StatusConflict, errorResponse{Error: "The setting was changed at the same time. Close this and try again.", Code: "reads_changed"}
 	case errors.Is(err, errReadsEverything):
 		return http.StatusConflict, errorResponse{Error: "Synaplan may read all your folders, so one cannot be left out.", Code: "reads_everything"}
 	case errors.As(err, &up):

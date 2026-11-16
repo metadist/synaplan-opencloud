@@ -16,8 +16,12 @@ vi.mock('vue3-gettext', () => ({
 import { useSynaplanActionsExtension } from '../../src/extensions/useSynaplanActionsExtension'
 import type { FileActionOptions } from '@opencloud-eu/web-pkg'
 
-function options(overrides: Partial<{ isFolder: boolean; mimeType: string }> = {}) {
+function options(
+  overrides: Partial<{ isFolder: boolean; mimeType: string }> = {},
+  driveType = 'personal'
+) {
   return {
+    space: { driveType },
     resources: [
       { id: 'r1', name: 'doc.txt', isFolder: false, mimeType: 'text/plain', ...overrides }
     ]
@@ -67,6 +71,11 @@ describe('useSynaplanActionsExtension', () => {
 
     it.each([
       ['a folder', options({ isFolder: true }), ['from-synaplan', 'watch', 'read-folder']],
+      [
+        'a folder in a project space',
+        options({ isFolder: true }, 'project'),
+        ['from-synaplan', 'watch']
+      ],
       ['an unsupported mime type', options({ mimeType: 'image/png' }), ['watch']],
       ['a supported file', options(), ['translate', 'summarize', 'add-to-knowledge', 'watch']]
     ])('offers only what fits %s', (_, opts, visible) => {

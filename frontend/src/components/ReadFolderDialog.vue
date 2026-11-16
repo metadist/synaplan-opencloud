@@ -31,7 +31,18 @@
         }}
       </p>
       <p
-        v-if="!scope.readsWhileAway"
+        v-if="scope.blocked === 'machine_auth'"
+        class="ext:text-sm ext:text-role-on-surface-variant"
+        data-testid="synaplan-read-no-machine"
+      >
+        {{
+          $gettext(
+            'Synaplan reads folders while you are away. That needs an administrator to configure machine authentication for this service.'
+          )
+        }}
+      </p>
+      <p
+        v-else-if="scope.blocked"
         class="ext:text-sm ext:text-role-on-surface-variant"
         data-testid="synaplan-read-not-away"
       >
@@ -96,10 +107,14 @@ const scopeSchema = z.object({
   mode: z.enum(['watched', 'allowed', 'all']),
   named: z.boolean(),
   allowed: z.boolean(),
-  readsWhileAway: z.boolean()
+  // Why reads cannot run while the person is away: machine_auth, consent,
+  // or empty when they can.
+  blocked: z.string()
 })
 
 const phase = ref<'loading' | 'ready' | 'unavailable'>('loading')
+// onChange is ignored while a change is on its way, so a double click
+// cannot send the opposite change behind it.
 const scope = ref<z.infer<typeof scopeSchema> | null>(null)
 const busy = ref(false)
 const error = ref('')
@@ -123,6 +138,7 @@ onMounted(async () => {
 })
 
 async function onChange(allow: boolean) {
+  if (busy.value) return
   busy.value = true
   error.value = ''
   try {

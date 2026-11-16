@@ -48,20 +48,29 @@ describe('useReadFolderExtension', () => {
   })
 
   describe('isVisible', () => {
+    const personal = { driveType: 'personal' }
     it.each([
-      ['a folder', [resource()], true],
-      ['a file', [resource({ isFolder: false })], false],
-      ['two folders', [resource(), resource({ id: 'r2' })], false],
-      ['nothing', [], false]
-    ])('%s → %s', (_, resources, expected) => {
+      ['a folder', [resource()], personal, true],
+      ['a file', [resource({ isFolder: false })], personal, false],
+      ['two folders', [resource(), resource({ id: 'r2' })], personal, false],
+      ['nothing', [], personal, false],
+      ['a folder in a project space', [resource()], { driveType: 'project' }, false],
+      ['a folder shared with the person', [resource()], { driveType: 'mountpoint' }, false],
+      ['a folder outside any space', [resource()], undefined, false]
+    ])('%s → %s', (_, resources, space, expected) => {
       const { action } = useReadFolderExtension()
-      expect(action.isVisible({ resources } as FileActionOptions)).toBe(expected)
+      expect(action.isVisible({ resources, space } as unknown as FileActionOptions)).toBe(expected)
     })
 
     it('hides when the user is not signed in', () => {
       userRef.user = null
       const { action } = useReadFolderExtension()
-      expect(action.isVisible({ resources: [resource()] } as FileActionOptions)).toBe(false)
+      expect(
+        action.isVisible({
+          resources: [resource()],
+          space: personal
+        } as unknown as FileActionOptions)
+      ).toBe(false)
     })
   })
 

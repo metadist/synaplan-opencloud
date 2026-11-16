@@ -16,8 +16,11 @@ const ReadFolderDialog = defineAsyncComponent(() => import('../components/ReadFo
  * A task in Synaplan can ask this OpenCloud for the files in a folder
  * (a folder read, or "pickup"); the Go service answers only for folders
  * the person allowed, folders they watch, or everything if they allowed
- * that. Synaplan keeps the setting; the dialog shows it for one folder
- * and allows or stops reading it.
+ * that. The Go service keeps the setting and reports every change to
+ * Synaplan; the dialog shows it for one folder and allows or stops
+ * reading it. A task names a folder by its path in the personal space,
+ * so the action is only offered there (the OpenCloud space of the
+ * current file list, `driveType` "personal").
  */
 export const useReadFolderExtension = (): ActionExtension => {
   const { $gettext } = useGettext()
@@ -51,8 +54,11 @@ export const useReadFolderExtension = (): ActionExtension => {
       label: () => $gettext('Let Synaplan read this folder…'),
       class: 'oc-files-actions-read-folder-trigger',
       handler,
-      isVisible: ({ resources }: FileActionOptions) =>
-        !!userStore.user && resources?.length === 1 && !!resources[0].isFolder
+      isVisible: ({ resources, space }: FileActionOptions) =>
+        !!userStore.user &&
+        space?.driveType === 'personal' &&
+        resources?.length === 1 &&
+        !!resources[0].isFolder
     }
   }
 }

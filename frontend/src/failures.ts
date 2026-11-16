@@ -63,8 +63,18 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext('Watching folders is turned off in Synaplan. Ask your administrator.')
     case 'reads_unavailable':
       return $gettext('Synaplan cannot read folders in this OpenCloud. Ask your administrator.')
+    case 'reads_personal_only':
+      return $gettext('Synaplan can only read folders in your personal space.')
+    case 'reads_changed':
+      return $gettext('The setting was changed at the same time. Close this and try again.')
+    case 'folder_not_found':
+      return $gettext('This folder is no longer there. Reload the folder and try again.')
     case 'reads_everything':
       return $gettext('Synaplan may read all your folders, so one cannot be left out.')
+    case 'watch_shared_key':
+      return $gettext(
+        'Watching needs each person signed in to Synaplan. This installation uses one shared key.'
+      )
     default:
       return fallback
   }

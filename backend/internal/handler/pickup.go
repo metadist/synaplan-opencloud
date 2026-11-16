@@ -23,6 +23,11 @@ import (
 // read runs after the answer, on its own deadline.
 const pickupTimeout = 5 * time.Minute
 
+// pickupStartTimeout bounds acting as the person before the notification is
+// answered, well inside Synaplan's thirty seconds, so a slow identity
+// provider or gateway ends in an answer Synaplan can retry.
+const pickupStartTimeout = 10 * time.Second
+
 // Read scope modes, as Synaplan stores them: only folders the person
 // watches, those plus the folders they named, or everything.
 const (
@@ -49,6 +54,7 @@ type scopeFolder struct {
 type pickupFiles interface {
 	watchFiles
 	StatPath(ctx context.Context, relPath string) (cs3reader.Resource, error)
+	PersonalSpace(ctx context.Context) (string, error)
 }
 
 // pickupClaim is what Synaplan hands the cloud that claimed a pickup.
@@ -97,10 +103,10 @@ func (h *Handler) startPickup(w http.ResponseWriter, r *http.Request, claims not
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_pickup"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), pickupTimeout)
-	away, err := h.actAs(ctx, claims.Subject)
+	startCtx, cancelStart := context.WithTimeout(context.WithoutCancel(r.Context()), pickupStartTimeout)
+	away, err := h.actAs(startCtx, claims.Subject)
+	cancelStart()
 	if err != nil {
-		cancel()
 		h.forgetHandled(claims)
 		if errors.Is(err, delegation.ErrNotConnected) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "not_connected"})
@@ -110,9 +116,12 @@ func (h *Handler) startPickup(w http.ResponseWriter, r *http.Request, claims not
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "files_unreachable"})
 		return
 	}
+	// away keeps the person's identity as values; its deadline was the
+	// start's, so the read gets its own.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(away), pickupTimeout)
 	go func() {
 		defer cancel()
-		h.runPickup(away, h.cs3, claims.Subject, id)
+		h.runPickup(ctx, h.cs3, claims.Subject, id)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"state": "pending"})
 }
@@ -139,7 +148,22 @@ func (h *Handler) runPickup(ctx context.Context, files pickupFiles, sub string, 
 		}
 		return h.finishPickup(ctx, id, failedPickup("unreachable"))
 	}
-	if !scopeAllows(claim.ReadScope, h.watchedFolders(ctx, claim.ReadScope), folder) {
+	space, err := files.PersonalSpace(ctx)
+	if err != nil {
+		log.Printf("pickup %d: personal space: %v", id, err)
+		return h.finishPickup(ctx, id, failedPickup("unreachable"))
+	}
+	personal := cs3reader.InSpace(folder.ID, space)
+	kept, _, err := h.keptReadScope(ctx, sub)
+	if err != nil {
+		log.Printf("pickup %d: read setting: %v", id, err)
+		return h.finishPickup(ctx, id, failedPickup("unreachable"))
+	}
+	// The setting this service keeps is the record; the one in the claim
+	// is what Synaplan last heard. Both have to allow the read, so a
+	// setting Synaplan reset or never heard of cannot widen it.
+	watched := h.watchedFolders(ctx, kept, claim.ReadScope)
+	if !scopeAllows(kept, watched, folder, personal) || !scopeAllows(claim.ReadScope, watched, folder, personal) {
 		return h.finishPickup(ctx, id, failedPickup("not_allowed"))
 	}
 	children, err := files.List(ctx, folder.ID)
@@ -172,7 +196,7 @@ func (h *Handler) runPickup(ctx context.Context, files pickupFiles, sub string, 
 		}
 		if err := h.uploadPickupFile(ctx, files, id, file); err != nil {
 			log.Printf("pickup %d: %v", id, err)
-			result.Skipped = append(result.Skipped, pickupSkip{ID: fileID, Reason: "unreachable"})
+			result.Skipped = append(result.Skipped, pickupSkip{ID: fileID, Reason: pickupSkipReason(err)})
 			continue
 		}
 		result.Sent++
@@ -187,6 +211,19 @@ func (h *Handler) runPickup(ctx context.Context, files pickupFiles, sub string, 
 		result.ErrorCode = "unreachable"
 	}
 	return h.finishPickup(ctx, id, result)
+}
+
+// pickupSkipReason names why a file was not sent. A file that changed
+// since the listing is not sent under the version Synaplan asked for.
+func pickupSkipReason(err error) string {
+	switch {
+	case errors.Is(err, errFileChanged):
+		return "changed"
+	case errors.Is(err, errWatchFileTooLarge):
+		return "too_large"
+	default:
+		return "unreachable"
+	}
 }
 
 func failedPickup(code string) pickupResult {
@@ -218,11 +255,15 @@ func pickupFolder(ctx context.Context, files pickupFiles, folderID, folderPath s
 	return folder, nil
 }
 
-// watchedFolders is the folders the person watches now, when their scope
-// depends on it. A failed watch list counts as no watches: it can only
-// refuse a read, never allow one.
-func (h *Handler) watchedFolders(ctx context.Context, scope readScope) map[string]bool {
-	if scope.Mode == scopeAll {
+// watchedFolders is the folders the person watches now, when one of their
+// scopes depends on it. A failed watch list counts as no watches: it can
+// only refuse a read, never allow one.
+func (h *Handler) watchedFolders(ctx context.Context, scopes ...readScope) map[string]bool {
+	needed := false
+	for _, scope := range scopes {
+		needed = needed || scope.Mode != scopeAll
+	}
+	if !needed {
 		return nil
 	}
 	all, err := h.watches(ctx)
@@ -243,8 +284,10 @@ func (h *Handler) watchedFolders(ctx context.Context, scope readScope) map[strin
 // notification proves Synaplan asked, not where the folder it names lives,
 // so the folder's real id and path decide. A folder the person watches is
 // always allowed; one they named, and the folders below it, in "allowed"
-// mode; everything in "all".
-func scopeAllows(scope readScope, watched map[string]bool, folder cs3reader.Resource) bool {
+// mode; everything in "all". A named path is a path in the personal space,
+// so it only matches a folder there: the same path in a project space or a
+// share is another folder.
+func scopeAllows(scope readScope, watched map[string]bool, folder cs3reader.Resource, personal bool) bool {
 	if folder.ID == "" {
 		return false
 	}
@@ -257,7 +300,7 @@ func scopeAllows(scope readScope, watched map[string]bool, folder cs3reader.Reso
 				return true
 			}
 			path := strings.Trim(named.Path, "/")
-			if path != "" && (folder.Path == path || strings.HasPrefix(folder.Path, path+"/")) {
+			if personal && path != "" && (folder.Path == path || strings.HasPrefix(folder.Path, path+"/")) {
 				return true
 			}
 		}
@@ -306,14 +349,17 @@ func (h *Handler) listPickup(ctx context.Context, id int, items []listingItem) (
 	return decision.Upload, nil
 }
 
+// uploadPickupFile sends one listed file, pinned to the version the
+// listing named.
 func (h *Handler) uploadPickupFile(ctx context.Context, files watchFiles, id int, file cs3reader.Resource) error {
-	return uploadFile(ctx, files, file, func(contentType string, body io.Reader) (int, []byte, error) {
+	_, err := uploadFile(ctx, files, file, func(contentType string, body io.Reader) (int, []byte, error) {
 		resp, err := h.synaplanAPI.UploadCloudPickupFileWithBodyWithResponse(ctx, id, contentType, body)
 		if err != nil {
 			return 0, nil, err
 		}
 		return resp.StatusCode(), resp.Body, nil
 	})
+	return err
 }
 
 // finishPickup closes the pickup in Synaplan with result and returns it.

@@ -1,8 +1,8 @@
 package handler
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -105,47 +105,76 @@ func TestWithFolder(t *testing.T) {
 	}
 }
 
-func TestLinkedReadScope(t *testing.T) {
-	link := func(client, sub, status, scope string) string {
-		return fmt.Sprintf(`{"client":%q,"external_id":%q,"status":%q,"read_scope":%s}`, client, sub, status, scope)
-	}
-	named := `{"mode":"allowed","folders":["/HR","Specs"]}`
+func TestReadScopeRoutesRefuseWithoutDelegation(t *testing.T) {
+	shared := &Handler{}
+	shared.UseSharedKey()
 	cases := []struct {
-		name  string
-		links []string
-		want  readScope
+		name string
+		h    *Handler
 	}{
-		{
-			name:  "the person's link to an OpenCloud",
-			links: []string{link("nextcloud", "ada", "active", `{"mode":"all","folders":[]}`), link("opencloud", "ada", "active", named)},
-			want:  readScope{Mode: scopeAllowed, Folders: []scopeFolder{{Path: "HR"}, {Path: "Specs"}}},
-		},
-		{
-			name:  "another person's link is not theirs",
-			links: []string{link("opencloud", "eve", "active", named)},
-			want:  readScope{Mode: scopeWatched, Folders: []scopeFolder{}},
-		},
-		{
-			name:  "a link that is off reads nothing",
-			links: []string{link("opencloud", "ada", "off", named)},
-			want:  readScope{Mode: scopeWatched, Folders: []scopeFolder{}},
-		},
-		{
-			name: "no link yet is the default",
-			want: readScope{Mode: scopeWatched, Folders: []scopeFolder{}},
-		},
+		{"no organisation login", &Handler{}},
+		{"one shared API key", shared},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			body := `{"success":true,"links":[` + strings.Join(tc.links, ",") + `]}`
-			got, err := linkedReadScope([]byte(body), "ada")
+			for _, req := range []*http.Request{
+				httptest.NewRequest(http.MethodGet, "/api/synaplan/read-scope?folderId=s$sp!hr", nil),
+				httptest.NewRequest(http.MethodPut, "/api/synaplan/read-scope", strings.NewReader(`{"folderId":"s$sp!hr","allow":true}`)),
+			} {
+				rec := httptest.NewRecorder()
+				if req.Method == http.MethodGet {
+					tc.h.ReadScope(rec, req)
+				} else {
+					tc.h.SetReadScope(rec, req)
+				}
+				if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "reads_unavailable") {
+					t.Fatalf("%s: status %d %s, want 409 reads_unavailable", req.Method, rec.Code, rec.Body)
+				}
+			}
+		})
+	}
+}
+
+func TestKeptReadScope(t *testing.T) {
+	fallback := readScope{Mode: scopeWatched, Folders: []scopeFolder{}}
+	named := readScope{Mode: scopeAllowed, Folders: []scopeFolder{{ID: "s$sp!hr", Path: "HR"}}}
+	cases := []struct {
+		name    string
+		kept    string
+		want    readScope
+		wantRev bool
+	}{
+		{name: "nothing kept is the default", want: fallback},
+		{name: "a kept setting", kept: `{"mode":"allowed","folders":[{"id":"s$sp!hr","path":"HR"}]}`, want: named, wantRev: true},
+		{name: "a kept setting without folders", kept: `{"mode":"watched"}`, want: fallback, wantRev: true},
+		{name: "a kept value that is not JSON is the default and can be replaced", kept: `nope`, want: fallback, wantRev: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := New(nil, "http://synaplan.invalid", nil, delegated(t, fakeIdentityProvider(t, "ada"), ""))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("got %+v, want %+v", got, tc.want)
+			ctx := context.Background()
+			if tc.kept != "" {
+				if ok, err := h.delegation.PutSetting(ctx, readScopeSetting, "ada", []byte(tc.kept), 0); err != nil || !ok {
+					t.Fatalf("keeping: %v %v", ok, err)
+				}
+			}
+			got, rev, err := h.keptReadScope(ctx, "ada")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tc.want) || (rev != 0) != tc.wantRev {
+				t.Fatalf("got %+v at %d, want %+v (revision kept: %v)", got, rev, tc.want, tc.wantRev)
 			}
 		})
+	}
+}
+
+func TestKeptReadScopeWithoutAStore(t *testing.T) {
+	if _, _, err := (&Handler{}).keptReadScope(context.Background(), "ada"); err == nil {
+		t.Fatal("want an error without a store, so a read is refused rather than allowed")
 	}
 }
 
@@ -158,6 +187,8 @@ func TestReadScopeFailure(t *testing.T) {
 	}{
 		{"no organisation login", errNoDelegation, http.StatusConflict, "reads_unavailable"},
 		{"everything is allowed", errReadsEverything, http.StatusConflict, "reads_everything"},
+		{"a folder outside the personal space", errNotPersonal, http.StatusConflict, "reads_personal_only"},
+		{"another change came first", errReadScopeMoved, http.StatusConflict, "reads_changed"},
 		{"Synaplan does not know the person here", upstream(http.StatusNotFound, []byte(`{"error":"unknown_identity"}`)), http.StatusConflict, "cloud_not_linked"},
 		{"Synaplan does not know this cloud", upstream(http.StatusForbidden, []byte(`{"error":"platform_disconnected"}`)), http.StatusConflict, "cloud_not_linked"},
 		{"Synaplan fails", upstream(http.StatusInternalServerError, nil), http.StatusBadGateway, "synaplan_error"},

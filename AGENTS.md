@@ -15,17 +15,18 @@ OpenCloud user, swaps their Keycloak login for a Synaplan token with RFC 8693
 token exchange (or attaches one shared API key in the discouraged Mode B),
 reads the file through the CS3 gateway, and calls Synaplan with a client that
 is **generated** from the pinned Synaplan image's OpenAPI spec. There is no
-database of its own and no state beyond what Synaplan and OpenCloud hold.
+database of its own: what it keeps (offline tokens, a person's folder read
+setting) lives sealed in OpenCloud's NATS key-value store.
 
 ## Repository layout
 
 | Path | What lives there |
 | ---- | ---------------- |
 | `backend/cmd/synaplan/` | Binary entrypoint; `pkg/command/` has the `server`, `health`, `version` commands. Route wiring is in `pkg/command/server.go`. |
-| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications) sharing the `Handler` struct in `handler.go`. |
+| `backend/internal/handler/` | One HTTP handler per file (`me.go`, `translate.go`, `summarize.go`, `knowledge*.go`, `files.go`, `assets.go`, `brandicon.go`; `delegation.go` holds the three routes of one permission, `inbound.go` Synaplan's notifications, `watch.go` the watch routes and `reconcile.go` the background check) sharing the `Handler` struct in `handler.go`. |
 | `backend/internal/synaplanapi/` | The generated Synaplan client. `client.gen.go` and `.cache/openapi.json` are **never committed**; `gen.go` + `scripts/generate-synaplan-client.sh` produce them. |
 | `backend/internal/synaplanauth/`, `tokenexchange/`, `cs3reader/` | Request auth middleware and outbound auth editors, the Keycloak token-exchange client, the CS3 file reader. |
-| `backend/internal/delegation/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away; verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
+| `backend/internal/delegation/`, `notify/`, `idp/` | Offline tokens of people who allowed work while they are away, and the per-person settings kept beside them (the folder read scope); verification of Synaplan's signed notifications (golang-jwt, keys via keyfunc); the identity provider's endpoints from its issuer (go-oidc discovery). |
 | `backend/pkg/config/` | Config struct with `yaml` / `env` / `desc` tags; `defaults/` holds the defaults, `parser/` the env parsing. The docs site is generated from these tags. |
 | `frontend/src/` | `index.ts` registers the app; `extensions/` the context-menu actions; `components/` the dialogs; `composables/` shared logic; `views/Synaplan.vue` the in-app page. |
 | `frontend/tests/unit/` | Vitest + happy-dom, one spec per source file. |
@@ -133,10 +134,14 @@ server's copy of the same app id.
   call to Synaplan carries one of two things: the token the exchange minted
   for Synaplan (`synaplanauth.NewRequestEditor`), or, while the person is
   away, a Synaplan token minted from their own offline token
-  (`onBehalfOf(ctx, sub)`, `internal/delegation`). The shared API key
-  of Mode B replaces both; Synaplan's open documents carry none
-  (`anonymous(ctx)`). There is no service or machine credential. The
-  generated client is the only HTTP path to Synaplan's API (only its key
+  (`onBehalfOf(ctx, sub)`, `internal/delegation`). The  shared API key
+ of Mode B replaces both; Synaplan's open documents carry none
+ (`anonymous(ctx)`). Reading a person's files while they are away uses
+ OpenCloud's machine-auth key (`OC_MACHINE_AUTH_API_KEY`,
+ `cs3reader.Impersonate`): that key is an OpenCloud credential, not a
+ Synaplan one, and it only mints a reva token for a person who allowed
+ the work. There is no Synaplan service or machine credential. The
+ generated client is the only HTTP path to Synaplan's API (only its key
   set is read by keyfunc, without a credential): its editors pick the
   credential (`Handler.authenticate`) and end with `refuseOpenCloudToken`,
   which refuses a request whose bearer equals the incoming OpenCloud token.

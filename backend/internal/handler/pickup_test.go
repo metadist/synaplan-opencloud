@@ -24,12 +24,19 @@ func (f fakeFiles) StatPath(_ context.Context, relPath string) (cs3reader.Resour
 	return cs3reader.Resource{}, cs3reader.ErrNotFound
 }
 
+// PersonalSpace is "s$sp": the fake's own folders are personal, an id in
+// any other space is not.
+func (f fakeFiles) PersonalSpace(context.Context) (string, error) {
+	return "s$sp", nil
+}
+
 func TestScopeAllows(t *testing.T) {
 	hr := cs3reader.Resource{ID: "s$sp!hr", Path: "HR", IsFolder: true}
 	hr2026 := cs3reader.Resource{ID: "s$sp!hr-2026", Path: "HR/2026", IsFolder: true}
 	hrLookalike := cs3reader.Resource{ID: "s$sp!hrx", Path: "HRx", IsFolder: true}
 	invoices := cs3reader.Resource{ID: "s$sp!invoices", Path: "Invoices", IsFolder: true}
 	private := cs3reader.Resource{ID: "s$sp!private", Path: "Private", IsFolder: true}
+	projectHR := cs3reader.Resource{ID: "s$project!hr", Path: "HR", IsFolder: true}
 	watched := map[string]bool{invoices.ID: true}
 	named := readScope{Mode: scopeAllowed, Folders: []scopeFolder{{ID: hr.ID, Path: "HR"}}}
 	byPath := readScope{Mode: scopeAllowed, Folders: []scopeFolder{{Path: "/HR/"}}}
@@ -37,25 +44,28 @@ func TestScopeAllows(t *testing.T) {
 		name   string
 		scope  readScope
 		folder cs3reader.Resource
+		// shared: the folder is outside the person's personal space.
+		shared bool
 		want   bool
 	}{
-		{"watched mode allows a watched folder", readScope{Mode: scopeWatched}, invoices, true},
-		{"watched mode refuses an unwatched folder", readScope{Mode: scopeWatched}, hr, false},
-		{"watched mode ignores named folders", readScope{Mode: scopeWatched, Folders: named.Folders}, hr, false},
-		{"an empty mode behaves as watched", readScope{}, private, false},
-		{"allowed mode allows a named folder", named, hr, true},
-		{"allowed mode allows a folder named by path only", byPath, hr, true},
-		{"allowed mode allows a subfolder of a named one", named, hr2026, true},
-		{"a name that only starts like a named folder is not inside it", named, hrLookalike, false},
-		{"allowed mode still allows a watched folder", named, invoices, true},
-		{"allowed mode refuses the rest", named, private, false},
-		{"all mode allows everything", readScope{Mode: scopeAll}, private, true},
-		{"no id is never allowed", readScope{Mode: scopeAll}, cs3reader.Resource{Path: "Private"}, false},
-		{"an unknown mode is refused", readScope{Mode: "sure"}, invoices, false},
+		{"watched mode allows a watched folder", readScope{Mode: scopeWatched}, invoices, false, true},
+		{"watched mode refuses an unwatched folder", readScope{Mode: scopeWatched}, hr, false, false},
+		{"watched mode ignores named folders", readScope{Mode: scopeWatched, Folders: named.Folders}, hr, false, false},
+		{"an empty mode behaves as watched", readScope{}, private, false, false},
+		{"allowed mode allows a named folder", named, hr, false, true},
+		{"allowed mode allows a folder named by path only", byPath, hr, false, true},
+		{"allowed mode allows a subfolder of a named one", named, hr2026, false, true},
+		{"a name that only starts like a named folder is not inside it", named, hrLookalike, false, false},
+		{"the same path in another space is another folder", byPath, projectHR, true, false},
+		{"allowed mode still allows a watched folder", named, invoices, false, true},
+		{"allowed mode refuses the rest", named, private, false, false},
+		{"all mode allows everything", readScope{Mode: scopeAll}, private, false, true},
+		{"no id is never allowed", readScope{Mode: scopeAll}, cs3reader.Resource{Path: "Private"}, false, false},
+		{"an unknown mode is refused", readScope{Mode: "sure"}, invoices, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := scopeAllows(tc.scope, watched, tc.folder); got != tc.want {
+			if got := scopeAllows(tc.scope, watched, tc.folder, !tc.shared); got != tc.want {
 				t.Fatalf("scopeAllows() = %v, want %v", got, tc.want)
 			}
 		})
@@ -149,9 +159,14 @@ func TestRunPickup(t *testing.T) {
 		name        string
 		claimStatus int
 		claim       map[string]any
+		// kept is the setting this service keeps; nil keeps what the
+		// claim says.
+		kept        *readScope
 		watches     []watch
 		upload      []string
 		broken      []string
+		changed     map[string]string
+		files       func() fakeFiles
 		want        pickupResult
 		wantListed  []string
 		wantUploads []string
@@ -189,6 +204,31 @@ func TestRunPickup(t *testing.T) {
 			name:  "an id is judged by the path it really has",
 			claim: pickupClaimFor("ada", "s$sp!sub", "Elsewhere", readScope{Mode: scopeAllowed, Folders: []scopeFolder{{Path: "Elsewhere"}}}),
 			want:  failedPickup("not_allowed"),
+		},
+		{
+			name:  "a path named in the personal space does not allow a project folder at that path",
+			claim: pickupClaimFor("ada", "s$project!inbox", "", inboxNamed),
+			files: func() fakeFiles {
+				f := inbox()
+				f.resources["s$project!inbox"] = cs3reader.Resource{ID: "s$project!inbox", Name: "Inbox", Path: "Inbox", IsFolder: true}
+				return f
+			},
+			want: failedPickup("not_allowed"),
+		},
+		{
+			name:  "a setting Synaplan still has but this service no longer keeps reads nothing",
+			claim: pickupClaimFor("ada", "", "/Inbox", inboxNamed),
+			kept:  &readScope{Mode: scopeWatched, Folders: []scopeFolder{}},
+			want:  failedPickup("not_allowed"),
+		},
+		{
+			name:        "a file that changed since the listing is not sent under the old version",
+			claim:       pickupClaimFor("ada", "s$sp!inbox", "", readScope{Mode: scopeAll}),
+			upload:      []string{"s$sp!a", "s$sp!b"},
+			changed:     map[string]string{"s$sp!b": "eb2"},
+			want:        pickupResult{Status: "partial", Listed: 2, Sent: 1, Skipped: []pickupSkip{{ID: "s$sp!b", Reason: "changed"}}},
+			wantListed:  []string{"s$sp!a", "s$sp!b"},
+			wantUploads: []string{"a.txt@ea=alpha"},
 		},
 		{
 			name:  "a file is not a folder",
@@ -230,13 +270,29 @@ func TestRunPickup(t *testing.T) {
 			synaplan.claim = tc.claim
 			synaplan.watches = tc.watches
 			synaplan.upload = tc.upload
-			h, err := New(nil, synaplan.URL, nil, nil)
+			h, err := New(nil, synaplan.URL, nil, delegated(t, fakeIdentityProvider(t, "ada"), ""))
 			if err != nil {
 				t.Fatal(err)
 			}
+			kept, _ := tc.claim["read_scope"].(readScope)
+			if tc.kept != nil {
+				kept = *tc.kept
+			}
+			if kept.Mode != "" {
+				raw, _ := json.Marshal(kept)
+				if ok, err := h.delegation.PutSetting(context.Background(), readScopeSetting, "ada", raw, 0); err != nil || !ok {
+					t.Fatalf("keeping the setting: %v %v", ok, err)
+				}
+			}
 			files := inbox()
+			if tc.files != nil {
+				files = tc.files()
+			}
 			for _, id := range tc.broken {
 				files.broken[id] = true
+			}
+			if tc.changed != nil {
+				files.openEtag = tc.changed
 			}
 
 			got := h.runPickup(context.Background(), files, "ada", 9)

@@ -14,7 +14,7 @@ import {
 /**
  * Folder reads ("pickups"): a task in Synaplan asks this OpenCloud for the
  * files in a folder. The person allows a folder in the read-folder dialog;
- * the Go service reports the setting to Synaplan, which keeps it. When a
+ * the Go service keeps the setting and reports it to Synaplan. When a
  * read comes, Synaplan sends a signed notification, and the service claims
  * the read with the person's own Synaplan token, finds the folder by its
  * path as the person (CS3 with a reva token from machine auth, nobody is
@@ -180,7 +180,7 @@ test('Synaplan reads an allowed folder while the person is away', async ({ brows
   await allowWorkWhileAway(userPage)
   const scope = await setRead(request, true)
   test.skip(
-    !scope.readsWhileAway,
+    scope.blocked !== '',
     'The Go service has no OC_MACHINE_AUTH_API_KEY, so it cannot read files while the person is away.'
   )
   // Nobody is signed in while Synaplan reads.

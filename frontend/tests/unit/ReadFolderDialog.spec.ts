@@ -35,7 +35,7 @@ const ocButton = defineComponent({
 import ReadFolderDialog from '../../src/components/ReadFolderDialog.vue'
 
 const scope = (overrides: Record<string, unknown> = {}) => ({
-  data: { mode: 'watched', named: false, allowed: false, readsWhileAway: true, ...overrides }
+  data: { mode: 'watched', named: false, allowed: false, blocked: '', ...overrides }
 })
 
 function mountDialog() {
@@ -112,11 +112,29 @@ describe('ReadFolderDialog', () => {
     expect(wrapper.find(testid('stop')).exists()).toBe(false)
   })
 
-  it('says when reads cannot run while the person is away', async () => {
-    get.mockResolvedValueOnce(scope({ readsWhileAway: false }))
+  it.each([
+    ['', null],
+    ['consent', 'not-away'],
+    ['machine_auth', 'no-machine']
+  ])('says why reads cannot run while the person is away (%s)', async (blocked, shown) => {
+    get.mockResolvedValueOnce(scope({ blocked }))
     const wrapper = mountDialog()
     await flushPromises()
-    expect(wrapper.find(testid('not-away')).exists()).toBe(true)
+    for (const id of ['not-away', 'no-machine']) {
+      expect(wrapper.find(testid(id)).exists()).toBe(id === shown)
+    }
+  })
+
+  it('sends one change for a double click', async () => {
+    let finish: (value: unknown) => void = () => {}
+    put.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get(testid('allow')).trigger('click')
+    await wrapper.get(testid('allow')).trigger('click')
+    finish(scope({ mode: 'allowed', named: true, allowed: true }))
+    await flushPromises()
+    expect(put).toHaveBeenCalledTimes(1)
   })
 
   it('shows one readable sentence when the setting cannot be loaded', async () => {
