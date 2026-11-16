@@ -78,7 +78,7 @@ type Handler struct {
 	maxCopyBytes int64
 	// sharedKey is set when every Synaplan call uses one API key.
 	// Listing files then lists the key owner's files, for every
-	// signed-in OpenCloud user, so From Synaplan and watches stay closed.
+	// signed-in OpenCloud user, so From Synaplan, images, and watches stay closed.
 	sharedKey bool
 	// memory keeps the last answer of Synaplan's memory-service check.
 	memory memoryCache

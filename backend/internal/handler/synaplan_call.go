@@ -75,6 +75,14 @@ func refuseOpenCloudToken(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
+// keepSlashes sends a multi-segment path parameter with its slashes:
+// the generated client escapes them to %2F, which Synaplan's
+// uploads/{path} route does not match behind every web server.
+func keepSlashes(_ context.Context, req *http.Request) error {
+	req.URL.RawPath = ""
+	return nil
+}
+
 // withBody gives a generated call the request body its operation does not
 // declare. Synaplan's cloud watch routes read a JSON or multipart body but
 // publish none in the OpenAPI spec, so their generated calls send none;
