@@ -20,7 +20,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/nats-io/nats.go v1.55.0
 	github.com/oapi-codegen/runtime v1.9.0
-	github.com/opencloud-eu/opencloud v1.1.1-0.20261116181106-16ba1191310b
+	github.com/opencloud-eu/opencloud v1.1.1-0.20261120231733-627c375c036b
 	github.com/opencloud-eu/reva/v2 v2.52.3
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.85.0
@@ -149,7 +149,8 @@ require (
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/oklog/run v1.2.0 // indirect
-	github.com/opencloud-eu/libre-graph-api-go v1.0.9-0.20261016073229-17ed3d5dd346 // indirect
+	github.com/opencloud-eu/libre-graph-api-go v1.0.9-0.20261119152805-1a7a500a264e // indirect
+	github.com/opencloud-eu/reva/v3 v3.0.2-0.20261119154313-aa77b15bccec // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pablodz/inotifywaitgo v0.0.12 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
