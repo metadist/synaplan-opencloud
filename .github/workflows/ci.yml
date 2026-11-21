@@ -16,8 +16,8 @@ env:
   # auto-updated by Renovate via the customManager defined in
   # renovate.json5. SYNAPLAN_REF is updated manually alongside the
   # digest when moving to a new synaplan release.
-  SYNAPLAN_REF: 635dbd41633a7fac8c8fa0e178459329f5537dc2
-  SYNAPLAN_IMAGE_DIGEST: sha256:1ec8d2c6e78035fdea4fa4fa3e3f7bbaf8ed431316664f9ccdc441b8df0dedc0
+  SYNAPLAN_REF: 8455cb5bbe5ca47880f72e6a52837052f97de62d
+  SYNAPLAN_IMAGE_DIGEST: sha256:fab4533e31a051ec5357defae9bf4c935214a3ff33827ff88409c3f75ce42f3a
 
 jobs:
   frontend:
