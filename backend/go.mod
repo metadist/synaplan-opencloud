@@ -21,7 +21,7 @@ require (
 	github.com/nats-io/nats.go v1.55.0
 	github.com/oapi-codegen/runtime v1.9.0
 	github.com/opencloud-eu/opencloud v1.1.1-0.20261123120540-d43947a209d6
-	github.com/opencloud-eu/reva/v3 v3.0.2-0.20261120162312-20c6e78244d3
+	github.com/opencloud-eu/reva/v3 v3.0.2-0.20261123100910-08f73d1b7690
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.85.0
 )
