@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"mime"
 	"net/http"
@@ -16,39 +18,32 @@ var (
 	errCopyEmpty        = errors.New("copy empty")
 )
 
-// screenCopyName rejects a name before any download. A slash is not
-// stripped: path.Base would hide which file the person asked for.
+// screenCopyName rejects a name before any download. The rules are the
+// same as safeCopyName: a trailing dot or a name that is too long is
+// not repaired from the download's Content-Disposition.
 func screenCopyName(raw string) error {
 	name := strings.TrimSpace(raw)
 	if name == "" || name == "." || name == ".." {
 		return errCopyNameRequired
 	}
-	if strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, 0) {
+	cleaned, ok := safeCopyName(raw)
+	if !ok {
 		return errCopyName
 	}
-	for _, r := range name {
-		if unicode.IsControl(r) {
-			return errCopyName
-		}
-	}
-	if blockedCopyExt[strings.ToLower(path.Ext(name))] {
+	if blockedCopyExt[strings.ToLower(path.Ext(cleaned))] {
 		return errCopyKind
 	}
 	return nil
 }
 
 // acceptedCopy is the name to write and a check that the bytes match a
-// kind this copy will put in the folder. The name the client sent is
-// used when it is a single safe file name; otherwise the download's
-// Content-Disposition is used.
+// kind this copy will put in the folder. The name is the one the client
+// sent. A download header does not replace it.
 func acceptedCopy(clientName string, header http.Header, content []byte) (string, error) {
 	if len(content) == 0 {
 		return "", errCopyEmpty
 	}
 	name, ok := safeCopyName(clientName)
-	if !ok {
-		name, ok = safeCopyName(dispositionName(header.Get("Content-Disposition")))
-	}
 	if !ok {
 		return "", errCopyName
 	}
@@ -77,30 +72,45 @@ func safeCopyName(raw string) (string, bool) {
 	return name, true
 }
 
-func dispositionName(header string) string {
-	_, params, err := mime.ParseMediaType(header)
-	if err != nil {
-		return ""
-	}
-	return params["filename"]
-}
-
 func copyKind(name, headerType string, content []byte) error {
 	ext := strings.ToLower(path.Ext(name))
-	if blockedCopyExt[ext] {
+	if blockedCopyExt[ext] || executableBytes(content) {
 		return errCopyKind
 	}
-	media := mediaType(headerType)
+	declared := mediaType(headerType)
+	sniffed := mediaType(http.DetectContentType(content))
+	// The declared type and the bytes are checked on their own. An
+	// allowed extension does not excuse HTML, SVG, or XHTML, and a
+	// harmless Content-Type does not excuse HTML in the body.
+	if dangerousMedia(declared) || dangerousMedia(sniffed) {
+		return errCopyKind
+	}
+	media := declared
 	if media == "" || media == "application/octet-stream" {
-		media = mediaType(http.DetectContentType(content))
-	}
-	if dangerousMedia(media) {
-		return errCopyKind
+		media = sniffed
 	}
 	if copyableExt[ext] || safeMedia(media) {
 		return nil
 	}
 	return errCopyKind
+}
+
+// executableBytes recognises formats http.DetectContentType reports as
+// application/octet-stream, so a renamed binary is not saved as notes.txt.
+func executableBytes(content []byte) bool {
+	if len(content) >= 4 && bytes.Equal(content[:4], []byte{0x7f, 'E', 'L', 'F'}) {
+		return true
+	}
+	if len(content) >= 2 && content[0] == 'M' && content[1] == 'Z' {
+		return true
+	}
+	if len(content) >= 4 {
+		switch binary.BigEndian.Uint32(content[:4]) {
+		case 0xFEEDFACE, 0xFEEDFACF, 0xCEFAEDFE, 0xCFFAEDFE:
+			return true
+		}
+	}
+	return false
 }
 
 func mediaType(value string) string {
@@ -113,7 +123,7 @@ func mediaType(value string) string {
 
 func dangerousMedia(media string) bool {
 	switch media {
-	case "text/html", "application/javascript", "text/javascript", "application/x-msdownload", "application/x-executable", "application/x-dosexec", "application/x-sh":
+	case "text/html", "application/xhtml+xml", "image/svg+xml", "application/javascript", "text/javascript", "application/x-msdownload", "application/x-executable", "application/x-dosexec", "application/x-sh":
 		return true
 	default:
 		return false
