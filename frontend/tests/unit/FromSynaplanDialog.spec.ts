@@ -89,6 +89,35 @@ describe('FromSynaplanDialog', () => {
     )
   })
 
+  it('warns when the copy was written but not linked, and a retry only records the link', async () => {
+    get.mockResolvedValue(page([{ id: 7, display_name: 'Offer.pdf' }]))
+    post.mockResolvedValueOnce({
+      data: { path: 'Reports/Offer.pdf', tagged: false, resourceId: 'storage$space!file' }
+    })
+    post.mockResolvedValueOnce({ data: { tagged: true, resourceId: 'storage$space!file' } })
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('[data-testid="synaplan-from-file-7"]').trigger('click')
+    await wrapper.get('[data-testid="synaplan-from-submit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="synaplan-from-saved"]').text()).toBe(
+      'Copied Offer.pdf into your files. Which Synaplan file it came from was not recorded.'
+    )
+    expect(wrapper.get('[data-testid="synaplan-from-submit"]').text()).toBe(
+      'Record which file it came from'
+    )
+    await wrapper.get('[data-testid="synaplan-from-submit"]').trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenLastCalledWith(
+      '/api/synaplan/from-synaplan',
+      { fileId: 7, resourceId: 'storage$space!file' },
+      expect.anything()
+    )
+    expect(wrapper.get('[data-testid="synaplan-from-saved"]').text()).toBe(
+      'Copied Offer.pdf into your files. The file is still in Synaplan.'
+    )
+  })
+
   it('names the file that was written when the folder already had that name', async () => {
     get.mockResolvedValue(page([{ id: 7, display_name: 'Offer.pdf' }]))
     post.mockResolvedValue({ data: { path: 'Reports/Offer (2).pdf' } })

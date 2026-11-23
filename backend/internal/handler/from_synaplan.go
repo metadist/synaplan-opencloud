@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
 
@@ -141,9 +142,15 @@ func (h *Handler) ListSynaplanFiles(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 	limit := synaplanFilesPerPage
+	// A file this cloud already sent to Synaplan is not offered again.
+	// Copying it back would be a second file, and the list would still
+	// show it. The bytes of a copy are a snapshot; the Synaplan id is
+	// stored on the written file and the two sides are not kept in step.
+	exclude := "opencloud"
 	res, err := h.synaplanAPI.GetApiFilesListWithResponse(r.Context(), &synaplanapi.GetApiFilesListParams{
-		Page:  &page,
-		Limit: &limit,
+		Page:          &page,
+		Limit:         &limit,
+		ExcludeSource: &exclude,
 	})
 	if err != nil {
 		log.Printf("from synaplan: list: %v", err)
@@ -160,13 +167,19 @@ func (h *Handler) ListSynaplanFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 type copyFromSynaplanRequest struct {
-	FileID   int    `json:"fileId"`
-	FolderID string `json:"folderId"`
-	Name     string `json:"name"`
+	FileID     int    `json:"fileId"`
+	FolderID   string `json:"folderId"`
+	Name       string `json:"name"`
+	ResourceID string `json:"resourceId"`
 }
 
 type copyFromSynaplanResponse struct {
-	Path string `json:"path"`
+	Path           string `json:"path,omitempty"`
+	SynaplanFileID int    `json:"synaplanFileId,omitempty"`
+	ResourceID     string `json:"resourceId,omitempty"`
+	// Tagged is false when the file was written but its Synaplan id was
+	// not stored. SynaplanFileID is set only when the id was stored.
+	Tagged bool `json:"tagged"`
 }
 
 // CopyFromSynaplan downloads one of the person's Synaplan files and
@@ -175,6 +188,10 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 	var req copyFromSynaplanRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body: " + err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.ResourceID) != "" {
+		h.tagExistingCopy(w, r, req)
 		return
 	}
 	switch {
@@ -216,11 +233,67 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	written, err := h.cs3.SaveChild(ctx, req.FolderID, name, content)
+	written, err := h.cs3.SaveChildWritten(ctx, req.FolderID, name, content)
 	if err != nil {
 		log.Printf("from synaplan: save: %v", err)
 		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
-	writeJSON(w, http.StatusOK, copyFromSynaplanResponse{Path: written})
+	var tagErr error
+	if written.ID == "" {
+		tagErr = errors.New("written file has no id")
+	} else if err := h.cs3.TagSynaplanFile(ctx, written.ID, req.FileID); err != nil {
+		tagErr = err
+		log.Printf("from synaplan: tag %d: %v", req.FileID, err)
+	}
+	writeJSON(w, http.StatusOK, copyOutcome(written, req.FileID, tagErr))
+}
+
+// tagExistingCopy stores the Synaplan id on a file that was already
+// copied. It does not download or write the bytes again.
+func (h *Handler) tagExistingCopy(w http.ResponseWriter, r *http.Request, req copyFromSynaplanRequest) {
+	if req.FileID <= 0 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "fileId is required"})
+		return
+	}
+	if h.refuseSharedKey(w) {
+		return
+	}
+	if h.cs3 == nil {
+		log.Printf("from synaplan: storage is not configured")
+		writeJSON(w, http.StatusBadGateway, relationNotKeptFailure())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), copyDownloadTimeout)
+	defer cancel()
+	if err := h.cs3.TagSynaplanFile(ctx, req.ResourceID, req.FileID); err != nil {
+		log.Printf("from synaplan: tag %d: %v", req.FileID, err)
+		writeJSON(w, http.StatusBadGateway, relationNotKeptFailure())
+		return
+	}
+	writeJSON(w, http.StatusOK, copyFromSynaplanResponse{
+		SynaplanFileID: req.FileID,
+		ResourceID:     req.ResourceID,
+		Tagged:         true,
+	})
+}
+
+// copyOutcome reports the written path. The Synaplan id is included only
+// when it was stored on that file. A missing id or a failed write of the
+// mark leaves Tagged false and keeps the resource id so a retry can mark
+// the same file instead of copying it again.
+func copyOutcome(written cs3reader.Written, fileID int, tagErr error) copyFromSynaplanResponse {
+	resp := copyFromSynaplanResponse{Path: written.Path, ResourceID: written.ID}
+	if written.ID != "" && tagErr == nil {
+		resp.Tagged = true
+		resp.SynaplanFileID = fileID
+	}
+	return resp
+}
+
+func relationNotKeptFailure() errorResponse {
+	return errorResponse{
+		Error: "The file is in your folder, but which Synaplan file it came from was not recorded.",
+		Code:  "relation_not_kept",
+	}
 }

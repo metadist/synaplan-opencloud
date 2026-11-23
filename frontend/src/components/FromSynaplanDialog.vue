@@ -3,7 +3,7 @@
     <p class="ext:text-sm ext:text-role-on-surface-variant">
       {{
         $gettext(
-          'Choose a file from Synaplan. It is copied into this folder and stays in Synaplan.'
+          'Choose a file from Synaplan. It is copied into this folder and stays in Synaplan. Files that came from this cloud are not listed.'
         )
       }}
     </p>
@@ -53,7 +53,11 @@
         data-testid="synaplan-from-submit"
         @click="onCopy"
       >
-        {{ $gettext('Copy into this folder') }}
+        {{
+          pendingTag
+            ? $gettext('Record which file it came from')
+            : $gettext('Copy into this folder')
+        }}
       </oc-button>
     </div>
   </div>
@@ -79,6 +83,13 @@ const loading = ref(true)
 const saving = ref(false)
 const saved = ref('')
 const error = ref('')
+const pendingTag = ref<{ fileId: number; resourceId: string; name: string } | null>(null)
+
+const copyResult = z.object({
+  path: z.string().optional(),
+  tagged: z.boolean().optional(),
+  resourceId: z.string().optional()
+})
 
 const fileRow = z.object({
   id: z.number(),
@@ -153,29 +164,51 @@ async function loadOlder() {
   }
 }
 
+function copiedSentence(name: string) {
+  return $gettext('Copied %{name} into your files. The file is still in Synaplan.', { name })
+}
+
+function untaggedSentence(name: string) {
+  return $gettext(
+    'Copied %{name} into your files. Which Synaplan file it came from was not recorded.',
+    { name }
+  )
+}
+
 async function onCopy() {
   const file = chosen.value
   if (!file || saving.value) return
   saving.value = true
   error.value = ''
   saved.value = ''
+  const marking = pendingTag.value
   try {
     const res = await httpAuthenticated.post(
       '/api/synaplan/from-synaplan',
-      { fileId: file.id, folderId: props.resource.id, name: file.name },
-      { schema: z.object({ path: z.string() }) }
+      marking
+        ? { fileId: marking.fileId, resourceId: marking.resourceId }
+        : { fileId: file.id, folderId: props.resource.id, name: file.name },
+      { schema: copyResult }
     )
-    const written = res.data.path.split('/').filter(Boolean).pop() || file.name
-    // The service can answer in English. The sentence the person reads
-    // comes from the catalog, the same way every other action does.
-    saved.value = $gettext('Copied %{name} into your files. The file is still in Synaplan.', {
-      name: written
-    })
+    const written = res.data.path?.split('/').filter(Boolean).pop() || marking?.name || file.name
+    if (res.data.tagged === false) {
+      pendingTag.value = res.data.resourceId
+        ? { fileId: file.id, resourceId: res.data.resourceId, name: written }
+        : null
+      saved.value = untaggedSentence(written)
+      return
+    }
+    pendingTag.value = null
+    saved.value = copiedSentence(written)
   } catch (e) {
     error.value = sentenceFor(
       $gettext,
       e,
-      $gettext('The file was not copied. It is still in Synaplan.')
+      marking
+        ? $gettext(
+            'The file is in your folder, but which Synaplan file it came from was not recorded.'
+          )
+        : $gettext('The file was not copied. It is still in Synaplan.')
     )
   } finally {
     saving.value = false

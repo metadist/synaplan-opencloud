@@ -184,6 +184,36 @@ func resourceIDAt(ctx context.Context, gwc gateway.GatewayAPIClient, root *provi
 	return storagespace.FormatResourceID(id), nil
 }
 
+// TagSynaplanFile records which Synaplan file a written copy came from.
+// The bytes stay a snapshot: a later edit on either side does not flow
+// across this mark.
+func (r *Reader) TagSynaplanFile(ctx context.Context, resourceID string, synaplanFileID int) error {
+	if synaplanFileID <= 0 {
+		return errors.New("cs3reader: no synaplan file id")
+	}
+	gwc, gwCtx, _, err := r.gateway(ctx)
+	if err != nil {
+		return err
+	}
+	ref, err := parseRef(resourceID)
+	if err != nil {
+		return err
+	}
+	res, err := gwc.SetArbitraryMetadata(gwCtx, &provider.SetArbitraryMetadataRequest{
+		Ref: ref,
+		ArbitraryMetadata: &provider.ArbitraryMetadata{
+			Metadata: map[string]string{"synaplan-file-id": strconv.Itoa(synaplanFileID)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("cs3reader: tag: %w", err)
+	}
+	if err := checkStatus("tag", res.GetStatus()); err != nil {
+		return err
+	}
+	return nil
+}
+
 func writtenAt(ctx context.Context, gwc gateway.GatewayAPIClient, space *provider.ResourceId, rel string) Written {
 	clean := relativePath(rel)
 	res, err := gwc.Stat(ctx, &provider.StatRequest{

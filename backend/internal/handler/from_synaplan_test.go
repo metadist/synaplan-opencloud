@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 )
 
 func TestCopyLimitDefaultsToCloudflareAndCanRise(t *testing.T) {
@@ -112,7 +115,7 @@ func TestListSynaplanFiles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				q := r.URL.Query()
-				if r.URL.Path != "/api/v1/files" || q.Get("page") != tc.wantPage || q.Get("limit") != "50" {
+				if r.URL.Path != "/api/v1/files" || q.Get("page") != tc.wantPage || q.Get("limit") != "50" || q.Get("exclude_source") != "opencloud" {
 					t.Errorf("unexpected %s?%s", r.URL.Path, r.URL.RawQuery)
 				}
 				w.WriteHeader(tc.status)
@@ -132,5 +135,29 @@ func TestListSynaplanFiles(t *testing.T) {
 				t.Fatalf("body %s", rr.Body.String())
 			}
 		})
+	}
+}
+
+func TestCopyOutcomeOmitsTheIdUnlessItWasStored(t *testing.T) {
+	stored := copyOutcome(cs3reader.Written{Path: "Reports/a.txt", ID: "storage$space!file"}, 7, nil)
+	if !stored.Tagged || stored.SynaplanFileID != 7 || stored.ResourceID == "" {
+		t.Fatalf("stored %+v", stored)
+	}
+	failed := copyOutcome(cs3reader.Written{Path: "Reports/a.txt", ID: "storage$space!file"}, 7, errors.New("metadata refused"))
+	if failed.Tagged || failed.SynaplanFileID != 0 || failed.Path != "Reports/a.txt" || failed.ResourceID == "" {
+		t.Fatalf("failed tag %+v", failed)
+	}
+	missing := copyOutcome(cs3reader.Written{Path: "Reports/a.txt"}, 7, nil)
+	if missing.Tagged || missing.ResourceID != "" || missing.SynaplanFileID != 0 {
+		t.Fatalf("missing id %+v", missing)
+	}
+}
+
+func TestTagExistingCopyDoesNotTreatAMissingStoreAsSuccess(t *testing.T) {
+	rr := httptest.NewRecorder()
+	body := `{"fileId":7,"resourceId":"storage$space!file"}`
+	(&Handler{}).CopyFromSynaplan(rr, httptest.NewRequest(http.MethodPost, "/api/synaplan/from-synaplan", strings.NewReader(body)))
+	if rr.Code != http.StatusBadGateway || !strings.Contains(rr.Body.String(), "relation_not_kept") {
+		t.Fatalf("status = %d, body %s", rr.Code, rr.Body.String())
 	}
 }
