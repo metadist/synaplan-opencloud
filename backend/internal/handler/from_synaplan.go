@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -191,7 +190,6 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body: " + err.Error()})
 		return
 	}
-	name := path.Base(strings.TrimSpace(req.Name))
 	if strings.TrimSpace(req.ResourceID) != "" {
 		h.tagExistingCopy(w, r, req)
 		return
@@ -203,25 +201,35 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 	case strings.TrimSpace(req.FolderID) == "":
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "folderId is required"})
 		return
-	case name == "" || name == "." || name == ".." || name == "/":
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "name is required"})
+	}
+	if err := screenCopyName(req.Name); err != nil {
+		writeCopyNameFailure(w, err)
 		return
 	}
 	if h.refuseSharedKey(w) {
-		return
-	}
-	if h.cs3 == nil {
-		log.Printf("from synaplan: storage is not configured")
-		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), copyDownloadTimeout)
 	defer cancel()
 	resp, reqErr := h.synaplanAPI.GetApiFilesDownload(ctx, req.FileID, nil)
+	header := http.Header{}
+	if reqErr == nil && resp != nil {
+		header = resp.Header
+	}
 	content, err := h.readCappedSynaplanResponse(fmt.Sprintf("download %d", req.FileID), resp, reqErr)
 	if err != nil {
 		writeCopyFetchFailure(w, "from synaplan", err)
+		return
+	}
+	name, err := acceptedCopy(req.Name, header, content)
+	if err != nil {
+		writeCopyNameFailure(w, err)
+		return
+	}
+	if h.cs3 == nil {
+		log.Printf("from synaplan: storage is not configured")
+		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
 

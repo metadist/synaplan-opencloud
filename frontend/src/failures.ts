@@ -19,6 +19,8 @@ export function sentenceFor($gettext: Translate, error: unknown, fallback: strin
       return $gettext('This file is empty.')
     case 'unsupported_type':
       return $gettext('Synaplan cannot read this kind of file.')
+    case 'bad_file_name':
+      return $gettext('This name cannot be used for a file.')
     case 'no_text':
       return $gettext(
         'Synaplan found no text in this file. It may be a scan or protected by a password.'

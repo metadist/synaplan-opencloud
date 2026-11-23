@@ -53,6 +53,8 @@ The app menu tile opens this URL in a new tab when set.
 
 The backend authenticates outbound calls to Synaplan in one of two modes. Pick one.
 
+`OC_INSECURE` (also `SYNAPLAN_INSECURE`) skips TLS verification for the CS3 gateway and for this service's own HTTPS calls: identity-provider discovery, token exchange, the Synaplan API, proxied brand assets, and Synaplan's signing keys. It is for development. A private CA stays checked when its certificate is in `SSL_CERT_FILE` and `OC_INSECURE` is unset; Go's default client reads that file. NATS is separate: `SYNAPLAN_STORE_TLS_INSECURE` also follows `OC_INSECURE`, and is ignored when a NATS root CA is set.
+
 ### Mode A: per-user OIDC token exchange (recommended)
 
 Each call to Synaplan rides on the logged-in OpenCloud user's identity, exchanged via Keycloak's RFC 8693 token-exchange grant. Synaplan sees the real user; per-user audit, quotas and rate limits work as expected. Requires Synaplan and OpenCloud to share the same Keycloak realm.

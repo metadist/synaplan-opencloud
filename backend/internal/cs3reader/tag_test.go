@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+	revactx "github.com/opencloud-eu/reva/v3/pkg/ctx"
 )
 
 func TestTagSynaplanFileRecordsTheId(t *testing.T) {

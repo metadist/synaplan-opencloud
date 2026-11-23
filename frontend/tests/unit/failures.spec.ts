@@ -23,6 +23,7 @@ describe('sentenceFor', () => {
       'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
     ],
     ['unsupported_type', 'Synaplan cannot read this kind of file.'],
+    ['bad_file_name', 'This name cannot be used for a file.'],
     [
       'no_text',
       'Synaplan found no text in this file. It may be a scan or protected by a password.'
