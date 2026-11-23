@@ -3,7 +3,7 @@
     <p class="ext:text-sm ext:text-role-on-surface-variant">
       {{
         $gettext(
-          'Choose a file from Synaplan. It is copied into this folder and stays in Synaplan.'
+          'Choose a file from Synaplan. It is copied into this folder and stays in Synaplan. Files that came from this cloud are not listed.'
         )
       }}
     </p>

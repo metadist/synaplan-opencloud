@@ -75,7 +75,7 @@ func TestListSynaplanFiles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				q := r.URL.Query()
-				if r.URL.Path != "/api/v1/files" || q.Get("page") != tc.wantPage || q.Get("limit") != "50" {
+				if r.URL.Path != "/api/v1/files" || q.Get("page") != tc.wantPage || q.Get("limit") != "50" || q.Get("exclude_source") != "opencloud" {
 					t.Errorf("unexpected %s?%s", r.URL.Path, r.URL.RawQuery)
 				}
 				w.WriteHeader(tc.status)

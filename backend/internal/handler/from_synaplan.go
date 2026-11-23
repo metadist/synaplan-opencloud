@@ -142,9 +142,15 @@ func (h *Handler) ListSynaplanFiles(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 	limit := synaplanFilesPerPage
+	// A file this cloud already sent to Synaplan is not offered again.
+	// Copying it back would be a second file, and the list would still
+	// show it. The bytes of a copy are a snapshot; the Synaplan id is
+	// stored on the written file and the two sides are not kept in step.
+	exclude := "opencloud"
 	res, err := h.synaplanAPI.GetApiFilesListWithResponse(r.Context(), &synaplanapi.GetApiFilesListParams{
-		Page:  &page,
-		Limit: &limit,
+		Page:          &page,
+		Limit:         &limit,
+		ExcludeSource: &exclude,
 	})
 	if err != nil {
 		log.Printf("from synaplan: list: %v", err)
@@ -167,7 +173,8 @@ type copyFromSynaplanRequest struct {
 }
 
 type copyFromSynaplanResponse struct {
-	Path string `json:"path"`
+	Path           string `json:"path"`
+	SynaplanFileID int    `json:"synaplanFileId"`
 }
 
 // CopyFromSynaplan downloads one of the person's Synaplan files and
@@ -208,11 +215,16 @@ func (h *Handler) CopyFromSynaplan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	written, err := h.cs3.SaveChild(ctx, req.FolderID, name, content)
+	written, err := h.cs3.SaveChildWritten(ctx, req.FolderID, name, content)
 	if err != nil {
 		log.Printf("from synaplan: save: %v", err)
 		writeJSON(w, http.StatusBadGateway, copyFailedFailure())
 		return
 	}
-	writeJSON(w, http.StatusOK, copyFromSynaplanResponse{Path: written})
+	if written.ID != "" {
+		if err := h.cs3.TagSynaplanFile(ctx, written.ID, req.FileID); err != nil {
+			log.Printf("from synaplan: tag %d: %v", req.FileID, err)
+		}
+	}
+	writeJSON(w, http.StatusOK, copyFromSynaplanResponse{Path: written.Path, SynaplanFileID: req.FileID})
 }

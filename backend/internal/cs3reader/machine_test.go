@@ -28,6 +28,12 @@ type fakeGateway struct {
 	gotAuth  *gateway.AuthenticateRequest
 	gotRef   *provider.Reference
 	gotToken string
+	meta     map[string]string
+}
+
+func (f *fakeGateway) SetArbitraryMetadata(_ context.Context, in *provider.SetArbitraryMetadataRequest, _ ...grpc.CallOption) (*provider.SetArbitraryMetadataResponse, error) {
+	f.meta = in.GetArbitraryMetadata().GetMetadata()
+	return &provider.SetArbitraryMetadataResponse{Status: status(rpc.Code_CODE_OK)}, nil
 }
 
 func (f *fakeGateway) Authenticate(_ context.Context, in *gateway.AuthenticateRequest, _ ...grpc.CallOption) (*gateway.AuthenticateResponse, error) {
