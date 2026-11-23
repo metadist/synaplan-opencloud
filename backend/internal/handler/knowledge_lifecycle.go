@@ -55,7 +55,7 @@ func (h *Handler) knowledgeStatusFor(ctx context.Context, resourceID string) (kn
 	source, etag := "opencloud", file.Etag
 	body := synaplanapi.PostApiFilesCheckStaleJSONRequestBody{Source: &source}
 	body.Items = append(body.Items, struct {
-		SourceEtag *string `json:"source_etag,omitempty"`
+		SourceEtag *string `json:"source_etag"`
 		SourceId   *string `json:"source_id,omitempty"`
 	}{SourceEtag: &etag, SourceId: &resourceID})
 	checked, err := h.synaplanAPI.PostApiFilesCheckStaleWithResponse(ctx, body)
