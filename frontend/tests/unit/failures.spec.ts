@@ -15,6 +15,10 @@ describe('sentenceFor', () => {
     ],
     ['copy_failed', 'The file was not copied. It is still in Synaplan.'],
     [
+      'relation_not_kept',
+      'The file is in your folder, but which Synaplan file it came from was not recorded.'
+    ],
+    [
       'synaplan_unreachable',
       'Synaplan cannot be reached. Try again in a minute, or ask your administrator.'
     ],
