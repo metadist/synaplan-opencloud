@@ -17,7 +17,7 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/middleware"
 	"github.com/opencloud-eu/opencloud/pkg/runner"
 	"github.com/opencloud-eu/opencloud/pkg/version"
-	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
+	"github.com/opencloud-eu/reva/v3/pkg/rgrpc/todo/pool"
 
 	"github.com/metadist/synaplan-opencloud/internal/cs3permission"
 	"github.com/metadist/synaplan-opencloud/internal/cs3reader"

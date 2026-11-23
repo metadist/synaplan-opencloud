@@ -33,7 +33,7 @@ import (
 	"net/http"
 	"strings"
 
-	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
+	revactx "github.com/opencloud-eu/reva/v3/pkg/ctx"
 
 	"github.com/metadist/synaplan-opencloud/internal/synaplanapi"
 )
@@ -81,11 +81,13 @@ func CopyAuth(src, dst context.Context) context.Context {
 // Middleware enforces the preconditions every Synaplan-backed handler
 // depends on:
 //
-//  1. A reva user must be present in the request context (normally put
-//     there by OpenCloud's upstream auth middleware). In production
-//     the OpenCloud proxy rejects unauthenticated requests before they
-//     ever reach us — this is a defensive check for misconfiguration
-//     and for local/test setups that bypass the proxy.
+//  1. A reva user must be present in the request context. OpenCloud's
+//     ExtractAccountUUID stores that user with reva v3's context key,
+//     so this package imports reva v3 — a v2 read would reject every
+//     signed-in request. In production the OpenCloud proxy rejects
+//     unauthenticated requests before they ever reach us; this check
+//     still catches a misconfiguration and local setups that bypass
+//     the proxy.
 //  2. A non-empty Bearer token must be present in the Authorization
 //     header. The OpenCloud proxy forwards the original OIDC access
 //     token unchanged (it only adds x-access-token for the reva JWT),
