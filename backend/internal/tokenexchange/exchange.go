@@ -37,17 +37,21 @@ type tokenResponse struct {
 }
 
 // New creates a new Exchanger. tokenEndpoint names the identity provider's
-// token endpoint when it is first needed (see internal/idp).
-func New(tokenEndpoint func(context.Context) (string, error), clientID, clientSecret, audience string) *Exchanger {
+// token endpoint when it is first needed (see internal/idp). client is
+// the HTTP client for the token request; nil uses a client with a 10s
+// timeout and the default transport, which verifies certificates. Pass
+// a client whose transport skips verification only when OC_INSECURE is set.
+func New(tokenEndpoint func(context.Context) (string, error), clientID, clientSecret, audience string, client *http.Client) *Exchanger {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
 	return &Exchanger{
 		tokenEndpoint: tokenEndpoint,
 		clientID:      clientID,
 		clientSecret:  clientSecret,
 		audience:      audience,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		cache: make(map[string]*cachedToken),
+		httpClient:    client,
+		cache:         make(map[string]*cachedToken),
 	}
 }
 

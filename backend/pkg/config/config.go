@@ -21,7 +21,7 @@ type Config struct {
 	TokenManager *TokenManager `yaml:"token_manager"`
 
 	RevaGateway string `yaml:"reva_gateway" env:"OC_REVA_GATEWAY" desc:"CS3 gateway used to look up user metadata"`
-	Insecure    bool   `yaml:"insecure" env:"OC_INSECURE;SYNAPLAN_INSECURE" desc:"Run in insecure mode."`
+	Insecure    bool   `yaml:"insecure" env:"OC_INSECURE;SYNAPLAN_INSECURE" desc:"Skip TLS certificate verification for the CS3 gateway and for outbound HTTPS to the identity provider and Synaplan, including token exchange and proxied assets. Development only. To trust a private CA, leave this unset and point SSL_CERT_FILE at the CA; the default client checks it."`
 
 	// Synaplan API configuration
 	SynaplanURL    string `yaml:"synaplan_url" env:"SYNAPLAN_URL" desc:"Base URL of the Synaplan instance."`
