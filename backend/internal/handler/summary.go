@@ -156,6 +156,55 @@ func isTextMime(mime string) bool {
 	return false
 }
 
+// fileExtension is the lower-case suffix of the file name. OpenCloud
+// identifies a note by this, not by a MIME type it registers.
+func fileExtension(name string) string {
+	base := name
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		base = base[i+1:]
+	}
+	i := strings.LastIndex(base, ".")
+	if i <= 0 || i == len(base)-1 {
+		return ""
+	}
+	return strings.ToLower(base[i+1:])
+}
+
+// isPlainTextName reports a file Synaplan reads as text from its
+// extension, including when OpenCloud stored it as octet-stream.
+func isPlainTextName(name string) bool {
+	switch fileExtension(name) {
+	case "txt", "md", "csv":
+		return true
+	default:
+		return false
+	}
+}
+
+// isOcnoteName reports an OpenCloud note. The bytes are Tiptap JSON;
+// Synaplan extracts the words when the uploaded name ends in .ocnote.
+func isOcnoteName(name string) bool {
+	return fileExtension(name) == "ocnote"
+}
+
+// readsAsText is a file whose bytes are the words, not a document
+// Synaplan has to unpack. A note is JSON and is not read this way.
+func readsAsText(file *cs3reader.File) bool {
+	if file == nil || isOcnoteName(file.Name) || isBinaryDocMime(file.MimeType) {
+		return false
+	}
+	return isTextMime(file.MimeType) || isPlainTextName(file.Name)
+}
+
+// needsExtraction is a file Synaplan must unpack: an Office or PDF
+// document, or an OpenCloud note.
+func needsExtraction(file *cs3reader.File) bool {
+	if file == nil {
+		return false
+	}
+	return isOcnoteName(file.Name) || isBinaryDocMime(file.MimeType)
+}
+
 // isBinaryDocMime returns true for binary documents Synaplan can
 // extract text from via its Tika pipeline (PDF, Office, ODF).
 func isBinaryDocMime(mime string) bool {
@@ -177,11 +226,12 @@ type uploadedFile struct {
 
 // prepareSummaryInput turns a CS3-opened file into the inputs
 // generateSummary expects. For text files it reads the bytes inline
-// and returns them as `text`. For binary documents it uploads to
-// Synaplan with process_level=extract and returns the assigned
-// `fileID`, plus a cleanup closure the caller MUST defer to delete
-// the temporary upload. For unsupported mime types or empty text
-// files it returns errClientInput-wrapped errors.
+// and returns them as `text`. For binary documents and OpenCloud notes
+// it uploads to Synaplan with process_level=extract and returns the
+// assigned `fileID`, plus a cleanup closure the caller MUST defer to
+// delete the temporary upload. A note is Tiptap JSON; Synaplan reads
+// the words because the uploaded name ends in .ocnote. For unsupported
+// types or empty text files it returns errClientInput-wrapped errors.
 //
 // Exactly one of (text, fileID) will be non-nil on success.
 func (h *Handler) prepareSummaryInput(
@@ -191,7 +241,7 @@ func (h *Handler) prepareSummaryInput(
 	cleanup = func() {}
 
 	switch {
-	case isTextMime(file.MimeType):
+	case readsAsText(file):
 		buf, err := io.ReadAll(file.Body)
 		if err != nil {
 			return nil, nil, cleanup, fmt.Errorf("read file body: %w", err)
@@ -202,7 +252,7 @@ func (h *Handler) prepareSummaryInput(
 		}
 		return &s, nil, cleanup, nil
 
-	case isBinaryDocMime(file.MimeType):
+	case needsExtraction(file):
 		uploaded, err := h.upload(ctx, file, tempGroupKey, synaplanapi.Extract, nil)
 		if err != nil {
 			return nil, nil, cleanup, fmt.Errorf("synaplan upload: %w", err)
