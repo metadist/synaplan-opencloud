@@ -46,7 +46,10 @@ func TestCopyFromSynaplanRejectsBadInput(t *testing.T) {
 		{"no file", `{"folderId":"s!f","name":"a.txt"}`, "fileId is required"},
 		{"no folder", `{"fileId":3,"name":"a.txt"}`, "folderId is required"},
 		{"no name", `{"fileId":3,"folderId":"s!f","name":" "}`, "name is required"},
-		{"dot dot", `{"fileId":3,"folderId":"s!f","name":"../.."}`, "name is required"},
+		{"dot dot", `{"fileId":3,"folderId":"s!f","name":".."}`, "name is required"},
+		{"a path", `{"fileId":3,"folderId":"s!f","name":"../secret.txt"}`, "bad_file_name"},
+		{"a trailing dot", `{"fileId":3,"folderId":"s!f","name":"report."}`, "bad_file_name"},
+		{"an executable", `{"fileId":3,"folderId":"s!f","name":"run.exe"}`, "unsupported_type"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -54,6 +57,40 @@ func TestCopyFromSynaplanRejectsBadInput(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/synaplan/from-synaplan", strings.NewReader(tc.body))
 			(&Handler{}).CopyFromSynaplan(rr, req)
 			if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), tc.want) {
+				t.Fatalf("status = %d, body %s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestCopyFromSynaplanChecksTheKind(t *testing.T) {
+	cases := []struct {
+		name, contentType, body, want string
+		status                        int
+	}{
+		{"html named as text", "text/html; charset=utf-8", "<html></html>", "unsupported_type", http.StatusBadRequest},
+		{"html declared as plain text", "text/plain", "<html><body>x</body></html>", "unsupported_type", http.StatusBadRequest},
+		{"svg declared with a text name", "image/svg+xml", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "unsupported_type", http.StatusBadRequest},
+		{"xhtml declared with a text name", "application/xhtml+xml", "<html xmlns=\"http://www.w3.org/1999/xhtml\"/>", "unsupported_type", http.StatusBadRequest},
+		{"an ELF binary named as text", "application/octet-stream", "\x7fELF\x02\x01\x01\x00", "unsupported_type", http.StatusBadRequest},
+		{"a text file", "text/plain", "made in Synaplan", "copy_failed", http.StatusBadGateway},
+		{"an empty file", "text/plain", "", "file_empty", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			synaplan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer synaplan.Close()
+			h, err := New(nil, synaplan.URL, nil, nil, Admin{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/synaplan/from-synaplan", strings.NewReader(`{"fileId":3,"folderId":"s!f","name":"notes.txt"}`))
+			h.CopyFromSynaplan(rr, req)
+			if rr.Code != tc.status || !strings.Contains(rr.Body.String(), tc.want) {
 				t.Fatalf("status = %d, body %s", rr.Code, rr.Body.String())
 			}
 		})

@@ -513,10 +513,10 @@ github.com/opencloud-eu/go-micro-plugins/v4/store/nats-js-kv v0.0.0-202505121527
 github.com/opencloud-eu/go-micro-plugins/v4/store/nats-js-kv v0.0.0-20250512152754-23325793059a/go.mod h1:pjcozWijkNPbEtX5SIQaxEW/h8VAVZYTLx+70bmB3LY=
 github.com/opencloud-eu/libre-graph-api-go v1.0.9-0.20261119152805-1a7a500a264e h1:5sf3dNw/eYuuvDL8+3c4pbPSX+Pblw6lsylGtq+cw30=
 github.com/opencloud-eu/libre-graph-api-go v1.0.9-0.20261119152805-1a7a500a264e/go.mod h1:lTM8JeGblNpoMySTW7Lui2+c5TTLI95mwxtdUIHHrhU=
-github.com/opencloud-eu/opencloud v1.1.1-0.20261120231733-627c375c036b h1:10t29KUpBHrz93isA7YQHT9aGOwC1H/qRq5HJBwokow=
-github.com/opencloud-eu/opencloud v1.1.1-0.20261120231733-627c375c036b/go.mod h1:AGr7KqYJIRjS41Zyo0l//HPm5EvamhhvP7HSm5Phy+4=
-github.com/opencloud-eu/reva/v3 v3.0.2-0.20261119154313-aa77b15bccec h1:3Y/o9uwiQ07c5Od1E/6TQQPDzN2uHeOACzW+d/+KGBQ=
-github.com/opencloud-eu/reva/v3 v3.0.2-0.20261119154313-aa77b15bccec/go.mod h1:lwylaua29K7ge30pFxzHMh6LeH9bhCQduFdw+qKFzJA=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261123120540-d43947a209d6 h1:WlUV8w5Tjr6Blq4OavTn5hO+Dzmsbd9sjdd7XXHKPyA=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261123120540-d43947a209d6/go.mod h1:3Nj7Rx9LQX+svqRuv7kFXY2CHdKgh7WN9kOvMrzHcjg=
+github.com/opencloud-eu/reva/v3 v3.0.2-0.20261123100910-08f73d1b7690 h1:DJY7qmQoY4LVDyio5HuJnFj1lUyeirhB6ILaNFP4w9Q=
+github.com/opencloud-eu/reva/v3 v3.0.2-0.20261123100910-08f73d1b7690/go.mod h1:oqi8rN/Nt2v+Gn/dmY9p2Zct3VHrdvnYtqZWHrjij7M=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c h1:rp5dCmg/yLR3mgFuSOe4oEnDDmGLROTvMragMUXpTQw=
 github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c/go.mod h1:X07ZCGwUbLaax7L0S3Tw4hpejzu63ZrrQiUe6W0hcy0=

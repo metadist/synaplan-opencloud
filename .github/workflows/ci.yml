@@ -16,8 +16,8 @@ env:
   # auto-updated by Renovate via the customManager defined in
   # renovate.json5. SYNAPLAN_REF is updated manually alongside the
   # digest when moving to a new synaplan release.
-  SYNAPLAN_REF: becfc5230b4ade3dbc3ef5faa79f516060eaf68f
-  SYNAPLAN_IMAGE_DIGEST: sha256:01c707762b7bbe59e6b7373f923f14a373b2d7cb2d631d0413f304de5d59bd3b
+  SYNAPLAN_REF: a5b8a8d0a3c022fb6261b25d7ee02e30dd992049
+  SYNAPLAN_IMAGE_DIGEST: sha256:5b5435c9da1a87733384c3dd17af1edba6f651e181be3b6f08ee785616136073
 
 jobs:
   frontend:
@@ -46,7 +46,7 @@ jobs:
       - run: pnpm test:unit --watch=false
       - run: pnpm build
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: frontend-dist
           path: frontend/dist/
@@ -77,7 +77,7 @@ jobs:
         run: go generate ./...
 
       - name: Upload generated client
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: synaplan-client-gen
           path: backend/internal/synaplanapi/client.gen.go
@@ -132,7 +132,7 @@ jobs:
           cache-to: type=gha,mode=max
           outputs: type=docker,dest=/tmp/docker-image.tar
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: docker-image
           path: /tmp/docker-image.tar
@@ -267,7 +267,7 @@ jobs:
           SYNAPLAN_API_URL: http://host.docker.internal:8001
         run: pnpm test:e2e
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: failure()
         with:
           name: playwright-report
