@@ -263,7 +263,7 @@ func (h *Handler) reuploadKept(ctx context.Context, files watchFiles, kept synce
 	if opened.Etag != expectedEtag {
 		return "", errFileChanged
 	}
-	if !isTextMime(opened.MimeType) && !isBinaryDocMime(opened.MimeType) {
+	if !readsAsText(opened) && !needsExtraction(opened) {
 		return "", fmt.Errorf("%w: %q", errUnsupportedType, opened.MimeType)
 	}
 	keep := true

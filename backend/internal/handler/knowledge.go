@@ -102,7 +102,7 @@ func (h *Handler) AddToKnowledge(w http.ResponseWriter, r *http.Request) {
 	var uploaded *uploadedFile
 	var keptUpToDate bool
 	_, ok := h.runSummaryPipeline(w, r.WithContext(runCtx), req.ResourceID, "knowledge", func(ctx context.Context, file *cs3reader.File) (string, error) {
-		if !isTextMime(file.MimeType) && !isBinaryDocMime(file.MimeType) {
+		if !readsAsText(file) && !needsExtraction(file) {
 			return "", fmt.Errorf("%w: %q", errUnsupportedType, file.MimeType)
 		}
 		u, kept, blockedReason, err := h.uploadKnowledge(ctx, file, req.ResourceID, groupKey, keeper, req.Overwrite)

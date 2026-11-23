@@ -24,7 +24,7 @@ import type { FileActionOptions } from '@opencloud-eu/web-pkg'
 function resource(overrides: Partial<{ isFolder: boolean; mimeType: string; id: string }> = {}) {
   return {
     id: 'r1',
-    name: 'doc.txt',
+    name: 'file.bin',
     isFolder: false,
     mimeType: 'text/plain',
     ...overrides

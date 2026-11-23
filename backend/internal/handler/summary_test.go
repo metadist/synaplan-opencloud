@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/metadist/synaplan-opencloud/internal/cs3reader"
 )
 
 func TestPublicFailure(t *testing.T) {
@@ -31,6 +33,37 @@ func TestPublicFailure(t *testing.T) {
 			}
 			if strings.Contains(got.Error, tc.err.Error()) || strings.Contains(got.Error, "Exception") {
 				t.Fatalf("the sentence leaks the error: %q", got.Error)
+			}
+		})
+	}
+}
+
+func TestReadableFiles(t *testing.T) {
+	cases := []struct {
+		name    string
+		file    *cs3reader.File
+		asText  bool
+		extract bool
+	}{
+		{"plain text", &cs3reader.File{Name: "a.txt", MimeType: "text/plain"}, true, false},
+		{"markdown by mime", &cs3reader.File{Name: "a.bin", MimeType: "text/markdown"}, true, false},
+		{"text name without a text mime", &cs3reader.File{Name: "notes/a.MD", MimeType: "application/octet-stream"}, true, false},
+		{"csv name", &cs3reader.File{Name: "a.csv", MimeType: ""}, true, false},
+		{"note is extracted, not read as json", &cs3reader.File{Name: "note1.ocnote", MimeType: "application/json"}, false, true},
+		{"note stored as octet-stream", &cs3reader.File{Name: "/Inbox/note1.OCNOTE", MimeType: "application/octet-stream"}, false, true},
+		{"pdf", &cs3reader.File{Name: "a.pdf", MimeType: "application/pdf"}, false, true},
+		{"pdf named like text still extracts", &cs3reader.File{Name: "a.txt", MimeType: "application/pdf"}, false, true},
+		{"image", &cs3reader.File{Name: "a.png", MimeType: "image/png"}, false, false},
+		{"unknown name and mime", &cs3reader.File{Name: "a.bin", MimeType: "application/octet-stream"}, false, false},
+		{"nil", nil, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := readsAsText(tc.file); got != tc.asText {
+				t.Fatalf("readsAsText = %v, want %v", got, tc.asText)
+			}
+			if got := needsExtraction(tc.file); got != tc.extract {
+				t.Fatalf("needsExtraction = %v, want %v", got, tc.extract)
 			}
 		})
 	}

@@ -17,7 +17,7 @@ import { useSynaplanActionsExtension } from '../../src/extensions/useSynaplanAct
 import type { FileActionOptions } from '@opencloud-eu/web-pkg'
 
 function options(
-  overrides: Partial<{ isFolder: boolean; mimeType: string }> = {},
+  overrides: Partial<{ isFolder: boolean; mimeType: string; name: string }> = {},
   driveType = 'personal'
 ) {
   return {
@@ -77,7 +77,16 @@ describe('useSynaplanActionsExtension', () => {
         options({ isFolder: true }, 'project'),
         ['from-synaplan', 'watch']
       ],
-      ['an unsupported mime type', options({ mimeType: 'image/png' }), ['watch']],
+      [
+        'an unsupported mime type',
+        options({ name: 'photo.png', mimeType: 'image/png' }),
+        ['watch']
+      ],
+      [
+        'a note stored as generic bytes',
+        options({ name: 'note1.ocnote', mimeType: 'application/octet-stream' }),
+        ['translate', 'summarize', 'chat-about-file', 'add-to-knowledge', 'watch']
+      ],
       [
         'a supported file',
         options(),
