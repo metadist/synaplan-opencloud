@@ -140,7 +140,8 @@ func (h *Handler) UseSharedKey() {
 // New creates a new Handler. The editor is the synaplanapi
 // RequestEditorFn that authenticates every outbound call to Synaplan
 // — the caller picks between per-user OIDC token exchange and a
-// shared API key (see pkg/command/server.go).
+// shared API key (see pkg/command/server.go). The clients verify
+// certificates; SetUpstream replaces them when OC_INSECURE is set.
 func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.Reader, delegated *Delegated, admin Admin) (*Handler, error) {
 	if lang := admin.Defaults.DefaultAnswerLanguage; lang != "" && normalizeLanguage(lang) == "" {
 		return nil, fmt.Errorf("default answer language %q is not supported", lang)
@@ -186,7 +187,7 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 	}
 	h.synaplanAPI, err = synaplanapi.NewClientWithResponses(
 		synaplanURL,
-		synaplanapi.WithHTTPClient(&http.Client{}),
+		synaplanapi.WithHTTPClient(h.httpClient),
 		synaplanapi.WithRequestEditorFn(h.authenticate),
 		synaplanapi.WithRequestEditorFn(refuseOpenCloudToken),
 	)
@@ -194,6 +195,31 @@ func New(editor synaplanapi.RequestEditorFn, synaplanURL string, cs3 *cs3reader.
 		return nil, fmt.Errorf("creating synaplan API client: %w", err)
 	}
 	return h, nil
+}
+
+// SetUpstream uses client for the Synaplan API, the asset proxy, and
+// the fetches of signing keys and the brand icon. Nil leaves the
+// clients New built, which verify certificates. client has no timeout:
+// each call limits itself on its context.
+func (h *Handler) SetUpstream(client *http.Client) error {
+	if h == nil || client == nil {
+		return nil
+	}
+	h.httpClient = client
+	if h.assetProxy != nil {
+		h.assetProxy.Transport = client.Transport
+	}
+	api, err := synaplanapi.NewClientWithResponses(
+		h.synaplanURL,
+		synaplanapi.WithHTTPClient(client),
+		synaplanapi.WithRequestEditorFn(h.authenticate),
+		synaplanapi.WithRequestEditorFn(refuseOpenCloudToken),
+	)
+	if err != nil {
+		return fmt.Errorf("creating synaplan API client: %w", err)
+	}
+	h.synaplanAPI = api
+	return nil
 }
 
 // writeJSON serialises v as JSON to w with the given HTTP status.

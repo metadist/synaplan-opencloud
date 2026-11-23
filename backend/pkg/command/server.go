@@ -86,6 +86,7 @@ func Server(cfg *config.Config) *cobra.Command {
 					cfg.OIDCExchangeClientID,
 					cfg.OIDCExchangeSecret,
 					cfg.OIDCTargetAudience,
+					&stdhttp.Client{Timeout: 10 * time.Second, Transport: outboundTransport(cfg.Insecure)},
 				)
 				editor = synaplanauth.NewRequestEditor(exchanger)
 				inner, err := delegationStore(cfg, logger)
@@ -148,6 +149,9 @@ func Server(cfg *config.Config) *cobra.Command {
 			})
 			if err != nil {
 				return fmt.Errorf("could not create handler: %w", err)
+			}
+			if err := h.SetUpstream(&stdhttp.Client{Transport: outboundTransport(cfg.Insecure)}); err != nil {
+				return err
 			}
 			h.SetMaxCopyBytes(cfg.MaxCopyBytes)
 			if cfg.SynaplanAPIKey != "" {
@@ -245,15 +249,25 @@ func Server(cfg *config.Config) *cobra.Command {
 	}
 }
 
-// identityProviderClient talks to the identity provider. insecure accepts
-// a self-signed certificate, as OC_INSECURE does for the rest of OpenCloud
-// (development only).
-func identityProviderClient(insecure bool) *stdhttp.Client {
+// outboundTransport is the TLS transport for this service's own HTTPS
+// calls. insecure skips certificate verification, the same OC_INSECURE
+// switch the CS3 gateway uses. A private CA stays verified when it is
+// in SSL_CERT_FILE; leave insecure unset then.
+func outboundTransport(insecure bool) *stdhttp.Transport {
 	transport := stdhttp.DefaultTransport.(*stdhttp.Transport).Clone()
 	if insecure {
+		// OC_INSECURE is the development switch. Verification stays on
+		// unless it is set, so a private CA in SSL_CERT_FILE is checked.
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // OC_INSECURE, development only
 	}
-	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: transport}
+	return transport
+}
+
+// identityProviderClient talks to the identity provider. insecure accepts
+// a self-signed certificate, as OC_INSECURE does for the rest of the
+// outbound HTTPS calls (development only).
+func identityProviderClient(insecure bool) *stdhttp.Client {
+	return &stdhttp.Client{Timeout: 15 * time.Second, Transport: outboundTransport(insecure)}
 }
 
 // syncedStore keeps the files people keep up to date where the offline
