@@ -517,6 +517,8 @@ github.com/opencloud-eu/opencloud v1.1.1-0.20261123120540-d43947a209d6 h1:WlUV8w
 github.com/opencloud-eu/opencloud v1.1.1-0.20261123120540-d43947a209d6/go.mod h1:3Nj7Rx9LQX+svqRuv7kFXY2CHdKgh7WN9kOvMrzHcjg=
 github.com/opencloud-eu/reva/v3 v3.0.2-0.20261123100910-08f73d1b7690 h1:DJY7qmQoY4LVDyio5HuJnFj1lUyeirhB6ILaNFP4w9Q=
 github.com/opencloud-eu/reva/v3 v3.0.2-0.20261123100910-08f73d1b7690/go.mod h1:oqi8rN/Nt2v+Gn/dmY9p2Zct3VHrdvnYtqZWHrjij7M=
+github.com/opencloud-eu/reva/v3 v3.0.2-0.20261126092628-02d5d9ba9a18 h1:yXO3rKf82pb8oaRhokDLTjZWSqZpAHpdWtnT35y+Q5Q=
+github.com/opencloud-eu/reva/v3 v3.0.2-0.20261126092628-02d5d9ba9a18/go.mod h1:oqi8rN/Nt2v+Gn/dmY9p2Zct3VHrdvnYtqZWHrjij7M=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c h1:rp5dCmg/yLR3mgFuSOe4oEnDDmGLROTvMragMUXpTQw=
 github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c/go.mod h1:X07ZCGwUbLaax7L0S3Tw4hpejzu63ZrrQiUe6W0hcy0=
