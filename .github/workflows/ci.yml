@@ -46,7 +46,7 @@ jobs:
       - run: pnpm test:unit --watch=false
       - run: pnpm build
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: frontend-dist
           path: frontend/dist/
@@ -77,7 +77,7 @@ jobs:
         run: go generate ./...
 
       - name: Upload generated client
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: synaplan-client-gen
           path: backend/internal/synaplanapi/client.gen.go
@@ -132,7 +132,7 @@ jobs:
           cache-to: type=gha,mode=max
           outputs: type=docker,dest=/tmp/docker-image.tar
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: docker-image
           path: /tmp/docker-image.tar
@@ -267,7 +267,7 @@ jobs:
           SYNAPLAN_API_URL: http://host.docker.internal:8001
         run: pnpm test:e2e
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: failure()
         with:
           name: playwright-report
