@@ -517,6 +517,8 @@ github.com/opencloud-eu/opencloud v1.1.1-0.20261123120540-d43947a209d6 h1:WlUV8w
 github.com/opencloud-eu/opencloud v1.1.1-0.20261123120540-d43947a209d6/go.mod h1:3Nj7Rx9LQX+svqRuv7kFXY2CHdKgh7WN9kOvMrzHcjg=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261127124001-d65aa3270c74 h1:1jOFxkmPDX1EQHfdsevEvQj/uOHz1ApPSQ5uQ+escxQ=
 github.com/opencloud-eu/opencloud v1.1.1-0.20261127124001-d65aa3270c74/go.mod h1:/XhK6DrllVSTD9iS0625KKzjy3kIkztA4RFp1iLhU3s=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261127154718-97c4288be8c3 h1:fjVFiZzaW43dSXabbRWKKzQhjJsOyKQmVq4oovrrc/E=
+github.com/opencloud-eu/opencloud v1.1.1-0.20261127154718-97c4288be8c3/go.mod h1:/XhK6DrllVSTD9iS0625KKzjy3kIkztA4RFp1iLhU3s=
 github.com/opencloud-eu/reva/v3 v3.0.2-0.20261123100910-08f73d1b7690 h1:DJY7qmQoY4LVDyio5HuJnFj1lUyeirhB6ILaNFP4w9Q=
 github.com/opencloud-eu/reva/v3 v3.0.2-0.20261123100910-08f73d1b7690/go.mod h1:oqi8rN/Nt2v+Gn/dmY9p2Zct3VHrdvnYtqZWHrjij7M=
 github.com/opencloud-eu/reva/v3 v3.0.2-0.20261126092628-02d5d9ba9a18 h1:yXO3rKf82pb8oaRhokDLTjZWSqZpAHpdWtnT35y+Q5Q=
