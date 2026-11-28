@@ -26,7 +26,7 @@
     "@opencloud-eu/web-pkg": "8.3.0",
     "@playwright/test": "1.65.1",
     "@types/markdown-it": "14.2.0",
-    "@types/node": "24.19.2",
+    "@types/node": "26.6.10",
     "@vue/compiler-dom": "3.5.46",
     "@vue/server-renderer": "3.5.46",
     "@vue/test-utils": "2.6.0",
